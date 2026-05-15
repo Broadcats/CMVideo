@@ -187,8 +187,26 @@ YDL_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 )
 
+# YouTube cookies path: if the operator sets the YT_COOKIES_TXT env
+# var (HF Space Secret) to the raw contents of a Netscape cookies.txt
+# file we materialize it to a tempfile here at import time and feed
+# the path to yt-dlp. yt-dlp matches cookies by domain, so passing
+# `cookiefile` for non-YouTube URLs is harmless.
+def _init_yt_cookies() -> Optional[str]:
+    raw = os.environ.get("YT_COOKIES_TXT", "").strip()
+    if not raw:
+        return None
+    fd, path = tempfile.mkstemp(prefix="cmvm_yt_cookies_", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(raw if raw.endswith("\n") else raw + "\n")
+    log.info("YT cookies file initialised at %s (%d chars)", path, len(raw))
+    return path
+
+
+YT_COOKIES_FILE = _init_yt_cookies()
+
 def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict:
-    return {
+    opts = {
         "outtmpl": str(tmpdir / "%(title).80s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
@@ -205,6 +223,9 @@ def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
+    if YT_COOKIES_FILE:
+        opts["cookiefile"] = YT_COOKIES_FILE
+    return opts
 
 
 def _video_format_selector() -> str:
@@ -253,7 +274,7 @@ def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesi
 
 
 def _do_info(url: str) -> dict:
-    with yt_dlp.YoutubeDL({
+    info_opts = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
@@ -261,7 +282,10 @@ def _do_info(url: str) -> dict:
         "socket_timeout": 15,
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
-    }) as ydl:
+    }
+    if YT_COOKIES_FILE:
+        info_opts["cookiefile"] = YT_COOKIES_FILE
+    with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
         raise RuntimeError("Could not read media info from that URL.")
@@ -339,7 +363,7 @@ async def index(request: Request):
 
 @app.get("/healthz", include_in_schema=False)
 async def healthz():
-    return {"ok": True, "words": len(_wordlist_tokens())}
+    return {"ok": True, "words": len(_wordlist_tokens()), "yt_cookies": bool(YT_COOKIES_FILE)}
 
 
 @app.post("/api/info")
@@ -470,5 +494,6 @@ async def api_limits():
         "rate_limit": RATE_LIMIT_PER_HOUR,
         "modes": sorted(ALLOWED_MODES),
         "formats": sorted(ALLOWED_FORMATS),
+        "yt_cookies_loaded": bool(YT_COOKIES_FILE),
         "full_app_url": "https://cmvideo.online",
     }

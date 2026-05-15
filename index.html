@@ -3,6 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!--
+    Content-Security-Policy is the biggest win we can get on a static
+    GitHub-Pages site (HSTS / X-Content-Type-Options / Permissions-Policy
+    all require server-set headers, which GH Pages doesn't expose; put
+    Cloudflare in front of cmvideo.online to add those).
+
+    What this CSP locks down:
+      * script-src: only our own /app.js plus YouTube's IFrame API
+        (www.youtube.com + s.ytimg.com). 'unsafe-inline' is omitted -
+        we have zero inline <script> blocks in the HTML, audited.
+      * style-src 'unsafe-inline' is retained because the YT IFrame API
+        injects inline styles into elements after load. We have no
+        inline style="..." attributes ourselves.
+      * connect-src: same-origin + our HF Space. fetch() to anything
+        else fails.
+      * frame-src: only YouTube embed origins (regular + nocookie).
+      * frame-ancestors 'self': only cmvideo.online may iframe us.
+      * object-src 'none', base-uri 'self', form-action 'self': close
+        the classic CSP escape hatches.
+      * upgrade-insecure-requests: belt-and-suspenders against any
+        future stray http:// link.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://dandyfeet-cmvideo-mini.hf.space; frame-src https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests" />
+
+  <!-- Don't leak the full URL we're coming from when users click
+       outbound links (e.g. to github.com). 'strict-origin-when-cross-
+       origin' keeps the referrer header to scheme+host on same-origin
+       and downgrades to just the origin cross-origin. -->
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+
   <title>CMVideo - Clean My Video</title>
   <meta name="description" content="Drag-and-drop desktop app that automatically removes swears and racial slurs from video and audio. Free, open, runs locally." />
   <meta name="theme-color" content="#0d1018" />
@@ -24,21 +55,21 @@
   <header class="hero">
     <div class="container">
       <div class="hero-text">
-        <p class="eyebrow">v0.4.2-alpha &middot; open &middot; local-first &middot; live</p>
-        <h1>Clean My <span class="grad-text">Video</span>.</h1>
+        <p class="eyebrow">v0.4.3-alpha &middot; open &middot; local-first &middot; live</p>
+        <h1>Clean My <span class="grad-text">V<span class="cam-i" aria-hidden="true"><span class="cam-i-stem"></span><svg class="cam-i-dot" viewBox="0 0 24 18" xmlns="http://www.w3.org/2000/svg"><path fill="#ff5f7a" fill-rule="evenodd" clip-rule="evenodd" d="M9 0h6a1 1 0 0 1 1 1v2h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6V1a1 1 0 0 1 1-1zM12 7a4 4 0 1 0 0 8a4 4 0 0 0 0-8z"/></svg></span><span class="sr-only">i</span>deo</span>.</h1>
         <p class="lede">
           Drag in any clip. Drop out a clean copy. CMVideo finds every swear
           and slur with on-device speech recognition, then silences, beeps,
-          or replaces them with a Microsoft Sam style TTS - whichever you
+          or replaces them with a retro robotic TTS - whichever you
           pick.
         </p>
 
         <div class="cta">
           <a id="primary-download" class="btn btn-primary" href="#downloads">
-            <span class="btn-label">Download</span>
+            <span class="btn-label">Download the full app</span>
             <span class="btn-meta" id="primary-download-meta">choose your OS below</span>
           </a>
-          <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">
+          <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener noreferrer">
             View on GitHub
           </a>
         </div>
@@ -49,35 +80,114 @@
         </p>
       </div>
 
-      <div class="hero-shot" aria-hidden="true">
+      <div class="hero-shot hero-mini">
         <div class="shot-frame">
           <div class="shot-titlebar">
             <span class="dot dot-r"></span>
             <span class="dot dot-y"></span>
             <span class="dot dot-g"></span>
-            <span class="shot-title">CMVideo 0.4.2-alpha</span>
+            <span class="shot-title">CMVideo Mini</span>
           </div>
-          <div class="shot-body">
-            <div class="shot-brand">Clean My Video</div>
-            <div class="shot-tag">Automatic profanity removal for video and audio</div>
+          <form class="shot-body" id="mini-form" autocomplete="off" novalidate>
+            <div class="shot-brand">Clean My V<span class="cam-i cam-i-sm" aria-hidden="true"><span class="cam-i-stem"></span><svg class="cam-i-dot" viewBox="0 0 24 18" xmlns="http://www.w3.org/2000/svg"><path fill="#ff5f7a" fill-rule="evenodd" clip-rule="evenodd" d="M9 0h6a1 1 0 0 1 1 1v2h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6V1a1 1 0 0 1 1-1zM12 7a4 4 0 1 0 0 8a4 4 0 0 0 0-8z"/></svg></span><span class="sr-only">i</span>deo <span class="mini-tag" title="Free web slice of the full desktop app">mini</span></div>
+            <div class="shot-tag">Mini web version &middot; paste a URL or drop a file</div>
             <div class="shot-strip" aria-hidden="true"></div>
-            <div class="shot-drop">
-              <div class="shot-arrow">&darr;</div>
-              <div class="shot-drop-title">Drop a file here</div>
-              <div class="shot-drop-sub">MP4, MOV, MP3, WAV, OGG &mdash; or click to browse</div>
+
+            <label class="shot-field" for="mini-url">
+              <span class="shot-field-label">Video URL or local file</span>
+              <input id="mini-url" type="url" placeholder="https://...   or drop a file onto this card" spellcheck="false" autocomplete="off" />
+            </label>
+            <p class="shot-hint">
+              Most sites work &mdash; YouTube, X, TikTok, Reddit, Twitch and 1,800+ others.
+            </p>
+
+            <input id="mini-file" type="file" accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.avi,.flv,.mp3,.m4a,.aac,.ogg,.opus,.wav,.flac" hidden />
+            <div class="shot-file hidden" id="mini-file-row" aria-live="polite">
+              <span class="shot-file-icon" aria-hidden="true">&#9834;</span>
+              <span class="shot-file-name" id="mini-file-name"></span>
+              <button type="button" class="shot-file-clear" id="mini-file-clear" aria-label="Remove file">&times;</button>
             </div>
-            <div class="shot-row">
-              <span class="chip checked">Remove swears</span>
-              <span class="chip checked">Remove racial slurs</span>
-              <span class="chip">Save transcript</span>
+
+            <div class="shot-row shot-fmt-row" role="radiogroup" aria-label="Format">
+              <label class="chip pill on" data-fmt="mp4">
+                <input type="radio" name="mini-fmt" value="mp4" checked />
+                MP4 &middot; 720p
+              </label>
+              <label class="chip pill" data-fmt="mp3">
+                <input type="radio" name="mini-fmt" value="mp3" />
+                MP3 &middot; 192k
+              </label>
             </div>
-            <div class="shot-row">
-              <span class="chip pill on">Silence</span>
-              <span class="chip pill">Beep</span>
-              <span class="chip pill">Fun</span>
+
+            <div class="shot-row shot-mode-row" role="radiogroup" aria-label="Mode">
+              <label class="chip pill on" data-mode="download">
+                <input type="radio" name="mini-mode" value="download" checked />
+                Download
+              </label>
+              <label class="chip pill" data-mode="silence">
+                <input type="radio" name="mini-mode" value="silence" />
+                Silence swears
+              </label>
+              <label class="chip pill" data-mode="beep">
+                <input type="radio" name="mini-mode" value="beep" />
+                Beep swears
+              </label>
             </div>
-            <button class="shot-btn">Censor</button>
-          </div>
+
+            <button class="shot-btn" id="mini-btn" type="submit">Download</button>
+
+            <p class="shot-status" id="mini-status" aria-live="polite"></p>
+
+            <p class="shot-caps">
+              Mini caps: 720p / 192&nbsp;k &middot; download &le;30&nbsp;min &middot;
+              censor &le;8&nbsp;min &middot; 5 jobs/hour. For full quality, every
+              format, fuzzy / leetspeak matching and the "Fun" TTS
+              &mdash; <a href="#downloads">download the app &darr;</a>
+            </p>
+
+            <a class="yt-fullapp-cta" href="#downloads">
+              <span class="yt-fullapp-icon" aria-hidden="true">
+                <svg width="42" height="30" viewBox="0 0 28 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="0.5" y="0.5" width="27" height="19" rx="4.5" fill="#ff0033"/>
+                  <path d="M11.5 6 L11.5 14 L18 10 Z" fill="#ffffff"/>
+                </svg>
+              </span>
+              <span class="yt-fullapp-text">
+                <strong>YouTube downloads available in the full version</strong>
+                <span class="yt-fullapp-sub">Mini does in-browser cleanwatch only — the desktop app saves the file.</span>
+              </span>
+              <span class="yt-fullapp-arrow" aria-hidden="true">↓</span>
+            </a>
+
+            <details class="shot-legal">
+              <summary>Why no YouTube download here?</summary>
+              <p>
+                YouTube’s Terms of Service forbid third-party servers from
+                downloading their content, and YouTube actively blocks cloud-hosted
+                scrapers at the network level. Running a public YouTube downloader
+                on a free host would be both a ToS violation and a constant
+                cat-and-mouse game.
+              </p>
+              <p>
+                So instead, when you paste a YouTube URL here we embed the
+                official YouTube player and auto-mute the swears in your browser.
+                No video bytes ever touch our server. Embedding is explicitly
+                allowed by YouTube’s ToS.
+              </p>
+              <p>
+                <strong>Every other source still works as a normal download here</strong>
+                — Vimeo, TikTok, Reddit, X, Twitch, SoundCloud, Bandcamp and
+                ~1,800 other sites that yt-dlp supports.
+              </p>
+              <p>
+                <strong>And YouTube downloads work perfectly in the full desktop
+                app</strong> — because it runs on your machine, on your IP, as a
+                personal-use tool. That’s the legally clean path and the one
+                that doesn’t depend on whatever YouTube’s anti-bot system did
+                this week.
+              </p>
+            </details>
+          </form>
         </div>
       </div>
     </div>
@@ -110,8 +220,8 @@
         <h3>Silence, Beep, or Fun</h3>
         <p>
           Replace flagged words with crisp silence, a classic 1 kHz
-          censor beep, or a Microsoft Sam style TTS overlay that turns
-          a 7-hour stream into something genuinely watchable.
+          censor beep, or a retro robotic TTS overlay that turns a
+          7-hour stream into something genuinely watchable.
         </p>
       </article>
     </div>
@@ -119,7 +229,7 @@
 
   <section id="downloads" class="downloads">
     <div class="container">
-      <h2>Get CMVideo <span class="ver">0.4.2-alpha</span></h2>
+      <h2>Get CMVideo <span class="ver">0.4.3-alpha</span></h2>
       <p class="muted">
         Linux gets a single-file AppImage; Windows gets a single
         <code>.exe</code> &mdash; download and double-click. No installer,
@@ -127,8 +237,8 @@
       </p>
 
       <div class="download-grid">
-        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.2-alpha/CMVideo-0.4.2-alpha-x86_64.AppImage">
-          <div class="dl-icon">L</div>
+        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-x86_64.AppImage">
+          <div class="dl-icon"><img class="os-img os-img-linux" src="tux.svg" width="64" height="76" alt="" aria-hidden="true" decoding="async" loading="lazy" /></div>
           <div class="dl-title">Linux</div>
           <div class="dl-sub">
             <code>.AppImage</code> &middot; <code>chmod +x</code> &rarr; double-click
@@ -136,8 +246,8 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.2-alpha/CMVideo-0.4.2-alpha-win-amd64.exe">
-          <div class="dl-icon">W</div>
+        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-win-amd64.exe">
+          <div class="dl-icon"><svg class="os-svg os-svg-windows" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 3.449L9.75 2.1 9.755 11.5 0 11.5zm10.949-1.501L24 0 24 11.5 10.949 11.5zM0 12.5L9.75 12.5 9.755 21.9 0 20.551zm10.949 0L24 12.5 24 24 10.949 22.1z" fill="#00adef"/></svg></div>
           <div class="dl-title">Windows</div>
           <div class="dl-sub">
             <code>.exe</code> &middot; double-click to run
@@ -145,8 +255,8 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.2-alpha/CMVideo-0.4.2-alpha-source.tar.gz">
-          <div class="dl-icon">M</div>
+        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-source.tar.gz">
+          <div class="dl-icon"><svg class="os-svg os-svg-mac" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" fill="#f5f5f7"/></svg></div>
           <div class="dl-title">macOS</div>
           <div class="dl-sub">
             <code>.tar.gz</code> &middot; works via the Linux instructions
@@ -157,17 +267,17 @@
 
       <p class="muted small">
         Linux quickstart:
-        <code>chmod +x CMVideo-0.4.2-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.2-alpha-x86_64.AppImage</code>
+        <code>chmod +x CMVideo-0.4.3-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.3-alpha-x86_64.AppImage</code>
         &middot;
         Windows: if SmartScreen appears, choose &ldquo;More info&rdquo; &rarr;
         &ldquo;Run anyway&rdquo; (unsigned prerelease build).
         &middot;
-        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.2-alpha" target="_blank" rel="noopener">checksums &amp; release notes</a>
+        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.3-alpha" target="_blank" rel="noopener noreferrer">checksums &amp; release notes</a>
       </p>
 
       <p class="muted small">
         Looking for an older build?
-        <a href="https://github.com/Broadcats/CMVideo/releases" target="_blank" rel="noopener">All previous releases stay available on GitHub</a>
+        <a href="https://github.com/Broadcats/CMVideo/releases" target="_blank" rel="noopener noreferrer">All previous releases stay available on GitHub</a>
         (0.4.0-alpha and onwards).
       </p>
     </div>
@@ -206,11 +316,11 @@
     <div class="container">
       <span>&copy; Daniel Brown 2026</span>
       <span class="dot-sep">&middot;</span>
-      <a href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener noreferrer">GitHub</a>
       <span class="dot-sep">&middot;</span>
-      <a href="https://github.com/Broadcats/CMVideo/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/Broadcats/CMVideo/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog</a>
       <span class="dot-sep">&middot;</span>
-      <a href="https://github.com/Broadcats/CMVideo/issues" target="_blank" rel="noopener">Report a bug</a>
+      <a href="https://github.com/Broadcats/CMVideo/issues" target="_blank" rel="noopener noreferrer">Report a bug</a>
     </div>
   </footer>
 

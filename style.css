@@ -418,15 +418,13 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--surface-deep);
-  border: 1px solid var(--border-hi);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--accent-glow);
-  margin-bottom: 12px;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
 }
 .dl-title { font-weight: 700; font-size: 16px; }
 .dl-sub {
@@ -513,4 +511,644 @@ h1 {
   }
   .shot-frame { transform: none; }
   h1 { font-size: clamp(32px, 8vw, 44px); }
+}
+
+/* ---------- interactive mini widget (hero-shot variant) ---------- */
+
+.hero-mini .shot-frame {
+  transform: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.hero-mini.dragover .shot-frame {
+  border-color: var(--accent-hi);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--accent-hi),
+    0 0 24px rgba(167, 139, 250, 0.35);
+}
+.hero-mini .shot-body {
+  display: block;
+  pointer-events: auto;
+}
+
+.shot-field {
+  display: block;
+  background: var(--surface-deep);
+  border: 1px solid var(--border-hi);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.shot-field:focus-within {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+.shot-field-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.shot-field input[type="url"] {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+  padding: 0;
+}
+.shot-field input[type="url"]::placeholder { color: var(--text-dim); }
+
+.shot-hint {
+  margin: 0 4px 10px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+
+.shot-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid var(--accent-lo);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.shot-file.hidden { display: none; }
+.shot-file-icon { color: var(--accent-glow); font-size: 13px; }
+.shot-file-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shot-file-clear {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.shot-file-clear:hover { color: var(--danger); }
+
+.shot-fmt-row,
+.shot-mode-row {
+  margin-bottom: 8px;
+}
+.shot-fmt-row .pill,
+.shot-mode-row .pill {
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.shot-fmt-row .pill input[type="radio"],
+.shot-mode-row .pill input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+}
+
+.hero-mini .shot-btn {
+  cursor: pointer;
+  transition: filter 0.12s, transform 0.08s;
+}
+.hero-mini .shot-btn:hover { filter: brightness(1.08); }
+.hero-mini .shot-btn:active { transform: translateY(1px); }
+.hero-mini .shot-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none;
+}
+
+.shot-status {
+  min-height: 1.1em;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.shot-status.busy  { color: var(--accent-glow); }
+.shot-status.ok    { color: var(--success); }
+.shot-status.error { color: var(--danger); }
+
+.shot-caps {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.shot-caps strong { color: var(--text); }
+.shot-caps a { color: var(--accent-hi); }
+.shot-caps a:hover { color: var(--accent-glow); }
+
+/* --- Mini widget: offline state when the HF Space isn't reachable --- */
+.shot-offline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 4px 2px;
+}
+.shot-offline-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent, #ff5f7a);
+}
+.shot-offline p {
+  margin: 0;
+  color: var(--muted, #b7b9c4);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.shot-offline .btn {
+  align-self: stretch;
+}
+
+/* --- Mini widget: YouTube embed/cleanwatch mode --- */
+.shot-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  padding: 2px;
+}
+.shot-embed-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent, #ff5f7a);
+}
+.shot-embed-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.shot-embed-frame > div,
+.shot-embed-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.shot-embed-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.shot-embed-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted, #b7b9c4);
+  transition: background 120ms ease, color 120ms ease;
+}
+.shot-embed-pill.muting {
+  background: rgba(255, 95, 122, 0.18);
+  color: #ff8a9a;
+}
+.shot-embed-count {
+  font-size: 13px;
+  color: var(--muted, #b7b9c4);
+}
+.shot-embed-hint {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted, #b7b9c4);
+}
+.shot-embed-hint a {
+  color: var(--accent, #ff5f7a);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.shot-embed-back {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--muted, #b7b9c4);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.shot-embed-back:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+/* =============================================================
+   Wordmark camera-dot on the "i" in Video
+   - Custom-rendered "i": a coloured stem rect + inline SVG camera
+     where the dot would be. Doesn't depend on any font glyph or CSS
+     mask URL, so it renders identically everywhere.
+   - .sr-only sibling preserves the real "i" for screen readers / SEO.
+   ============================================================= */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+  white-space: nowrap;
+}
+
+.cam-i {
+  position: relative;
+  display: inline-block;
+  width: 0.34em;
+  height: 1em;
+  vertical-align: baseline;
+  margin: 0 0.04em;
+}
+.cam-i-stem {
+  position: absolute;
+  left: 50%;
+  bottom: 0.06em;
+  transform: translateX(-50%);
+  width: 0.16em;
+  height: 0.62em;
+  background: #ff5f7a;
+  border-radius: 0.04em;
+}
+.cam-i-dot {
+  position: absolute;
+  left: 50%;
+  bottom: 0.76em;
+  transform: translateX(-50%);
+  width: 0.62em;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+}
+/* Smaller variant for the in-widget brand */
+.cam-i.cam-i-sm .cam-i-stem {
+  height: 0.6em;
+  width: 0.14em;
+}
+.cam-i.cam-i-sm .cam-i-dot {
+  width: 0.58em;
+  bottom: 0.74em;
+}
+
+/* =============================================================
+   Green "mini" tag next to the widget brand
+   ============================================================= */
+.mini-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px 2px 7px;
+  border-radius: 999px;
+  font-size: 0.55em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #062b16;
+  background: linear-gradient(135deg, #5eed95 0%, #36c66a 100%);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset, 0 0 0 1px rgba(94, 237, 149, 0.45);
+  vertical-align: 0.22em;
+  font-feature-settings: "tnum";
+}
+
+/* =============================================================
+   Download grid: real OS icons (Tux, Windows, Apple)
+   ============================================================= */
+.dl-icon .os-svg,
+.dl-icon .os-img {
+  /* Same display rules for the inline SVGs (Windows / Apple) and the
+     <img>-loaded Linux mascot. `object-fit: contain` keeps Tux's
+     216:256 aspect ratio centred inside the square card. */
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+}
+
+/* =============================================================
+   Legal disclosure under the mini widget
+   ============================================================= */
+.shot-legal {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted, #b7b9c4);
+}
+.shot-legal summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #d8dae3;
+  list-style: none;
+  position: relative;
+  padding-left: 16px;
+  user-select: none;
+}
+.shot-legal summary::-webkit-details-marker { display: none; }
+.shot-legal summary::before {
+  content: "\25B8";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--accent, #ff5f7a);
+  transition: transform 160ms ease;
+  display: inline-block;
+}
+.shot-legal[open] summary::before {
+  transform: rotate(90deg);
+}
+.shot-legal p {
+  margin: 8px 0 0 16px;
+}
+.shot-legal p:first-of-type { margin-top: 10px; }
+.shot-legal strong { color: #e6e9ef; }
+
+/* =============================================================
+   YouTube full-version CTA - loud banner inside the widget
+   ============================================================= */
+.yt-fullapp-cta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  margin: 14px 0 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(255, 0, 51, 0.18) 0%, rgba(255, 0, 51, 0.06) 100%),
+    rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 0, 51, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.08) inset,
+              0 6px 24px -10px rgba(255, 0, 51, 0.45);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.yt-fullapp-cta:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 0, 51, 0.65);
+  box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.15) inset,
+              0 10px 32px -10px rgba(255, 0, 51, 0.6);
+}
+.yt-fullapp-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 42px;
+  max-height: 30px;
+  overflow: hidden;
+}
+.yt-fullapp-icon svg {
+  width: 42px;
+  height: 30px;
+  display: block;
+}
+.yt-fullapp-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.yt-fullapp-text strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffffff;
+  line-height: 1.25;
+}
+.yt-fullapp-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.4;
+}
+.yt-fullapp-arrow {
+  flex: 0 0 auto;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ff5874;
+  line-height: 1;
+  padding: 0 4px;
+  animation: yt-arrow-bob 1.8s ease-in-out infinite;
+}
+@keyframes yt-arrow-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yt-fullapp-arrow { animation: none; }
+  .yt-fullapp-cta:hover { transform: none; }
+}
+
+/* =============================================================
+   Mobile pass (≤ 640px)
+   Phones get their own tuning - this isn't just colour de-saturation,
+   it's also where we fix the actual UX bugs:
+
+   * iOS zooms input fields whose font-size is below 16px on focus.
+     The URL field was 12px monospace. Bump to 16px on phones.
+   * 44×44 minimum touch targets for the format / mode pills.
+     They were ~24px tall on desktop, which is fiddly even with a
+     stylus.
+   * 11-12px supporting text was below the readability floor on a
+     small screen. Bump to 12-13px.
+   * Container side padding shrinks from 28px to 18px so the widget
+     actually fills the viewport instead of fighting with gutters.
+
+   Plus the original colour tone-down for the warm accents that
+   stack on top of each other when the hero collapses to one column.
+   ============================================================= */
+@media (max-width: 640px) {
+  /* ---- layout breathing room ------------------------------- */
+  .container { padding: 0 18px; }
+  .hero { padding: 36px 0 28px; }
+  .features { padding: 16px 0 32px; }
+
+  h1 { font-size: clamp(30px, 8.5vw, 40px); line-height: 1.08; }
+  .lede { font-size: 17px; line-height: 1.5; margin-bottom: 22px; }
+  .eyebrow { margin-bottom: 14px; }
+
+  /* ---- CTA: stack to full-width so the primary download is
+            an obvious thumb target. ----------------------------*/
+  .cta { flex-direction: column; align-items: stretch; gap: 10px; }
+  .cta .btn { width: 100%; justify-content: center; padding: 14px 20px; font-size: 15px; }
+  .btn-primary .btn-meta { display: none; }
+
+  /* ---- mini widget: tighter padding, readable form -------- */
+  .shot-body { padding: 16px 16px 18px; }
+  .shot-titlebar { padding: 8px 12px; }
+  .shot-brand { font-size: 21px; line-height: 1.15; word-spacing: -2px; }
+  .shot-tag { font-size: 11.5px; margin-bottom: 10px; }
+  .shot-strip { margin-bottom: 10px; }
+
+  .shot-field { padding: 10px 12px; }
+  .shot-field-label { font-size: 10px; margin-bottom: 3px; }
+  /* 16px is the magic number - any smaller and iOS will scale the
+     viewport when the input takes focus. */
+  .shot-field input[type="url"] { font-size: 16px; }
+  .shot-hint { font-size: 12px; margin: 2px 4px 12px; }
+
+  /* ---- format / mode pills: bigger tap targets ------------ */
+  .shot-fmt-row, .shot-mode-row { gap: 6px; margin-bottom: 10px; }
+  .shot-fmt-row .pill, .shot-mode-row .pill {
+    padding: 9px 14px;
+    font-size: 13px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .shot-btn { padding: 14px; font-size: 15px; min-height: 48px; }
+  .shot-status { font-size: 13px; }
+  .shot-caps { font-size: 12px; line-height: 1.5; }
+  .shot-file { padding: 10px 12px; font-size: 13px; }
+  .shot-file-clear { padding: 4px 8px; font-size: 20px; }
+
+  /* ---- legal disclosure / YT banner: same content, smaller
+            footprint so the widget doesn't stretch a full screen. */
+  .shot-legal { padding: 9px 12px; font-size: 12px; }
+  .yt-fullapp-cta {
+    padding: 10px 12px;
+    background:
+      linear-gradient(135deg, rgba(255, 0, 51, 0.12) 0%, rgba(255, 0, 51, 0.04) 100%),
+      rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 0, 51, 0.28);
+    box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.05) inset,
+                0 4px 16px -8px rgba(255, 0, 51, 0.28);
+  }
+  .yt-fullapp-cta:hover {
+    box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.08) inset,
+                0 6px 20px -10px rgba(255, 0, 51, 0.35);
+  }
+  .yt-fullapp-text strong { font-size: 12px; letter-spacing: 0.03em; }
+  .yt-fullapp-sub { font-size: 11px; }
+  .yt-fullapp-icon,
+  .yt-fullapp-icon svg { width: 34px; height: 24px; }
+  .yt-fullapp-icon { max-width: 34px; max-height: 24px; }
+  .yt-fullapp-arrow { font-size: 18px; color: #ff8095; }
+
+  .mini-tag {
+    background: linear-gradient(135deg, #46c47d 0%, #2ea05a 100%);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset,
+                0 0 0 1px rgba(70, 196, 125, 0.35);
+    letter-spacing: 0.12em;
+  }
+
+  /* ---- downloads grid: cards keep brand marks, but everything
+            else compacts. -------------------------------------- */
+  .dl-icon { width: 56px; height: 56px; margin-bottom: 10px; }
+  .dl-icon .os-svg,
+  .dl-icon .os-img {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+  }
+  .dl-card { padding: 18px 16px; }
+  .dl-title { font-size: 16px; }
+  .dl-sub { font-size: 12.5px; line-height: 1.5; }
+
+  /* ---- how-list ----------------------------------------------- */
+  .how-list li { grid-template-columns: 36px 1fr; gap: 12px; }
+  .how-list h4 { font-size: 15px; }
+  .how-list p { font-size: 13.5px; }
+
+  /* ---- features cards ---------------------------------------- */
+  .card { padding: 18px 18px 20px; }
+
+  /* ---- footer: tighter so it doesn't run two lines per link -- */
+  .site-foot { padding: 18px 0 24px; font-size: 12.5px; }
+  .site-foot .container { gap: 4px; }
+}
+
+
+/* =============================================================
+   Narrow-phone pass (≤ 480px)
+   Layered on top of the 640px block for actual phone widths. The
+   typical iPhone-portrait viewport is 390px logical pixels; Pixel
+   is 412px. Squeeze content padding further, drop hero h1 size,
+   and let the widget breathe a bit less vertically so the first
+   download button is visible without scrolling.
+   ============================================================= */
+@media (max-width: 480px) {
+  .container { padding: 0 14px; }
+  .hero { padding: 28px 0 24px; }
+
+  h1 { font-size: clamp(28px, 9vw, 36px); margin-bottom: 14px; }
+  .lede { font-size: 16px; margin-bottom: 18px; }
+  .sub-note { font-size: 12px; margin-top: 4px; }
+
+  .shot-body { padding: 14px 14px 16px; }
+  .shot-titlebar { padding: 7px 10px; gap: 6px; }
+  .shot-title { font-size: 11px; margin-left: 6px; }
+  .dot { width: 8px; height: 8px; }
+
+  .shot-brand { font-size: 19px; }
+  .mini-tag { font-size: 0.5em; padding: 2px 6px; }
+
+  .shot-row { gap: 6px; }
+  .shot-fmt-row .pill, .shot-mode-row .pill {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .shot-btn { padding: 13px; font-size: 14px; }
+
+  .shot-caps { font-size: 11.5px; }
+  .shot-legal { padding: 8px 10px; font-size: 11.5px; }
+  .shot-legal summary { padding-left: 14px; font-size: 12px; }
+
+  /* OS icons get one more step smaller; the brand mark still reads
+     because the cards are still ~310px wide on a 350px viewport. */
+  .dl-icon { width: 48px; height: 48px; margin-bottom: 8px; }
+  .dl-card { padding: 16px 14px; }
+  .dl-title { font-size: 15px; }
+  .dl-sub { font-size: 12px; }
+
+  .yt-fullapp-cta { padding: 9px 11px; gap: 10px; }
+  .yt-fullapp-text strong { font-size: 11.5px; }
+  .yt-fullapp-sub { font-size: 10.5px; }
+  .yt-fullapp-icon,
+  .yt-fullapp-icon svg { width: 30px; height: 22px; }
+
+  .features { padding: 12px 0 24px; }
+  .card { padding: 16px 16px 18px; border-radius: 14px; }
 }

@@ -28,20 +28,38 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Resolve target tag
+      - name: Resolve target tag + checkout ref
         id: tag
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Back-fill mode: build from main (has the build script) and
+            # upload to the named tag. We verify the version matches below.
             echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "checkout=main" >> "$GITHUB_OUTPUT"
           else
             echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "checkout=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout tag
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.value }}
+          ref: ${{ steps.tag.outputs.checkout }}
+
+      - name: Verify in-tree version matches target tag
+        shell: bash
+        run: |
+          IN_TREE="$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' censor/version.py)"
+          TARGET="${{ steps.tag.outputs.value }}"
+          TARGET_STRIPPED="${TARGET#v}"
+          echo "in-tree version: $IN_TREE"
+          echo "target tag:      $TARGET ($TARGET_STRIPPED)"
+          if [ "$IN_TREE" != "$TARGET_STRIPPED" ]; then
+            echo "::error::version mismatch — in-tree '$IN_TREE' vs target '$TARGET_STRIPPED'."
+            echo "::error::Bump censor/version.py to match, or dispatch against the right tag."
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5

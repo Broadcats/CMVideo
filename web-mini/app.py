@@ -132,6 +132,24 @@ def _validate_url(url: str) -> str:
     return url
 
 
+def _friendly_ydl_error(e: Exception) -> str:
+    """yt-dlp errors are long and Pythonic. Distill them into the
+    one line that a visitor on cmvideo.online can act on."""
+    msg = str(e).strip().splitlines()[-1] if str(e) else ""
+    low = msg.lower()
+    if "sign in to confirm" in low or "not a bot" in low or "confirm you're not a bot" in low:
+        return (
+            "YouTube is blocking this free server's IP right now. "
+            "Most other sites still work (Vimeo, Reddit, Twitter, TikTok, etc.), "
+            "or grab the desktop app below \u2014 it runs from your own connection."
+        )
+    if "unavailable" in low or "private video" in low or "video unavailable" in low:
+        return "That video isn't available (private, region-locked, or removed)."
+    if "unsupported url" in low:
+        return "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    return msg or "Couldn't fetch that URL."
+
+
 def _safe_name(stem: str, fmt: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", stem)[:80] or "cmvideo-mini"
     return f"{cleaned}.{fmt}"
@@ -142,6 +160,22 @@ def _media_type(fmt: str) -> str:
 
 
 # ---- yt-dlp ---------------------------------------------------------------
+# YouTube has been increasingly aggressive about blocking datacenter
+# IPs with 'Sign in to confirm you're not a bot'. The free HF Space
+# IP is squarely in that bucket. These extractor_args pick the player
+# clients that still tend to work without a PO Token / login cookie.
+# See yt-dlp issue #10128 and friends for the current state of play.
+YDL_EXTRACTOR_ARGS = {
+    "youtube": {
+        "player_client": ["tv", "tv_embedded", "mediaconnect", "web_creator", "mweb"],
+        "player_skip": ["configs"],
+    },
+}
+YDL_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+)
+
 def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict:
     return {
         "outtmpl": str(tmpdir / "%(title).80s.%(ext)s"),
@@ -157,6 +191,8 @@ def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict
         "socket_timeout": 25,
         "retries": 1,
         "concurrent_fragment_downloads": 1,
+        "extractor_args": YDL_EXTRACTOR_ARGS,
+        "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
 
 
@@ -212,6 +248,8 @@ def _do_info(url: str) -> dict:
         "noplaylist": True,
         "skip_download": True,
         "socket_timeout": 15,
+        "extractor_args": YDL_EXTRACTOR_ARGS,
+        "http_headers": {"User-Agent": YDL_USER_AGENT},
     }) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
@@ -302,7 +340,7 @@ async def api_info(request: Request, body: InfoRequest):
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
     except yt_dlp.utils.DownloadError as e:
-        raise HTTPException(status_code=400, detail=str(e).splitlines()[-1])
+        raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
     except Exception as e:
         log.exception("info failed")
         raise HTTPException(status_code=400, detail=str(e))

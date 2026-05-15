@@ -1,11 +1,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-yt-dlp==2024.12.13
+yt-dlp==2026.3.17
 jinja2==3.1.4
 slowapi==0.1.9
 python-multipart==0.0.12
-faster-whisper==1.0.3
-# faster-whisper<=1.0.x imports `requests` directly; recent
-# huggingface_hub releases no longer pull it in transitively, so
-# install it explicitly to keep the import chain happy.
-requests==2.32.3

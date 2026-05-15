@@ -17,6 +17,12 @@ dist/
 *.egg-info/
 *.egg
 
+# Local release archives downloaded from GitHub (e.g. from `gh release download`)
+CMVideo-*-source.zip
+CMVideo-*-source.tar.gz
+CMVideo-*-x86_64.AppImage
+CMVideo-*-win-amd64.exe
+
 # Editor / OS noise
 .idea/
 .vscode/

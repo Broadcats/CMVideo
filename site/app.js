@@ -214,9 +214,27 @@
     fetch(MINI_API_BASE + "/api/process", { method: "POST", mode: "cors", body: fd })
       .then(function (res) {
         if (!res.ok) {
+          // Special-case the common "Space not deployed yet" path: the
+          // Hugging Face frontend returns 404 with an HTML body for any
+          // route on a Space that doesn't exist.
+          if (res.status === 404) {
+            throw new Error(
+              "The mini service is offline right now — grab the desktop app below, it does everything this widget does (and a lot more)."
+            );
+          }
+          if (res.status === 429) {
+            throw new Error(
+              "Hit the 5-jobs-per-hour mini-app cap. The desktop app has no caps."
+            );
+          }
+          if (res.status === 413) {
+            throw new Error(
+              "That clip is over the mini-app size cap. Use the desktop app for full-length / full-quality runs."
+            );
+          }
           return res.json().then(
             function (data) { throw new Error((data && data.detail) || ("HTTP " + res.status)); },
-            function ()    { throw new Error("HTTP " + res.status); }
+            function ()    { throw new Error("HTTP " + res.status + " from the mini service"); }
           );
         }
         var name = parseFilename(res.headers, "cmvideo-mini." + fmt);

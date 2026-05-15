@@ -137,11 +137,22 @@ def _friendly_ydl_error(e: Exception) -> str:
     one line that a visitor on cmvideo.online can act on."""
     msg = str(e).strip().splitlines()[-1] if str(e) else ""
     low = msg.lower()
-    if "sign in to confirm" in low or "not a bot" in low or "confirm you're not a bot" in low:
+    yt_blocked = any(needle in low for needle in (
+        "sign in to confirm",
+        "not a bot",
+        "confirm you're not a bot",
+        "unexpected_eof_while_reading",
+        "eof occurred in violation",
+        "unable to download api page",
+        "http error 403",
+        "http error 429",
+        "failed to extract any player response",
+    ))
+    if yt_blocked:
         return (
-            "YouTube is blocking this free server's IP right now. "
-            "Most other sites still work (Vimeo, Reddit, Twitter, TikTok, etc.), "
-            "or grab the desktop app below \u2014 it runs from your own connection."
+            "YouTube is rate-limiting this free server right now. "
+            "Most other sites still work (Vimeo, Reddit, Twitter, TikTok, ~1,800 total), "
+            "or grab the desktop app below \u2014 it runs from your own connection and isn't affected."
         )
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
         return "That video isn't available (private, region-locked, or removed)."
@@ -188,7 +199,7 @@ def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict
         "match_filter": yt_dlp.utils.match_filter_func(
             f"duration <? {max_duration}"
         ),
-        "socket_timeout": 25,
+        "socket_timeout": 12,
         "retries": 1,
         "concurrent_fragment_downloads": 1,
         "extractor_args": YDL_EXTRACTOR_ARGS,
@@ -389,7 +400,7 @@ async def api_process(
                 msg = str(e).splitlines()[-1]
                 if "max-filesize" in msg.lower():
                     raise HTTPException(status_code=413, detail=f"Source exceeds the {max_size // (1024 * 1024)} MB mini-app cap.")
-                raise HTTPException(status_code=400, detail=msg)
+                raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
         else:
             src = await _save_upload(file, tmpdir)
             if src.stat().st_size > MAX_CENSOR_FILESIZE_BYTES:

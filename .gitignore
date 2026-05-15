@@ -38,3 +38,4 @@ config.json
 
 # Custom site outputs (if anyone runs site/build locally)
 site/.build/
+.venv-deploy/

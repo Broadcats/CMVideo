@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CMVideo Mini - URL to MP4 / MP3</title>
+  <meta name="description" content="The mini web version of CMVideo. Paste a URL, get a clean MP4 or MP3 back. Caps apply - the full desktop app at cmvideo.online has no caps and can also remove swears." />
+  <meta name="theme-color" content="#0d1018" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="accent-strip" aria-hidden="true"></div>
+
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">mini web version &middot; download only</p>
+      <h1>CMVideo <span class="grad-text">Mini</span>.</h1>
+      <p class="lede">
+        Paste a video URL. Pick MP4 or MP3. Download. That&rsquo;s it -
+        this is just the URL grabber from <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a>,
+        running in your browser with quality and length caps so it
+        stays free.
+      </p>
+      <p class="sub-note">
+        Want to <strong>censor swears</strong>, pick 4K / FLAC / WebM /
+        anything other than MP4 or MP3, batch-process whole folders, or
+        skip the caps entirely? The
+        <a href="https://cmvideo.online" target="_blank" rel="noopener">full desktop app</a>
+        is free and runs locally.
+      </p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card form-card">
+      <div class="row url-row">
+        <label for="url">Video URL</label>
+        <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="row fmt-row">
+        <span class="row-label">Format</span>
+        <div class="pill-group" role="radiogroup" aria-label="Format">
+          <label class="pill on" data-fmt="mp4">
+            <input type="radio" name="fmt" value="mp4" checked />
+            <span class="pill-icon">&#9658;</span>
+            MP4 &middot; up to {{ max_video_height }}p
+          </label>
+          <label class="pill" data-fmt="mp3">
+            <input type="radio" name="fmt" value="mp3" />
+            <span class="pill-icon">&#9836;</span>
+            MP3 &middot; {{ audio_bitrate_kbps }} kbps
+          </label>
+        </div>
+      </div>
+
+      <div class="row btn-row">
+        <button id="info-btn" class="btn btn-ghost" type="button">Preview</button>
+        <button id="dl-btn" class="btn btn-primary" type="button">
+          <span class="btn-label">Download</span>
+          <span class="btn-meta">free &middot; capped</span>
+        </button>
+      </div>
+
+      <p class="status" id="status" aria-live="polite"></p>
+
+      <div class="preview hidden" id="preview">
+        <img id="preview-thumb" alt="" />
+        <div class="preview-meta">
+          <div class="preview-title" id="preview-title"></div>
+          <div class="preview-sub" id="preview-sub"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="caps muted">
+      <h3>Mini-version caps</h3>
+      <ul>
+        <li>Up to <strong>{{ max_duration_min }} minutes</strong> per clip.</li>
+        <li>Up to <strong>{{ max_filesize_mb }} MB</strong> per file.</li>
+        <li>Video maxes out at <strong>{{ max_video_height }}p MP4</strong>; audio at <strong>{{ audio_bitrate_kbps }} kbps MP3</strong>.</li>
+        <li><strong>{{ rate_limit }}</strong> per visitor.</li>
+        <li>No censoring, no transcripts, no other formats - those live in the full app.</li>
+      </ul>
+    </section>
+
+    <section class="upsell">
+      <div class="upsell-body">
+        <h2>Want the full thing?</h2>
+        <p>
+          The desktop app at <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a>
+          downloads at full quality (up to <strong>4K / 320 kbps</strong>),
+          supports <strong>13+ formats</strong> (MP4, MOV, MKV, WebM, AVI,
+          FLV, MP3, M4A, AAC, OGG, Opus, WAV, FLAC), and
+          automatically removes swears and slurs with <strong>silence</strong>,
+          <strong>beep</strong>, or a <strong>retro robotic TTS</strong>
+          replacement. Runs entirely on your machine - no uploads, no
+          accounts, no caps.
+        </p>
+        <p>
+          <a class="btn btn-primary" href="https://cmvideo.online" target="_blank" rel="noopener">
+            <span class="btn-label">Get the full app</span>
+            <span class="btn-meta">Windows &middot; Linux &middot; free</span>
+          </a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>
+        &copy; CMVideo &middot;
+        <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a> &middot;
+        <a href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">GitHub</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

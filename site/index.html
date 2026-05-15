@@ -24,7 +24,7 @@
   <header class="hero">
     <div class="container">
       <div class="hero-text">
-        <p class="eyebrow">v0.4.2-alpha &middot; open &middot; local-first &middot; live</p>
+        <p class="eyebrow">v0.4.3-alpha &middot; open &middot; local-first &middot; live</p>
         <h1>Clean My <span class="grad-text">Video</span>.</h1>
         <p class="lede">
           Drag in any clip. Drop out a clean copy. CMVideo finds every swear
@@ -37,6 +37,10 @@
           <a id="primary-download" class="btn btn-primary" href="#downloads">
             <span class="btn-label">Download</span>
             <span class="btn-meta" id="primary-download-meta">choose your OS below</span>
+          </a>
+          <a class="btn btn-ghost" href="#try-mini">
+            <span class="btn-label">Try in browser</span>
+            <span class="btn-meta">URL &rarr; MP4 / MP3 &middot; no install</span>
           </a>
           <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">
             View on GitHub
@@ -55,7 +59,7 @@
             <span class="dot dot-r"></span>
             <span class="dot dot-y"></span>
             <span class="dot dot-g"></span>
-            <span class="shot-title">CMVideo 0.4.2-alpha</span>
+            <span class="shot-title">CMVideo 0.4.3-alpha</span>
           </div>
           <div class="shot-body">
             <div class="shot-brand">Clean My Video</div>
@@ -117,9 +121,44 @@
     </div>
   </section>
 
+  <section id="try-mini" class="try-mini">
+    <div class="container">
+      <div class="try-mini-card">
+        <div class="try-mini-body">
+          <p class="eyebrow">mini web version &middot; no install</p>
+          <h2>Just want to grab a clip? <span class="grad-text">Try in the browser.</span></h2>
+          <p class="muted">
+            <strong>CMVideo Mini</strong> is the URL-grabber slice of the full
+            app, running on the web. Paste any YouTube / yt-dlp-supported URL
+            and pull down a clean <code>.mp4</code> (up to 720p) or
+            <code>.mp3</code> (192 kbps). No account, no install, no upload of
+            your own files - it runs server-side against the source URL only.
+          </p>
+          <p class="muted small">
+            Capped to keep it free: 30 min / 200 MB / 5 clips per hour per
+            visitor. For full quality (up to 4K / 320 kbps), every format
+            (MKV, WebM, AVI, FLAC, OGG, Opus, M4A, AAC ...), batch processing,
+            and the actual <strong>censoring</strong> (silence / beep / retro
+            robotic TTS) - download the desktop app below.
+          </p>
+          <div class="try-mini-cta">
+            <a class="btn btn-primary" href="https://broadcats-cmvideo-mini.hf.space" target="_blank" rel="noopener">
+              <span class="btn-label">Open CMVideo Mini</span>
+              <span class="btn-meta">opens in a new tab</span>
+            </a>
+            <a class="btn btn-ghost" href="#downloads">
+              <span class="btn-label">Get the full app instead</span>
+              <span class="btn-meta">no caps &middot; runs locally</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="downloads" class="downloads">
     <div class="container">
-      <h2>Get CMVideo <span class="ver">0.4.2-alpha</span></h2>
+      <h2>Get CMVideo <span class="ver">0.4.3-alpha</span></h2>
       <p class="muted">
         Linux gets a single-file AppImage; Windows gets a single
         <code>.exe</code> &mdash; download and double-click. No installer,
@@ -127,7 +166,7 @@
       </p>
 
       <div class="download-grid">
-        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.1-alpha/CMVideo-0.4.1-alpha-x86_64.AppImage">
+        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-x86_64.AppImage">
           <div class="dl-icon">L</div>
           <div class="dl-title">Linux</div>
           <div class="dl-sub">
@@ -136,7 +175,7 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.1-alpha/CMVideo-0.4.1-alpha-win-amd64.exe">
+        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-win-amd64.exe">
           <div class="dl-icon">W</div>
           <div class="dl-title">Windows</div>
           <div class="dl-sub">
@@ -145,7 +184,7 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.1-alpha/CMVideo-0.4.1-alpha-source.tar.gz">
+        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-source.tar.gz">
           <div class="dl-icon">M</div>
           <div class="dl-title">macOS</div>
           <div class="dl-sub">
@@ -157,12 +196,12 @@
 
       <p class="muted small">
         Linux quickstart:
-        <code>chmod +x CMVideo-0.4.1-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.1-alpha-x86_64.AppImage</code>
+        <code>chmod +x CMVideo-0.4.3-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.3-alpha-x86_64.AppImage</code>
         &middot;
         Windows: if SmartScreen appears, choose &ldquo;More info&rdquo; &rarr;
         &ldquo;Run anyway&rdquo; (unsigned prerelease build).
         &middot;
-        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.1-alpha" target="_blank" rel="noopener">checksums &amp; release notes</a>
+        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.3-alpha" target="_blank" rel="noopener">checksums &amp; release notes</a>
       </p>
 
       <p class="muted small">

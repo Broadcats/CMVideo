@@ -514,3 +514,35 @@ h1 {
   .shot-frame { transform: none; }
   h1 { font-size: clamp(32px, 8vw, 44px); }
 }
+
+/* ---------- mini-version CTA section ---------- */
+.try-mini {
+  padding: 24px 0 8px;
+}
+.try-mini-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.10), rgba(34, 211, 238, 0.07));
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow);
+}
+.try-mini-card .eyebrow { margin-bottom: 14px; }
+.try-mini-card h2 {
+  font-size: clamp(24px, 3vw, 32px);
+  margin: 0 0 12px;
+  letter-spacing: -0.015em;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.try-mini-card p { max-width: 720px; }
+.try-mini-card p.small { font-size: 13px; }
+.try-mini-cta {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px;
+}
+.try-mini-cta .btn { padding: 11px 20px; }
+
+@media (max-width: 640px) {
+  .try-mini-card { padding: 22px; }
+  .try-mini-cta { flex-direction: column; align-items: stretch; }
+  .try-mini-cta .btn { width: 100%; }
+}

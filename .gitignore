@@ -2,6 +2,7 @@
 .venv/
 .venv-appimage/
 .venv-winexe/
+.venv-mini/
 venv/
 env/
 

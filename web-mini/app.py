@@ -13,14 +13,17 @@ https://cmvideo.online is the upsell.
 """
 
 import asyncio
+import ipaddress
 import logging
 import os
 import re
 import shutil
+import socket
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import yt_dlp
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -65,7 +68,31 @@ log = logging.getLogger("cmvideo-mini")
 # ---------------------------------------------------------------------------
 # App boilerplate
 # ---------------------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address, default_limits=[])
+def _client_ip(request: Request) -> str:
+    """Resolve the real client IP behind HF Spaces' reverse proxy.
+
+    `slowapi.util.get_remote_address` reads `request.client.host`, which
+    on HF Spaces is always the platform's edge proxy - so every visitor
+    on Earth shared the same rate-limit bucket. The proxy populates
+    `X-Forwarded-For` with the chain `client, proxy1, proxy2, ...`;
+    we take the left-most entry (the original client) and fall back to
+    the socket peer for direct/unproxied access."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        first = xff.split(",")[0].strip()
+        # Tolerate IPv6 with brackets / zone IDs by feeding ipaddress
+        # only the bit it'll accept; if parsing fails we still return
+        # the raw string so the limiter buckets on something.
+        if first:
+            try:
+                ipaddress.ip_address(first.split("%", 1)[0])
+            except ValueError:
+                pass
+            return first
+    return get_remote_address(request) or "0.0.0.0"
+
+
+limiter = Limiter(key_func=_client_ip, default_limits=[])
 
 _WORDS_CACHE: Optional[set] = None
 
@@ -119,17 +146,174 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Tack on standard security headers.
+
+    No CSP here - the widget on cmvideo.online embeds *us*, and HF
+    Spaces also embeds us in a frame, so any aggressive CSP/X-Frame
+    policy will break legitimate use. The headers we *do* add are
+    universally safe: stop MIME-sniffing, narrow the referrer to
+    origins, and refuse opt-in capabilities (camera/mic/geo) that
+    we never need."""
+    response: Response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
+# Ports we'll let yt-dlp talk to. Anything else (SSH 22, SMTP 25,
+# MySQL 3306, Redis 6379, internal admin panels on 9000/9090, ...) is
+# refused at the validation gate.
+_ALLOWED_REMOTE_PORTS = {None, 80, 443, 8080, 8443}
 
-def _validate_url(url: str) -> str:
-    url = (url or "").strip()
-    if not URL_RE.match(url):
+# Cloud metadata endpoints. is_link_local already covers 169.254.0.0/16
+# but list them explicitly so the intent is grep-able and future cloud
+# providers can be added in one place.
+_BLOCKED_HOSTS_LITERAL = {
+    "169.254.169.254",   # AWS / GCP / Azure / DigitalOcean
+    "metadata.google.internal",
+    "metadata.goog",
+    "100.100.100.200",   # Alibaba
+}
+
+
+def _ip_is_internal(ip: ipaddress._BaseAddress) -> bool:
+    """True if the IP is anything we never want our backend to reach
+    on behalf of an arbitrary HTTP request from the internet."""
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _assert_public_url(url: str) -> str:
+    """Validate that `url` is safe for yt-dlp / requests to fetch.
+
+    Belt-and-suspenders SSRF defence:
+      * scheme must be http/https
+      * no userinfo (`user:pass@host`) - credential phishing surface
+      * port must be in our allow-list (web ports only)
+      * hostname is resolved here and *every* resulting A/AAAA record
+        must be public; private/loopback/link-local/multicast/reserved
+        all reject
+      * literal-IP and well-known metadata hostnames reject regardless
+
+    Hostname resolution here is best-effort: yt-dlp will re-resolve at
+    request time and may follow redirects. The companion
+    `_install_socket_ssrf_guard()` patches `socket.getaddrinfo` so any
+    later resolution to an internal IP also fails."""
+    raw = (url or "").strip()
+    if not URL_RE.match(raw):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
-    return url
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="That URL didn't parse.")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="URL has no hostname.")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="URLs with embedded credentials are not allowed.")
+    try:
+        port = parsed.port
+    except ValueError:
+        raise HTTPException(status_code=400, detail="URL has an invalid port.")
+    if port not in _ALLOWED_REMOTE_PORTS:
+        raise HTTPException(status_code=400, detail=f"Port {port} is not allowed.")
+    if host in _BLOCKED_HOSTS_LITERAL:
+        raise HTTPException(status_code=400, detail="That host is blocked.")
+
+    # Literal-IP fast path. urlparse strips the brackets from
+    # `http://[::1]/` so `host` is already the bare IP string here.
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        if _ip_is_internal(literal_ip):
+            raise HTTPException(status_code=400, detail="That URL points at an internal address.")
+        return raw  # public literal IP - allow
+
+    # Resolve. Any DNS failure here is a hard reject; if we can't
+    # verify the destination is public we don't fetch it. Our
+    # `_install_socket_ssrf_guard` will *also* raise gaierror when
+    # the public name resolves to an internal IP, so this also
+    # catches DNS rebinding scenarios.
+    try:
+        infos = _REAL_GETADDRINFO(host, port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Couldn't resolve that hostname.")
+    for family, _, _, _, sockaddr in infos:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="That host resolved to something we couldn't parse.")
+        if _ip_is_internal(ip):
+            log.warning("SSRF reject: host=%s resolved to internal IP %s", host, ip)
+            raise HTTPException(status_code=400, detail="That URL points at an internal address.")
+    return raw
+
+
+# Backwards-compat alias - older call sites used `_validate_url` purely
+# for scheme checking. Route all callers through the hardened guard.
+_validate_url = _assert_public_url
+
+
+# ---------------------------------------------------------------------------
+# Socket-level SSRF guard. yt-dlp will follow redirects and re-resolve
+# hostnames internally; our `_assert_public_url` only sees the first URL
+# the user passed in. By patching `socket.getaddrinfo` once at import we
+# turn private-IP destinations into immediate connection failures no
+# matter who triggers them - yt-dlp, urllib, requests, anything.
+# ---------------------------------------------------------------------------
+_REAL_GETADDRINFO = socket.getaddrinfo
+
+
+class _SSRFBlocked(socket.gaierror):
+    pass
+
+
+def _guarded_getaddrinfo(host, port, *args, **kwargs):
+    infos = _REAL_GETADDRINFO(host, port, *args, **kwargs)
+    # If `host` itself is literally one of our blocked metadata names,
+    # bail before returning results. (Belt-and-suspenders; the URL
+    # validator already catches these by name.)
+    if isinstance(host, str) and host.lower() in _BLOCKED_HOSTS_LITERAL:
+        raise _SSRFBlocked(f"blocked host: {host}")
+    for family, _, _, _, sockaddr in infos:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+        except ValueError:
+            continue
+        if _ip_is_internal(ip):
+            raise _SSRFBlocked(f"blocked internal IP: {ip_str}")
+    return infos
+
+
+def _install_socket_ssrf_guard() -> None:
+    # Idempotent: if our wrapper is already installed (re-import in
+    # tests) leave it alone.
+    if getattr(socket.getaddrinfo, "_cmvm_ssrf_guarded", False):
+        return
+    _guarded_getaddrinfo._cmvm_ssrf_guarded = True  # type: ignore[attr-defined]
+    socket.getaddrinfo = _guarded_getaddrinfo  # type: ignore[assignment]
+    log.info("Installed socket-level SSRF guard")
+
+
+_install_socket_ssrf_guard()
 
 
 def _friendly_ydl_error(e: Exception) -> str:
@@ -432,6 +616,25 @@ async def _save_upload(upload: UploadFile, tmpdir: Path) -> Path:
     if total == 0:
         raise HTTPException(status_code=400, detail="Empty upload.")
     log.info("Received upload: %s (%d bytes)", upload.filename, total)
+
+    # Cheap ffprobe pre-check. If the duration is over our censor cap
+    # we want to know now, before whisper / ffmpeg do any heavy
+    # parsing on a potentially malformed input. ffprobe returns 0.0
+    # on unreadable input and we let the real pipeline raise a more
+    # specific error in that case.
+    try:
+        duration = mini_censor.probe_duration(dst)
+    except Exception:
+        log.exception("ffprobe pre-check raised")
+        duration = 0.0
+    if duration and duration > MAX_CENSOR_DURATION_SECONDS + 5:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Upload is {int(duration // 60)} min long; the mini app caps censoring "
+                f"at {MAX_CENSOR_DURATION_SECONDS // 60} min. Use the desktop app for the full version."
+            ),
+        )
     return dst
 
 
@@ -474,9 +677,13 @@ async def api_info(request: Request, body: InfoRequest):
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
     except yt_dlp.utils.DownloadError as e:
         raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
+        # Don't leak the raw exception string - it can include paths
+        # or internal state. Server logs keep the full traceback.
         log.exception("info failed")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Couldn't read that URL.")
     return JSONResponse(info)
 
 
@@ -503,6 +710,20 @@ async def api_process(
 
     if md == "download" and have_file:
         raise HTTPException(status_code=400, detail="Download mode is URL-only - you already have the file locally.")
+
+    # Early Content-Length gate for uploads. The streaming check in
+    # `_save_upload` is the real enforcer (clients can lie about
+    # Content-Length, and chunked uploads have no length), but rejecting
+    # obviously-too-big requests here means we never even allocate the
+    # tempdir or open a write handle.
+    if have_file:
+        try:
+            cl = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            cl = 0
+        # Allow a little slack for multipart envelope overhead.
+        if cl and cl > MAX_UPLOAD_BYTES + (1 << 20):
+            raise HTTPException(status_code=413, detail=f"Upload over the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB cap.")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="cmvm_"))
     try:
@@ -563,6 +784,8 @@ async def api_process(
         raise
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
+        # Server logs keep the real traceback; client gets a stable
+        # message that doesn't leak paths or library internals.
         log.exception("process failed")
         raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
 

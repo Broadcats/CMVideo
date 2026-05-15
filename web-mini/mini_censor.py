@@ -22,6 +22,14 @@ _WHISPER_MODEL = None
 WHISPER_MODEL_NAME = "tiny.en"
 WHISPER_COMPUTE_TYPE = "int8"
 
+# Hard wall-clock cap for any single ffmpeg invocation in this module.
+# The outer route already has a 240 s asyncio.wait_for around the
+# whole censor pipeline, but `asyncio.wait_for` only abandons the
+# wait - it does not kill the subprocess. Without this timeout an
+# ffmpeg that hangs on a malformed file would keep burning CPU on
+# the free Space until natural exit.
+FFMPEG_TIMEOUT_SECONDS = 220
+
 log = logging.getLogger("cmvideo-mini.censor")
 
 
@@ -98,12 +106,27 @@ def find_intervals(media_path: Path, words: set) -> list:
 def _enable_expr(intervals) -> str:
     """Build an ffmpeg `enable` expression that is true during any
     censor interval. Pads each interval by 30 ms so word edges are
-    fully covered."""
+    fully covered.
+
+    Defensively clamps every value to a finite, non-negative, sane
+    float; we never want a NaN, inf, or negative end-time slipping
+    into the filter argument string."""
+    import math
     pad = 0.03
-    parts = [
-        f"between(t,{max(0.0, iv.start - pad):.3f},{iv.end + pad:.3f})"
-        for iv in intervals
-    ]
+    parts = []
+    for iv in intervals:
+        try:
+            s = float(iv.start)
+            e = float(iv.end)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(s) and math.isfinite(e)):
+            continue
+        s = max(0.0, s - pad)
+        e = max(s + 0.001, e + pad)        # ensure end > start
+        s = min(s, 24 * 3600.0)            # cap at 24h - longer than any clip
+        e = min(e, 24 * 3600.0)
+        parts.append(f"between(t,{s:.3f},{e:.3f})")
     return "+".join(parts)
 
 
@@ -157,7 +180,19 @@ def render(src: Path, dst: Path, intervals, mode: str, fmt: str) -> None:
         raise ValueError(f"Unknown mode: {mode!r}")
 
     log.info("ffmpeg: %s", " ".join(cmd))
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        log.error("ffmpeg timed out after %ds", FFMPEG_TIMEOUT_SECONDS)
+        raise RuntimeError(
+            f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s. "
+            "Try a shorter clip, or use the desktop app for unbounded jobs."
+        )
     if res.returncode != 0:
         log.error("ffmpeg failed (%d):\n%s", res.returncode, res.stderr[-2000:])
         raise RuntimeError(f"ffmpeg returned {res.returncode}: {res.stderr.splitlines()[-1] if res.stderr else 'no output'}")

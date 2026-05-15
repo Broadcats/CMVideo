@@ -193,11 +193,29 @@ def _pick_font(families: list[str], size: int, weight: str = "normal") -> tkfont
 
 
 class CensorApp:
+    # WM_CLASS we identify as on X11/Wayland. Must match the
+    # `StartupWMClass=` line in our .desktop file so GNOME's dash can
+    # associate the running window with the launcher entry. Tk lowercases
+    # this for the instance name (`cmvideo`) and uses it verbatim for the
+    # res_class (`CMVideo`); GNOME matches against res_class.
+    WM_CLASS_NAME = "CMVideo"
+
     def __init__(self) -> None:
         if _DND_AVAILABLE:
-            self.root: tk.Tk = TkinterDnD.Tk()  # type: ignore[assignment]
+            try:
+                self.root: tk.Tk = TkinterDnD.Tk(className=self.WM_CLASS_NAME)  # type: ignore[assignment]
+            except TypeError:
+                # Older tkinterdnd2 builds don't forward kwargs; fall back.
+                self.root = TkinterDnD.Tk()  # type: ignore[assignment]
         else:
-            self.root = tk.Tk()
+            self.root = tk.Tk(className=self.WM_CLASS_NAME)
+        # Belt-and-suspenders: some Tk builds ignore the constructor kwarg
+        # on Wayland-via-XWayland; re-set the class explicitly. Harmless
+        # if already correct.
+        try:
+            self.root.tk.call("wm", "class", ".", self.WM_CLASS_NAME)
+        except tk.TclError:
+            pass
 
         self.root.title(f"{APP_TITLE} {APP_VERSION}")
         self.root.geometry("560x720")
@@ -313,6 +331,16 @@ class CensorApp:
                 self.root.iconphoto(True, *self._icons)
             except tk.TclError:
                 pass
+        # Windows: iconphoto-from-PNG gets stretched/blurred by the OS for
+        # taskbar use. The proper path is iconbitmap with a real .ico file
+        # so Windows can pick the right size from the multi-res resource.
+        if sys.platform == "win32":
+            ico = HERE / "icon.ico"
+            if ico.exists():
+                try:
+                    self.root.iconbitmap(default=str(ico))
+                except tk.TclError:
+                    pass
 
     # ---------- Fonts & styles ----------
 
@@ -2333,7 +2361,141 @@ class CensorApp:
         self.root.mainloop()
 
 
+def _resolve_shortcut_target() -> str:
+    """Decide what to put in the .desktop file's Exec= line. Three
+    realistic cases:
+
+      1. AppImage run: AppRun has set $APPIMAGE to the absolute path
+         of the .AppImage file. Use it as-is.
+      2. PyInstaller-frozen binary (e.g. unpacked cmvideo onedir):
+         sys.frozen is True and sys.executable is our cmvideo binary.
+      3. Source run (`python3 app.py`): use the `run.sh` wrapper that
+         ships next to app.py if present, otherwise build a quoted
+         `<python> <app.py>` command. Bare `sys.executable` would be
+         just the interpreter, which would drop us into an interactive
+         REPL on launch."""
+    import os as _os
+    appimage = _os.environ.get("APPIMAGE")
+    if appimage:
+        return _desktop_quote(appimage)
+    if getattr(sys, "frozen", False):
+        return _desktop_quote(sys.executable)
+    # Source layout: prefer run.sh because it activates the venv etc.
+    here = Path(__file__).resolve().parent
+    runner = here / "run.sh"
+    if runner.exists():
+        return _desktop_quote(str(runner))
+    return f"{_desktop_quote(sys.executable)} {_desktop_quote(str(here / 'app.py'))}"
+
+
+def _desktop_quote(path: str) -> str:
+    """Quote a path for use in a .desktop Exec= field.
+
+    The freedesktop spec wants double-quotes around any argument that
+    contains whitespace, and the backslash-escape of ", `, $, \\
+    inside those quotes. Bare paths with no specials are returned
+    unchanged so the common case stays readable."""
+    if not any(c in path for c in (" ", "\t", '"', "'", "`", "$", "\\")):
+        return path
+    escaped = path.replace("\\", r"\\\\").replace('"', r'\\"')
+    escaped = escaped.replace("`", r"\\`").replace("$", r"\\$")
+    return f'"{escaped}"'
+
+
+def _install_linux_shortcut() -> int:
+    """One-shot integration helper: copy a .desktop file and the icon
+    into ~/.local/share so the AppImage shows up in the dash/menu with
+    the right icon. Idempotent - safe to run multiple times."""
+    import os as _os
+    import shutil as _shutil
+
+    exec_field = _resolve_shortcut_target()
+
+    home = Path(_os.environ.get("HOME") or Path.home())
+    apps_dir = home / ".local" / "share" / "applications"
+    icons_dir = home / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+    apps_dir.mkdir(parents=True, exist_ok=True)
+    icons_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find the highest-res icon we shipped.
+    icon_src = None
+    for cand in ("icon-128.png", "icon.png", "icon-64.png", "icon-32.png"):
+        p = HERE / cand
+        if p.exists():
+            icon_src = p
+            break
+    if icon_src is None:
+        print("ERROR: no icon file found inside the bundle", file=sys.stderr)
+        return 2
+
+    icon_dst = icons_dir / "cmvideo.png"
+    _shutil.copy(icon_src, icon_dst)
+
+    desktop_path = apps_dir / "cmvideo.desktop"
+    desktop_path.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=CMVideo\n"
+        "GenericName=Video Censor\n"
+        "Comment=Remove swears and slurs from video or audio\n"
+        f"Exec={exec_field} %F\n"
+        "Icon=cmvideo\n"
+        "Terminal=false\n"
+        "Categories=AudioVideo;\n"
+        "StartupNotify=true\n"
+        "StartupWMClass=CMVideo\n"
+    )
+    # Mark executable so GNOME treats it as a launcher rather than text.
+    try:
+        desktop_path.chmod(0o755)
+    except OSError:
+        pass
+
+    # Refresh the desktop entry cache if the tool is available; not fatal
+    # if it isn't (most distros pick up new .desktop files within a few
+    # seconds anyway).
+    try:
+        import subprocess as _sp
+        _sp.run(
+            ["update-desktop-database", str(apps_dir)],
+            check=False, capture_output=True, timeout=10,
+        )
+    except (FileNotFoundError, OSError):
+        pass
+
+    print(f"Installed launcher: {desktop_path}")
+    print(f"Installed icon:     {icon_dst}")
+    print(f"Exec target:        {exec_field}")
+    print()
+    print("You may need to log out and back in, or run:")
+    print("    killall -SIGHUP gnome-shell  # X11 only")
+    print("for the dash to pick up the new launcher.")
+    return 0
+
+
+def _set_windows_app_id() -> None:
+    """Tell Windows we're our own app, not a generic Python launcher.
+
+    Without this the taskbar can group our window under the host Python
+    interpreter's icon and lose the .ico we embedded into the .exe.
+    Must be called *before* the first window is created."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Broadcats.CMVideo"
+        )
+    except Exception:
+        # Non-fatal - worst case we just don't get the perfect taskbar
+        # grouping; the icon still resolves from the embedded .ico.
+        pass
+
+
 def main() -> None:
+    if "--install-shortcut" in sys.argv[1:]:
+        sys.exit(_install_linux_shortcut())
+    _set_windows_app_id()
     CensorApp().run()
 
 

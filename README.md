@@ -5,7 +5,7 @@ slurs from video and audio files. Runs locally on **Windows** and **Linux**.
 Uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on your
 NVIDIA GPU (or CPU as a fallback) to transcribe with word-level
 timestamps, then ffmpeg to mute, beep, or replace the flagged regions
-with a robotic Microsoft-Sam-style voice.
+with a robotic retro-style voice.
 
 **Supported input formats:** MP4, MOV (video) and MP3, WAV, OGG (audio).
 Output preserves the input format - the video stream is copied through
@@ -128,9 +128,10 @@ To uninstall:
 4. Choose **Silence**, **Beep**, or **Fun**:
    - **Silence** mutes the flagged region.
    - **Beep** lays a 1 kHz tone over it.
-   - **Fun** has Microsoft Sam say a random PG word (`fudge`, `darn`,
-     `fiddlesticks`, `for crying out loud`...) in place of the swear.
-     Powered by espeak-ng's Klatt formant synthesizer.
+   - **Fun** uses a retro robotic TTS to say a random PG word
+     (`fudge`, `darn`, `fiddlesticks`, `for crying out loud`...) in
+     place of the swear. Powered by espeak-ng's Klatt formant
+     synthesizer.
 5. Optional extras:
    - **Save transcript (.txt)** writes an uncensored transcript with
      word-level timestamps. Flagged words are marked `[*]` so you can

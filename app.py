@@ -895,7 +895,7 @@ class CensorApp:
         self.beep_radio.pack(anchor="w", pady=(2, 0))
         self.fun_radio = ttk.Radiobutton(
             opts_inner,
-            text="Fun (Microsoft Sam saying PG words)",
+            text="Fun (retro robotic TTS saying PG words)",
             variable=self.mode,
             value="fun",
             style="Dark.TRadiobutton",

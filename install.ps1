@@ -100,7 +100,7 @@ if ($HasWinget) {
     Ok "winget is available"
 } else {
     Warn "winget is not available - portable downloads will be used instead"
-    Info "(winget ships with Windows 10 1809+ and Windows 11. App Installer in the Microsoft Store.)"
+    Info "(winget ships with Windows 10 1809+ and Windows 11.)"
 }
 
 # ----------------------------------------------------------------------

@@ -74,7 +74,7 @@ considered alpha quality - expect rough edges and breaking changes before 1.0.
 - **Three censor modes**:
   - `Silence` - mute the offending interval.
   - `Beep` - overlay a 1 kHz tone.
-  - `Fun` - drop a Microsoft Sam style TTS replacement (via `espeak-ng`).
+  - `Fun` - drop a retro robotic TTS replacement (via `espeak-ng`).
 - **Transcript-only mode**. Save a full uncensored `.txt` transcript
   without re-rendering the media.
 - **Phonetic / leetspeak matching** - catches `fucks`, `fuuuck`, `phuck`,

@@ -1,10 +1,10 @@
-"""Microsoft-Sam-style TTS for the 'fun' censor mode.
+"""Retro robotic TTS for the 'fun' censor mode.
 
 We shell out to `espeak-ng` (or `espeak` as a fallback) using one of the
-Klatt formant voice variants. Klatt is the same family of formant
-synthesizer that powered the original Microsoft Sam in SAPI 4, so the
-output has that unmistakable 1995-talking-computer character without
-needing to ship any actual Microsoft assets.
+Klatt formant voice variants. The Klatt family is a classic formant
+synthesizer first published in the early 80s; it gives the output that
+unmistakable 1995-talking-computer character, and the only third-party
+asset we depend on is espeak-ng itself.
 
 Each flagged interval gets its own short WAV clip generated up-front,
 then the audio renderer (`censor.audio.render_censored_fun`) mixes those
@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 
 
-# Klatt variants are the closest match to the Microsoft Sam timbre.
+# Klatt formant variants give that classic talking-computer timbre.
 # `+klatt5` is a low/male voice which fits casual swears best.
 _DEFAULT_VOICE = "en+klatt5"
 # Slightly faster than the espeak-ng default (175) so short PG words fit

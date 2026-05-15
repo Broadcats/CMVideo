@@ -284,7 +284,7 @@ def run(
                     raise RuntimeError(funtts.INSTALL_HINT)
                 _emit(
                     progress, "render", 0.0,
-                    f"Generating Microsoft Sam clips for {len(intervals)} word(s)...",
+                    f"Generating TTS clips for {len(intervals)} word(s)...",
                 )
                 tts_dir = Path(tmp) / "tts"
                 tts_dir.mkdir(exist_ok=True)
@@ -300,7 +300,7 @@ def run(
                             0.3 * (i + 1) / len(intervals),
                             f"Generating TTS clips... ({i + 1}/{len(intervals)})",
                         )
-                _emit(progress, "render", 0.35, "Mixing Microsoft Sam into audio...")
+                _emit(progress, "render", 0.35, "Mixing TTS into audio...")
                 audio.render_censored_fun(input_path, output_path, clips)
             else:
                 _emit(

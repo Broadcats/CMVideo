@@ -810,8 +810,15 @@ h1 {
   left: 50%;
   bottom: 0.76em;
   transform: translateX(-50%);
+  /* Both width AND height in em (not `height: auto`) because Firefox
+     and some WebKit builds ignore CSS width on an inline <svg> that
+     lacks intrinsic dimensions, falling back to the 300x150 default.
+     Explicit em sizing here plus width/height attrs on the <svg>
+     element make this render correctly across browsers. 0.62 * 18/24
+     = 0.465em keeps the camera's 4:3 viewBox aspect. */
   width: 0.62em;
-  height: auto;
+  height: 0.465em;
+  max-width: 0.62em;
   display: block;
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
 }
@@ -822,6 +829,8 @@ h1 {
 }
 .cam-i.cam-i-sm .cam-i-dot {
   width: 0.58em;
+  height: 0.435em;
+  max-width: 0.58em;
   bottom: 0.74em;
 }
 

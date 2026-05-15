@@ -43,6 +43,13 @@ class CensorOptions:
     # `cookiefile`. Used to authenticate against login-gated sites.
     # Ignored for local-file jobs.
     cookies_file: Path | None = None
+    # Output frame rate. "source" passes the source's fps through
+    # untouched (-c:v copy on the render side, no yt-dlp filter on
+    # the download side). "24" / "30" / "48" / "60" force a video
+    # re-encode at the chosen rate during the censor pass, and ask
+    # yt-dlp to prefer a matching source format during download.
+    fps: str = "source"
+
 
 
 @dataclass
@@ -167,6 +174,7 @@ def run(
                 video_quality=options.video_quality,
                 audio_quality=options.audio_quality,
                 cookies_file=options.cookies_file,
+                fps=options.fps,
                 progress_cb=_dlcb,
             )
         except Exception as e:  # noqa: BLE001
@@ -301,14 +309,15 @@ def run(
                             f"Generating TTS clips... ({i + 1}/{len(intervals)})",
                         )
                 _emit(progress, "render", 0.35, "Mixing TTS into audio...")
-                audio.render_censored_fun(input_path, output_path, clips)
+                audio.render_censored_fun(input_path, output_path, clips, fps=options.fps)
             else:
                 _emit(
                     progress, "render", 0.0,
                     f"Censoring {len(flagged)} word(s)...",
                 )
                 audio.render_censored(
-                    input_path, output_path, intervals, options.mode
+                    input_path, output_path, intervals, options.mode,
+                    fps=options.fps,
                 )
             _emit(progress, "render", 1.0, "Render complete.")
             final_output_path = output_path

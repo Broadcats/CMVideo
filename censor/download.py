@@ -135,6 +135,7 @@ def download(
     audio_quality: str = "192",
     progress_cb: DownloadProgressCb | None = None,
     cookies_file: Path | None = None,
+    fps: str = "source",
 ) -> Path:
     """Download a URL to `output_dir` in the requested format.
 
@@ -184,7 +185,7 @@ def download(
     hooks.append(_make_finished_hook(final_path_holder))
 
     if fmt in VIDEO_DOWNLOAD_FORMATS:
-        format_selector = _video_format_selector(fmt, video_quality)
+        format_selector = _video_format_selector(fmt, video_quality, fps)
         ydl_opts: dict = {
             "format": format_selector,
             "outtmpl": str(output_dir / "%(title).180B [%(id)s].%(ext)s"),
@@ -254,7 +255,7 @@ def download(
     )
 
 
-def _video_format_selector(fmt: str, quality_label: str) -> str:
+def _video_format_selector(fmt: str, quality_label: str, fps: str = "source") -> str:
     """Build a yt-dlp format selector for video output, capped to the chosen
     height (or pinned to ``worstvideo`` for ``Worst``).
 
@@ -267,17 +268,39 @@ def _video_format_selector(fmt: str, quality_label: str) -> str:
     if height == "worst":
         return "worstvideo+worstaudio/worst"
 
+    # FPS clause: empty for "source", [fps<=30] for "24" / "30",
+    # [fps>=50] for "48" / "60". yt-dlp's "fps" key is the source's
+    # native rate; we filter loosely and rely on the un-filtered
+    # fallbacks if no matching format exists.
+    fps_clause = {
+        "source": "",
+        "24": "[fps<=30]",
+        "30": "[fps<=30]",
+        "48": "[fps>=50]",
+        "60": "[fps>=50]",
+    }.get(fps, "")
+
     if fmt == "mp4":
         if height is None:
-            return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+            return (
+                f"bestvideo[ext=mp4]{fps_clause}+bestaudio[ext=m4a]/"
+                f"bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                f"best[ext=mp4]/best"
+            )
         return (
+            f"bestvideo[ext=mp4][height<={height}]{fps_clause}+bestaudio[ext=m4a]/"
             f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/"
             f"best[ext=mp4][height<={height}]/best[height<={height}]/best"
         )
     if fmt == "webm":
         if height is None:
-            return "bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo+bestaudio/best"
+            return (
+                f"bestvideo[ext=webm]{fps_clause}+bestaudio[ext=webm]/"
+                f"bestvideo[ext=webm]+bestaudio[ext=webm]/"
+                f"bestvideo+bestaudio/best"
+            )
         return (
+            f"bestvideo[ext=webm][height<={height}]{fps_clause}+bestaudio[ext=webm]/"
             f"bestvideo[ext=webm][height<={height}]+bestaudio[ext=webm]/"
             f"bestvideo[height<={height}]+bestaudio/"
             f"best[height<={height}]/best"

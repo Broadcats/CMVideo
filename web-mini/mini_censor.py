@@ -130,25 +130,52 @@ def _enable_expr(intervals) -> str:
     return "+".join(parts)
 
 
-def render(src: Path, dst: Path, intervals, mode: str, fmt: str) -> None:
+def render(src: Path, dst: Path, intervals, mode: str, fmt: str, fps: str = "source") -> None:
     """Re-encode `src` to `dst` applying `mode` ('silence' or 'beep')
     to every interval. `fmt` is the requested output extension
-    ('mp4' or 'mp3'); when there are no intervals we just copy."""
-    if not intervals:
-        log.info("No censor intervals - copying through")
+    ('mp4' or 'mp3'). `fps` is one of 'source' (passthrough),
+    '30', or '60' - when not 'source' we force a video re-encode
+    so the output really runs at the chosen rate.
+
+    When there are no intervals AND no fps override we just copy."""
+    fps_target = None
+    if fps in ("30", "60") and fmt == "mp4":
+        fps_target = int(fps)
+
+    if not intervals and fps_target is None:
+        log.info("No censor intervals + no fps override - copying through")
         shutil.copy(src, dst)
         return
 
-    enable = _enable_expr(intervals)
+    enable = _enable_expr(intervals) if intervals else "0"  # always-false expr
     is_audio_only = fmt == "mp3" or src.suffix.lower() in {".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus"}
 
+    # Video codec settings: -c:v copy when we don't need to touch
+    # frames (source fps + just muting audio), otherwise libx264 at
+    # ultrafast so we stay inside the 220s ffmpeg timeout for the
+    # 8-min censor cap.
+    video_codec = ["-c:v", "copy"]
+    if fps_target is not None and not is_audio_only:
+        video_codec = [
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-r", str(fps_target),
+            "-pix_fmt", "yuv420p",
+        ]
+
     if mode == "silence":
-        af = f"volume=enable='{enable}':volume=0"
+        af = f"volume=enable='{enable}':volume=0" if intervals else None
         cmd = ["ffmpeg", "-y", "-i", str(src)]
         if is_audio_only:
-            cmd += ["-vn", "-af", af, "-c:a", "libmp3lame" if fmt == "mp3" else "aac", "-b:a", "192k"]
+            audio_args = ["-vn"]
+            if af:
+                audio_args += ["-af", af]
+            cmd += audio_args + ["-c:a", "libmp3lame" if fmt == "mp3" else "aac", "-b:a", "192k"]
         else:
-            cmd += ["-af", af, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+            if af:
+                cmd += ["-af", af]
+            cmd += video_codec + ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
         cmd += [str(dst)]
     elif mode == "beep":
         # Generate a continuous 1 kHz sine, gate it so it only sounds
@@ -171,7 +198,7 @@ def render(src: Path, dst: Path, intervals, mode: str, fmt: str) -> None:
         else:
             cmd += [
                 "-map", "0:v?", "-map", "[a]",
-                "-c:v", "copy",
+            ] + video_codec + [
                 "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart", "-shortest",
             ]

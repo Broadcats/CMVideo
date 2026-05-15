@@ -109,6 +109,7 @@
 
   function getMode()   { var s = form.querySelector('input[name="mini-mode"]:checked'); return s ? s.value : "download"; }
   function getFormat() { var s = form.querySelector('input[name="mini-fmt"]:checked');  return s ? s.value : "mp4"; }
+  function getFPS()    { var s = form.querySelector('input[name="mini-fps"]:checked');  return s ? s.value : "source"; }
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -129,8 +130,14 @@
   }
 
   /* ---- pill highlight + button-label sync ---- */
+  var fpsRow = document.getElementById("mini-fps-row");
+  function syncFpsRow() {
+    if (!fpsRow) return;
+    // MP3 has no frames; hide the fps row entirely when audio is selected.
+    fpsRow.classList.toggle("hidden", getFormat() === "mp3");
+  }
   Array.prototype.forEach.call(
-    form.querySelectorAll('input[name="mini-fmt"], input[name="mini-mode"]'),
+    form.querySelectorAll('input[name="mini-fmt"], input[name="mini-mode"], input[name="mini-fps"]'),
     function (input) {
       input.addEventListener("change", function () {
         var groupName = input.getAttribute("name");
@@ -142,10 +149,12 @@
           }
         );
         if (groupName === "mini-mode") syncBtnLabel();
+        if (groupName === "mini-fmt")  syncFpsRow();
       });
     }
   );
   syncBtnLabel();
+  syncFpsRow();
 
   /* ---- selected file row ---- */
   var selectedFile = null;
@@ -234,10 +243,23 @@
       if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
     }
 
-    // YouTube takes the embed-and-censor path regardless of mode/format.
+    // YouTube short-circuit. Their anti-bot blocks both the direct
+    // download (datacenter IP) AND the transcript fetch from this
+    // free HF Space, so calling the API is just a 20s wait that ends
+    // in a 502. Tell the user up front and scroll to the desktop app
+    // downloads, which run from their own connection and aren't
+    // affected. Saves the round-trip and the failed-fetch frustration.
     var ytId = extractYouTubeId(url);
     if (ytId && !selectedFile) {
-      runYouTubeCensorFlow(url, ytId);
+      setStatus(
+        "YouTube blocks free cloud servers from fetching captions or video. " +
+        "The desktop app runs from your own connection and handles YouTube fully \u2014 grab it below.",
+        "error"
+      );
+      var dl = document.getElementById("downloads");
+      if (dl && dl.scrollIntoView) {
+        try { dl.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (_) {}
+      }
       return;
     }
 
@@ -253,6 +275,9 @@
     var fd = new FormData();
     fd.append("format", fmt);
     fd.append("mode", mode);
+    // Only send fps when MP4. MP3 is audio-only so the backend ignores
+    // it, but skipping it here keeps the request payload honest.
+    if (fmt === "mp4") fd.append("fps", getFPS());
     if (selectedFile) fd.append("file", selectedFile);
     else              fd.append("url", url);
 

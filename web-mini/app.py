@@ -58,6 +58,7 @@ RATE_LIMIT_PER_HOUR = "5/hour"
 
 ALLOWED_FORMATS = {"mp4", "mp3"}
 ALLOWED_MODES = {"download", "silence", "beep"}
+ALLOWED_FPS = {"source", "30", "60"}
 
 WORDLISTS_DIR = Path(os.environ.get("CMVIDEO_WORDLISTS_DIR", "wordlists")).resolve()
 
@@ -534,9 +535,20 @@ def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict
     return opts
 
 
-def _video_format_selector() -> str:
+def _video_format_selector(fps: str = "source") -> str:
     h = MAX_VIDEO_HEIGHT
+    # FPS clause: empty for "source", [fps<=30] for 30,
+    # [fps>=50] for 60 (real 60fps streams sometimes report 59.94).
+    # We also fall through to the un-filtered selector so we still get
+    # *something* if no format matches the requested fps.
+    fps_clause = {
+        "source": "",
+        "30": "[fps<=30]",
+        "60": "[fps>=50]",
+    }.get(fps, "")
     return (
+        f"bestvideo[height<={h}]{fps_clause}[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+        f"bestvideo[height<={h}]{fps_clause}[ext=mp4]+bestaudio/"
         f"bestvideo[height<={h}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
         f"bestvideo[height<={h}][ext=mp4]+bestaudio/"
         f"best[height<={h}][ext=mp4]/"
@@ -544,11 +556,11 @@ def _video_format_selector() -> str:
     )
 
 
-def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesize: int) -> Path:
+def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesize: int, fps: str = "source") -> Path:
     opts = _ydl_common_opts(tmpdir, max_duration, max_filesize)
     if fmt == "mp4":
         opts.update({
-            "format": _video_format_selector(),
+            "format": _video_format_selector(fps),
             "merge_output_format": "mp4",
             "postprocessors": [
                 {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"},
@@ -608,7 +620,7 @@ def _do_info(url: str) -> dict:
 
 
 # ---- censor pipeline ------------------------------------------------------
-def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path) -> Path:
+def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path, fps: str = "source") -> Path:
     duration = mini_censor.probe_duration(src)
     if duration > MAX_CENSOR_DURATION_SECONDS + 5:
         raise RuntimeError(
@@ -618,7 +630,7 @@ def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path) -> Path:
     words = _wordlist_tokens()
     intervals = mini_censor.find_intervals(src, words)
     dst = tmpdir / f"censored.{fmt}"
-    mini_censor.render(src, dst, intervals, mode=mode, fmt=fmt)
+    mini_censor.render(src, dst, intervals, mode=mode, fmt=fmt, fps=fps)
     return dst
 
 
@@ -719,13 +731,20 @@ async def api_process(
     mode: str = Form(...),
     url: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    fps: str = Form("source"),
 ):
     fmt = (format or "").lower().strip()
     md = (mode or "").lower().strip()
+    fps_choice = (fps or "source").lower().strip()
     if fmt not in ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
     if md not in ALLOWED_MODES:
         raise HTTPException(status_code=400, detail="Mode must be 'download', 'silence', or 'beep'.")
+    if fps_choice not in ALLOWED_FPS:
+        raise HTTPException(status_code=400, detail="FPS must be 'source', '30', or '60'.")
+    # FPS is video-only; ignore the field for MP3.
+    if fmt == "mp3":
+        fps_choice = "source"
 
     have_url = bool(url and url.strip())
     have_file = file is not None and bool(file.filename)
@@ -758,7 +777,7 @@ async def api_process(
             max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
             try:
                 src = await asyncio.wait_for(
-                    asyncio.to_thread(_do_download, clean_url, fmt, tmpdir, max_dur, max_size),
+                    asyncio.to_thread(_do_download, clean_url, fmt, tmpdir, max_dur, max_size, fps_choice),
                     timeout=DOWNLOAD_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
@@ -779,7 +798,7 @@ async def api_process(
         else:
             try:
                 out_path = await asyncio.wait_for(
-                    asyncio.to_thread(_do_censor, src, fmt, md, tmpdir),
+                    asyncio.to_thread(_do_censor, src, fmt, md, tmpdir, fps_choice),
                     timeout=CENSOR_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:

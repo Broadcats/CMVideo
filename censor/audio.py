@@ -134,6 +134,27 @@ def _write_filter_script(filter_text: str) -> str:
     return path
 
 
+def _video_codec_for(fps: str, has_video: bool) -> list[str]:
+    """Return the ffmpeg -c:v / -r argv slice for the chosen fps.
+
+    - "source" or no video: "-c:v copy" (zero re-encode cost).
+    - "24" / "30" / "48" / "60": full re-encode at the chosen rate.
+      Uses libx264 veryfast / CRF 20 which on a desktop CPU runs
+      well above realtime, keeping the censor pass snappy.
+    """
+    if not has_video:
+        return []
+    if fps == "source" or fps not in {"24", "30", "48", "60"}:
+        return ["-c:v", "copy"]
+    return [
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "20",
+        "-r", str(int(fps)),
+        "-pix_fmt", "yuv420p",
+    ]
+
+
 def _run_ffmpeg(cmd: list[str], failure_msg: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -145,6 +166,7 @@ def render_censored(
     output_path: Path,
     intervals: list[tuple[float, float]],
     mode: str,
+    fps: str = "source",
 ) -> None:
     """Write `output_path` = `input_path` with the given audio intervals censored.
 
@@ -161,12 +183,28 @@ def render_censored(
     audio_codec = _audio_codec_args_for(output_path)
 
     if not intervals:
-        _run_ffmpeg(
-            [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
-            "ffmpeg copy failed",
-        )
+        if fps == "source" or not has_video:
+            _run_ffmpeg(
+                [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
+                "ffmpeg copy failed",
+            )
+        else:
+            # User picked a non-source fps but there are no censor
+            # intervals - re-encode video at the target rate, copy
+            # the audio through untouched.
+            video_codec = _video_codec_for(fps, has_video)
+            _run_ffmpeg(
+                [
+                    _ffmpeg(), "-y", "-i", str(input_path),
+                    *video_codec,
+                    "-c:a", "copy",
+                    str(output_path),
+                ],
+                "ffmpeg fps re-encode failed",
+            )
         return
 
+    video_codec = _video_codec_for(fps, has_video)
     expr = _between_expr(intervals)
     script_path: str | None = None
     try:
@@ -183,7 +221,7 @@ def render_censored(
                 cmd = base + [
                     "-map", "0:v:0",
                     "-map", "0:a:0",
-                    "-c:v", "copy",
+                    *video_codec,
                     *af_args,
                     *audio_codec,
                     str(output_path),
@@ -208,7 +246,7 @@ def render_censored(
                 cmd = base + [
                     "-map", "0:v:0",
                     "-map", "[a]",
-                    "-c:v", "copy",
+                    *video_codec,
                     *audio_codec,
                     str(output_path),
                 ]
@@ -228,6 +266,7 @@ def render_censored_fun(
     input_path: Path,
     output_path: Path,
     clips: list[tuple[float, float, Path]],
+    fps: str = "source",
 ) -> None:
     """'Fun' mode: silence each interval and mix a TTS clip on top.
 
@@ -240,11 +279,25 @@ def render_censored_fun(
     audio_codec = _audio_codec_args_for(output_path)
 
     if not clips:
-        _run_ffmpeg(
-            [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
-            "ffmpeg copy failed",
-        )
+        if fps == "source" or not has_video:
+            _run_ffmpeg(
+                [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
+                "ffmpeg copy failed",
+            )
+        else:
+            video_codec = _video_codec_for(fps, has_video)
+            _run_ffmpeg(
+                [
+                    _ffmpeg(), "-y", "-i", str(input_path),
+                    *video_codec,
+                    "-c:a", "copy",
+                    str(output_path),
+                ],
+                "ffmpeg fps re-encode failed",
+            )
         return
+
+    video_codec = _video_codec_for(fps, has_video)
 
     intervals = [(s, e) for s, e, _ in clips]
     silence_expr = _between_expr(intervals)
@@ -294,7 +347,7 @@ def render_censored_fun(
             cmd.extend([
                 "-map", "0:v:0",
                 "-map", "[a]",
-                "-c:v", "copy",
+                *video_codec,
                 *audio_codec,
                 str(output_path),
             ])

@@ -272,6 +272,11 @@ class CensorApp:
         self._last_audio_quality = "192 kbps"
         self._quality_kind = "video"  # "video" / "audio" / "wav"
 
+        # FPS picker for the censor / download output. "Source" =
+        # passthrough (no video re-encode). The string values mirror
+        # the labels and are mapped to CensorOptions.fps as lowercase.
+        self.fps_var: tk.StringVar = tk.StringVar(value="Source")
+
         # Output folder. None = auto (Downloads for URL jobs, the input
         # file's folder for local jobs).
         self._output_dir: Path | None = None
@@ -792,6 +797,25 @@ class CensorApp:
         # When the user picks a new quality, remember it against the
         # current quality_kind so a Format swap doesn't lose it.
         self.quality_combo.bind("<<ComboboxSelected>>", self._on_quality_selected)
+
+        # FPS picker. "Source" preserves the input's frame rate
+        # (zero re-encode cost on local files, no yt-dlp filter on
+        # downloads). Any other choice forces a video re-encode at
+        # the chosen rate during the censor pass and asks yt-dlp to
+        # prefer a matching source format during download.
+        self.fps_label = tk.Label(
+            row, text="FPS", bg=Theme.BG, fg=Theme.TEXT_MUTED, font=self.font_drop_sub
+        )
+        self.fps_label.pack(side="left", padx=(8, 4))
+        self.fps_combo = ttk.Combobox(
+            row,
+            textvariable=self.fps_var,
+            values=["Source", "24", "30", "48", "60"],
+            state="readonly",
+            width=8,
+            style="Dark.TCombobox",
+        )
+        self.fps_combo.pack(side="left")
 
         # Cookies status strip. Hidden until the user picks a cookies
         # file (right-click on the URL entry -> "Use cookies file...").
@@ -1337,6 +1361,18 @@ class CensorApp:
             )
         except tk.TclError:
             pass
+        # The FPS combo is video-only; disable it when the user has
+        # picked an audio-only download container. It stays usable
+        # for local-file jobs regardless of URL state since the value
+        # is also wired into the censor render path.
+        if hasattr(self, "fps_combo"):
+            fps_usable = self._quality_kind == "video"
+            try:
+                self.fps_combo.configure(
+                    state="readonly" if fps_usable else "disabled"
+                )
+            except tk.TclError:
+                pass
 
     def _on_quality_selected(self, _event=None) -> None:  # type: ignore[no-untyped-def]
         """Remember the user's pick against the active quality kind."""
@@ -2170,6 +2206,10 @@ class CensorApp:
             # Only meaningful in URL mode; pipeline ignores it for
             # local-file jobs since `download.download` isn't called.
             cookies_file=self._cookies_file,
+            # "Source" -> "source", "24" -> "24", ... pipeline lower-cases
+            # again defensively, but normalising here keeps the contract
+            # crisp on the boundary.
+            fps=self.fps_var.get().lower(),
         )
 
         # Snapshot the work list. URL mode is always a single-item job;

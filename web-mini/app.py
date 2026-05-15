@@ -17,6 +17,7 @@ from pathlib import Path
 
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -68,6 +69,26 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="CMVideo Mini", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS: the canonical UI is the widget embedded on cmvideo.online, which
+# calls this Space cross-origin. The Space's own / endpoint is a fallback
+# for direct visitors and same-origin from there needs no CORS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://cmvideo.online",
+        "https://www.cmvideo.online",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+    expose_headers=["Content-Disposition"],
+    max_age=86400,
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 

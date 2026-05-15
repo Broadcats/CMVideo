@@ -10,13 +10,14 @@ user-facing behaviour changes versus 0.4.2-alpha.
 
 ### Added (out-of-tree, alongside 0.4.3)
 
-- **CMVideo Mini** - a browser-only "URL &rarr; MP4 / MP3" slice of the
-  full app, designed to deploy as a free Hugging Face Space. Sources
-  live in [`web-mini/`](web-mini/). Capped to 720p / 192 kbps / 30 min
-  / 200 MB / 5 downloads per hour per IP so it stays free and keeps
-  the desktop app the obvious next step. The cmvideo.online landing
-  page now links to it from the hero and from a dedicated "Try in the
-  browser" section.
+- **CMVideo Mini** - the URL-grabber slice of the full app, embedded
+  directly into the cmvideo.online hero. The right-side mockup is now
+  a working widget: paste a URL, pick MP4 or MP3, hit Download. Capped
+  to 720p / 192 kbps / 30 min / 200 MB / 5 downloads per hour per IP
+  so it stays free and keeps the desktop app the obvious next step.
+  Backend lives in [`web-mini/`](web-mini/) and deploys to a free
+  Hugging Face Space; the cmvideo.online widget calls it cross-origin
+  via CORS.
 
 ## [0.4.2-alpha] - 2026-05-15
 

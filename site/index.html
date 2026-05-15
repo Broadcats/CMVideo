@@ -38,10 +38,6 @@
             <span class="btn-label">Download</span>
             <span class="btn-meta" id="primary-download-meta">choose your OS below</span>
           </a>
-          <a class="btn btn-ghost" href="#try-mini">
-            <span class="btn-label">Try in browser</span>
-            <span class="btn-meta">URL &rarr; MP4 / MP3 &middot; no install</span>
-          </a>
           <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">
             View on GitHub
           </a>
@@ -53,35 +49,45 @@
         </p>
       </div>
 
-      <div class="hero-shot" aria-hidden="true">
+      <div class="hero-shot hero-mini">
         <div class="shot-frame">
           <div class="shot-titlebar">
             <span class="dot dot-r"></span>
             <span class="dot dot-y"></span>
             <span class="dot dot-g"></span>
-            <span class="shot-title">CMVideo 0.4.3-alpha</span>
+            <span class="shot-title">CMVideo Mini</span>
           </div>
-          <div class="shot-body">
+          <form class="shot-body" id="mini-form" autocomplete="off" novalidate>
             <div class="shot-brand">Clean My Video</div>
-            <div class="shot-tag">Automatic profanity removal for video and audio</div>
+            <div class="shot-tag">Mini web version &middot; paste a URL, get an MP4 or MP3</div>
             <div class="shot-strip" aria-hidden="true"></div>
-            <div class="shot-drop">
-              <div class="shot-arrow">&darr;</div>
-              <div class="shot-drop-title">Drop a file here</div>
-              <div class="shot-drop-sub">MP4, MOV, MP3, WAV, OGG &mdash; or click to browse</div>
+
+            <label class="shot-field" for="mini-url">
+              <span class="shot-field-label">Video URL</span>
+              <input id="mini-url" type="url" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false" autocomplete="off" required />
+            </label>
+
+            <div class="shot-row shot-fmt-row" role="radiogroup" aria-label="Format">
+              <label class="chip pill on" data-fmt="mp4">
+                <input type="radio" name="mini-fmt" value="mp4" checked />
+                MP4 &middot; up to 720p
+              </label>
+              <label class="chip pill" data-fmt="mp3">
+                <input type="radio" name="mini-fmt" value="mp3" />
+                MP3 &middot; 192 kbps
+              </label>
             </div>
-            <div class="shot-row">
-              <span class="chip checked">Remove swears</span>
-              <span class="chip checked">Remove racial slurs</span>
-              <span class="chip">Save transcript</span>
-            </div>
-            <div class="shot-row">
-              <span class="chip pill on">Silence</span>
-              <span class="chip pill">Beep</span>
-              <span class="chip pill">Fun</span>
-            </div>
-            <button class="shot-btn">Censor</button>
-          </div>
+
+            <button class="shot-btn" id="mini-btn" type="submit">Download</button>
+
+            <p class="shot-status" id="mini-status" aria-live="polite"></p>
+
+            <p class="shot-caps">
+              Capped to 720p / 192&nbsp;k / 30&nbsp;min / 5 per hour. For full
+              quality, every format, batch processing and the actual
+              <strong>censoring</strong> &mdash; <a href="#downloads">download the app &darr;</a>
+            </p>
+          </form>
         </div>
       </div>
     </div>
@@ -118,41 +124,6 @@
           7-hour stream into something genuinely watchable.
         </p>
       </article>
-    </div>
-  </section>
-
-  <section id="try-mini" class="try-mini">
-    <div class="container">
-      <div class="try-mini-card">
-        <div class="try-mini-body">
-          <p class="eyebrow">mini web version &middot; no install</p>
-          <h2>Just want to grab a clip? <span class="grad-text">Try in the browser.</span></h2>
-          <p class="muted">
-            <strong>CMVideo Mini</strong> is the URL-grabber slice of the full
-            app, running on the web. Paste any YouTube / yt-dlp-supported URL
-            and pull down a clean <code>.mp4</code> (up to 720p) or
-            <code>.mp3</code> (192 kbps). No account, no install, no upload of
-            your own files - it runs server-side against the source URL only.
-          </p>
-          <p class="muted small">
-            Capped to keep it free: 30 min / 200 MB / 5 clips per hour per
-            visitor. For full quality (up to 4K / 320 kbps), every format
-            (MKV, WebM, AVI, FLAC, OGG, Opus, M4A, AAC ...), batch processing,
-            and the actual <strong>censoring</strong> (silence / beep / retro
-            robotic TTS) - download the desktop app below.
-          </p>
-          <div class="try-mini-cta">
-            <a class="btn btn-primary" href="https://broadcats-cmvideo-mini.hf.space" target="_blank" rel="noopener">
-              <span class="btn-label">Open CMVideo Mini</span>
-              <span class="btn-meta">opens in a new tab</span>
-            </a>
-            <a class="btn btn-ghost" href="#downloads">
-              <span class="btn-label">Get the full app instead</span>
-              <span class="btn-meta">no caps &middot; runs locally</span>
-            </a>
-          </div>
-        </div>
-      </div>
     </div>
   </section>
 

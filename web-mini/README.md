@@ -139,15 +139,20 @@ The cmvideo.online "Try the mini web version" CTA points at the direct
 **3. Update the link on cmvideo.online.**
 
 Once you have your actual `<user>-cmvideo-mini.hf.space` URL, search
-the main repo for the placeholder and replace it:
+the main repo for the placeholder and replace it. The cmvideo.online
+hero embeds the widget directly via cross-origin fetch, so the
+primary place to update is `site/app.js`:
 
 ```bash
 cd /path/to/CMVideo
 grep -rln 'broadcats-cmvideo-mini.hf.space' site/ web-mini/
-# edit any matches to use your real Space URL
+# matches: site/app.js  (MINI_API_BASE constant)
+# edit the const to use your real Space URL
 ```
 
-(There's only one link on the main site, in `site/index.html`.)
+The Space's own root URL (`<user>-cmvideo-mini.hf.space`) still
+serves the same widget at `/` as a fallback for visitors who land
+on it directly.
 
 **4. Updating the Space later.**
 

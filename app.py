@@ -81,7 +81,7 @@ except Exception:  # noqa: BLE001
 APP_TITLE = "CMVideo"           # window / taskbar title (short)
 APP_BRAND = "Clean My Video"    # full wordmark shown inside the UI
 APP_TAGLINE = "Automatic profanity removal for video and audio"
-COPYRIGHT = f"\u00a9 Daniel Brown 2026 \u00b7 v{APP_VERSION}"
+COPYRIGHT = f"\u00a9 Dandyfeet 2026 \u00b7 v{APP_VERSION}"
 
 SUPPORTED_FILETYPES = [
     (

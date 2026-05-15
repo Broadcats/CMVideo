@@ -19,7 +19,7 @@
 
   var os = detectOS();
   var labels = {
-    linux: { name: "Linux", meta: ".tar.gz \u00b7 install.sh" },
+    linux: { name: "Linux", meta: ".AppImage \u00b7 no install \u00b7 just run it" },
     windows: { name: "Windows", meta: ".zip \u00b7 install.ps1" },
     mac: { name: "macOS", meta: ".tar.gz \u00b7 untested" }
   };

@@ -24,7 +24,7 @@
   <header class="hero">
     <div class="container">
       <div class="hero-text">
-        <p class="eyebrow">v0.4.0-alpha &middot; open &middot; local-first &middot; live</p>
+        <p class="eyebrow">v0.4.0-alpha &middot; open &middot; local-first</p>
         <h1>Clean My <span class="grad-text">Video</span>.</h1>
         <p class="lede">
           Drag in any clip. Drop out a clean copy. CMVideo finds every swear
@@ -121,19 +121,18 @@
     <div class="container">
       <h2>Get CMVideo <span class="ver">0.4.0-alpha</span></h2>
       <p class="muted">
-        Source release. Requires Python 3.10+. The bundled
-        <code>install.sh</code> / <code>install.ps1</code> sets up
-        ffmpeg and a private venv with the heavy ML deps on first
-        launch - usually 1-3 minutes.
+        Linux ships as a single-file AppImage &mdash; download, mark it
+        executable, double-click. No install, no Python setup. Windows and
+        macOS use the source archive with the bundled installer.
       </p>
 
       <div class="download-grid">
-        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-source.tar.gz">
+        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-x86_64.AppImage">
           <div class="dl-icon">L</div>
           <div class="dl-title">Linux</div>
           <div class="dl-sub">
-            <code>.tar.gz</code> &middot; install with
-            <code>./install.sh</code>
+            <code>.AppImage</code> &middot; <code>chmod +x</code> &rarr; double-click
+            <span class="tag">no install</span>
           </div>
         </a>
 
@@ -157,8 +156,10 @@
       </div>
 
       <p class="muted small">
-        Checksums and full release notes:
-        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.0-alpha" target="_blank" rel="noopener">github.com &rarr; releases &rarr; v0.4.0-alpha</a>
+        Linux first run:
+        <code>chmod +x CMVideo-0.4.0-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.0-alpha-x86_64.AppImage</code>
+        &middot;
+        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.0-alpha" target="_blank" rel="noopener">checksums &amp; release notes</a>
       </p>
     </div>
   </section>

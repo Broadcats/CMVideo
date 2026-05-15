@@ -658,3 +658,29 @@ h1 {
 .shot-caps strong { color: var(--text); }
 .shot-caps a { color: var(--accent-hi); }
 .shot-caps a:hover { color: var(--accent-glow); }
+
+/* --- Mini widget: offline state when the HF Space isn't reachable --- */
+.shot-offline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 4px 2px;
+}
+.shot-offline-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent, #ff5f7a);
+}
+.shot-offline p {
+  margin: 0;
+  color: var(--muted, #b7b9c4);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.shot-offline .btn {
+  align-self: stretch;
+}

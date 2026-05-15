@@ -49,6 +49,34 @@
   var form        = document.getElementById("mini-form");
   if (!form) return;
 
+  /* Probe the mini service on page load. If HF returns a definitive
+   * 404 (i.e. the Space doesn't exist or is paused) hide the form
+   * entirely and show a clean offline state instead of letting people
+   * try and fail. Cold-start 503s and network errors are treated as
+   * "might be waking up" - we leave the widget alone for those. */
+  (function probeService() {
+    var ctrl = ("AbortController" in window) ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 4000);
+    fetch(MINI_API_BASE + "/healthz", { method: "GET", mode: "cors", signal: ctrl ? ctrl.signal : undefined })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (res.status === 404) showOffline();
+      })
+      .catch(function () { clearTimeout(timer); /* network/timeout: leave UI alone */ });
+  })();
+
+  function showOffline() {
+    var hero = form.closest(".hero-mini");
+    if (!hero) return;
+    var body = hero.querySelector(".shot-body") || hero;
+    body.innerHTML =
+      '<div class="shot-offline">' +
+      '  <div class="shot-offline-eyebrow">Mini service offline</div>' +
+      '  <p>The free web slice isn’t reachable right now. The desktop app is the full deal anyway — unlimited length, every format, real censoring, and it runs locally.</p>' +
+      '  <a class="btn btn-primary" href="#downloads">Download CMVideo</a>' +
+      '</div>';
+  }
+
   var card        = form.closest(".hero-mini") || form;
   var urlInput    = document.getElementById("mini-url");
   var fileInput   = document.getElementById("mini-file");

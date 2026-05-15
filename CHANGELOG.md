@@ -10,6 +10,11 @@ considered alpha quality - expect rough edges and breaking changes before 1.0.
 
 ### Added
 
+- **Windows x64 executable** (`CMVideo-0.4.0-alpha-win-amd64.exe`, ~230 MB
+  single file). Built on every tag via GitHub Actions (`windows-exe` job in
+  `.github/workflows/release.yml`); bundles Python, ffmpeg, ffprobe,
+  espeak-ng (with voice data), and the same Python stack as the AppImage.
+  CPU-only; uses `scripts/build-windows.ps1` locally on a Windows machine.
 - **Linux AppImage** (`CMVideo-0.4.0-alpha-x86_64.AppImage`, ~230 MB).
   Bundles Python 3.12, ffmpeg, ffprobe, espeak-ng and every Python dep
   (faster-whisper, ctranslate2, yt-dlp with all 1054 extractors, av,
@@ -59,9 +64,7 @@ considered alpha quality - expect rough edges and breaking changes before 1.0.
 
 ### Known issues
 
-- Standalone Windows / macOS builds are still source-archive only. Linux
-  has the AppImage; equivalent Windows `.exe` and macOS `.app` tracked
-  for 0.5.0.
-- macOS launchers exist but are untested.
+- macOS ships as source only (instructions mirror Linux); no signed `.app`
+  bundle yet and nothing has been validated on Apple hardware.
 - Fun mode CPU spend scales linearly with the clip count; a 7-hour
   stream with 1,300 TTS replacements takes ~30-60 min on a modern CPU.

@@ -2,14 +2,58 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+from censor.version import APP_VERSION
+
+
+def _bootstrap_bundle_paths() -> None:
+    """Prepend bundled tool dirs to PATH when running a PyInstaller build.
+
+    Linux AppImage drops ffmpeg/ffprobe/espeak next to the real executable;
+    Windows one-file extracts them under ``sys._MEIPASS``. ``shutil.which``
+    only sees what's on PATH, so wire that up before any worker imports
+    modules that shell out.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    roots: list[Path] = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        roots.append(Path(mei))
+    roots.append(Path(sys.executable).resolve().parent)
+    seen: set[Path] = set()
+    prefix: list[str] = []
+    for r in roots:
+        r = r.resolve()
+        if r in seen:
+            continue
+        seen.add(r)
+        prefix.append(str(r))
+    os.environ["PATH"] = os.pathsep.join(prefix + [os.environ.get("PATH", "")])
+    for r in roots:
+        data = r / "espeak-ng-data"
+        if data.is_dir():
+            os.environ.setdefault("ESPEAK_DATA_PATH", str(data))
+            break
+
+
+_bootstrap_bundle_paths()
+
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    HERE = Path(sys._MEIPASS)
+else:
+    HERE = Path(__file__).resolve().parent
+
+
 import queue
 import subprocess
-import sys
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
 import webbrowser
-from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from censor import pipeline
@@ -23,14 +67,6 @@ from censor.download import (
     is_url,
 )
 from censor.plugins import ensure_user_plugin_dir
-from censor.version import APP_VERSION
-
-
-if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-    HERE = Path(sys._MEIPASS)
-else:
-    HERE = Path(__file__).resolve().parent
-
 
 # tkinterdnd2 is optional - if missing we still work via the Browse button.
 try:

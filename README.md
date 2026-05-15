@@ -25,10 +25,30 @@ through them sequentially with a per-file progress bar.
 
 ## Install
 
-### Windows
+### Windows (recommended: portable .exe)
 
-1. Download / clone this folder.
-2. **Double-click `install.bat`** (or right-click `install.ps1` → Run
+Download `CMVideo-<version>-win-amd64.exe` from
+[Releases](https://github.com/Broadcats/CMVideo/releases/latest) and double-click
+it. Everything (Python, ffmpeg, espeak-ng, libraries) lives inside that one file;
+nothing is installed under `Program Files` and no separate Python install is
+required. The first transcription run still downloads Whisper model weights into
+your user cache (~150 MB for the default `small` model).
+
+SmartScreen may warn because the executable is not code-signed yet — use
+**More info** → **Run anyway** if that happens.
+
+Builds are produced automatically when a version tag is pushed (see
+`scripts/build-windows.ps1` and `.github/workflows/release.yml`). To compile
+locally on your own PC: open PowerShell in the repo folder and run
+`pwsh ./scripts/build-windows.ps1`.
+
+### Windows (optional: source + `install.ps1`)
+
+If you want a normal Python environment (e.g. to experiment with CUDA wheels
+yourself):
+
+1. Download or clone this folder.
+2. **Double-click `install.bat`** (or right-click `install.ps1` &rarr; Run
    with PowerShell).
 
 The installer:

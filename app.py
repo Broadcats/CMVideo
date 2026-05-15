@@ -183,9 +183,23 @@ def _parse_drop_data(data: str) -> list[str]:
     return paths
 
 
+# Cache the system font roster. `tkfont.families()` is a Tcl call
+# that on Linux/X11 walks every installed font (50-200 ms per call).
+# We pick 9+ fonts at startup; without this cache that's a half-second
+# to two-second startup hit for no benefit.
+_FONT_FAMILIES_CACHE: set[str] | None = None
+
+
+def _font_families() -> set[str]:
+    global _FONT_FAMILIES_CACHE
+    if _FONT_FAMILIES_CACHE is None:
+        _FONT_FAMILIES_CACHE = set(tkfont.families())
+    return _FONT_FAMILIES_CACHE
+
+
 def _pick_font(families: list[str], size: int, weight: str = "normal") -> tkfont.Font:
     """Return a tkinter Font using the first family that's installed."""
-    available = set(tkfont.families())
+    available = _font_families()
     for fam in families:
         if fam in available:
             return tkfont.Font(family=fam, size=size, weight=weight)
@@ -233,6 +247,15 @@ class CensorApp:
         # after-id for the event drain, kept so a starting worker can
         # bump the next tick forward to _ACTIVE_DRAIN_MS.
         self._drain_after_id: str | None = None
+        # Debounce ids + paint-cache for the gradient strip / resize
+        # handlers. Tk fires <Configure> continuously during window
+        # drags; coalescing keeps the UI thread responsive.
+        self._grad_redraw_after_id: str | None = None
+        self._resize_after_id: str | None = None
+        self._grad_last_w: int = -1
+        self._grad_last_h: int = -1
+        self._grad_image: tk.PhotoImage | None = None
+        self._resize_last_width: int = -1
 
         self.remove_swears = tk.BooleanVar(value=True)
         self.remove_slurs = tk.BooleanVar(value=True)
@@ -570,7 +593,7 @@ class CensorApp:
             bd=0,
         )
         self.accent_strip.pack(side="top", fill="x", pady=(0, 12))
-        self.accent_strip.bind("<Configure>", self._redraw_accent_strip)
+        self.accent_strip.bind("<Configure>", self._on_accent_configure)
 
     # Obfuscation key for the bundled resource. Just enough to break
     # `file` / `strings` recognition - the bundle isn't a secret, the
@@ -1778,9 +1801,33 @@ class CensorApp:
     # ---------- Resize handling ----------
 
     def _on_resize(self, event) -> None:  # type: ignore[no-untyped-def]
+        # Only the root window's Configure events are meaningful for
+        # the wrap-length adjustment; child-widget Configure events
+        # fire constantly and we don't care about them here.
         if event.widget is not self.root:
             return
-        wrap = max(180, event.width - 60)
+        # Skip the work entirely if the width is the same as last
+        # time. Window drags fire Configure events for size *and*
+        # position changes; without this guard, moving the window
+        # would relayout three labels per event for no reason.
+        if event.width == self._resize_last_width:
+            return
+        self._resize_last_width = event.width
+        # Coalesce: during a drag this fires many times per second.
+        # We only need the final width to update wraplength once.
+        if self._resize_after_id is not None:
+            try:
+                self.root.after_cancel(self._resize_after_id)
+            except tk.TclError:
+                pass
+        width = event.width
+        self._resize_after_id = self.root.after(
+            60, lambda: self._apply_resize(width)
+        )
+
+    def _apply_resize(self, width: int) -> None:
+        self._resize_after_id = None
+        wrap = max(180, width - 60)
         try:
             self.status_label.config(wraplength=wrap)
             self.drop_sub.config(wraplength=wrap - 40)
@@ -1800,11 +1847,29 @@ class CensorApp:
         b = round(b1 + (b2 - b1) * t)
         return f"#{r:02x}{g:02x}{b:02x}"
 
+    def _on_accent_configure(self, _event=None) -> None:
+        """Debounce <Configure> from the accent strip canvas. Tk fires
+        these continuously during a drag-resize; coalescing them down to
+        one repaint per burst is the single biggest win for UI latency."""
+        if self._grad_redraw_after_id is not None:
+            try:
+                self.root.after_cancel(self._grad_redraw_after_id)
+            except tk.TclError:
+                pass
+        self._grad_redraw_after_id = self.root.after(
+            60, self._redraw_accent_strip
+        )
+
     def _redraw_accent_strip(self, _event=None) -> None:
         """Paint a horizontal indigo -> violet -> cyan gradient onto the
-        accent strip canvas. Called on every <Configure> so the gradient
-        rescales with the window width.
+        accent strip canvas. Optimised to one Tk PhotoImage.put call
+        instead of one create_line per pixel - went from ~560 Tcl
+        roundtrips per repaint to 1.
+
+        Skipped entirely if the canvas size hasn't actually changed,
+        because Tk fires spurious <Configure> events for no-op moves.
         """
+        self._grad_redraw_after_id = None
         c = getattr(self, "accent_strip", None)
         if c is None:
             return
@@ -1815,14 +1880,36 @@ class CensorApp:
             return
         if w < 2 or h < 1:
             return
-        c.delete("grad")
+        if w == self._grad_last_w and h == self._grad_last_h:
+            return
+        self._grad_last_w, self._grad_last_h = w, h
+
         stops = (Theme.ACCENT_LO, Theme.ACCENT_GLOW, Theme.COOL)
         n = len(stops) - 1
+
+        # All the per-pixel maths stays in pure Python (~1 ms for a
+        # 560-wide window). The expensive part used to be the Tcl
+        # bridge, not the arithmetic.
+        cols = []
+        denom = max(1, w - 1)
         for x in range(w):
-            t = x / max(1, w - 1) * n
+            t = x / denom * n
             seg = min(int(t), n - 1)
-            col = self._lerp_hex(stops[seg], stops[seg + 1], t - seg)
-            c.create_line(x, 0, x, h, fill=col, tags="grad")
+            cols.append(self._lerp_hex(stops[seg], stops[seg + 1], t - seg))
+
+        # Tk PhotoImage.put accepts "{row1} {row2} ..." where each row
+        # is space-separated colours. One call here paints the whole
+        # canvas - the old code did `w` separate create_line calls.
+        img = tk.PhotoImage(width=w, height=h)
+        row = " ".join(cols)
+        img.put("{" + "} {".join([row] * h) + "}")
+
+        c.delete("grad")
+        c.create_image(0, 0, image=img, anchor="nw", tags="grad")
+        # Tk doesn't keep a strong ref to images held only by canvas
+        # items, so we have to anchor it on `self` or it'll be GC'd
+        # and the gradient will silently disappear.
+        self._grad_image = img
 
     def _set_drop_hover(self, hover: bool) -> None:
         if self._worker and self._worker.is_alive():

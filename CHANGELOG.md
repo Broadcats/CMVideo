@@ -10,6 +10,13 @@ considered alpha quality - expect rough edges and breaking changes before 1.0.
 
 ### Added
 
+- **Linux AppImage** (`CMVideo-0.4.0-alpha-x86_64.AppImage`, ~230 MB).
+  Bundles Python 3.12, ffmpeg, ffprobe, espeak-ng and every Python dep
+  (faster-whisper, ctranslate2, yt-dlp with all 1054 extractors, av,
+  onnxruntime, tkinterdnd2, Pillow). Download, `chmod +x`, double-click -
+  no install, no Python on the host required. Built with
+  `scripts/build-appimage.sh` (PyInstaller + linuxdeploy + appimagetool).
+  CPU-only by default; CUDA users keep using the source install.
 - **Drag-and-drop GUI** (Tkinter + `tkinterdnd2`). Drop a video or audio
   file onto the window to queue it.
 - **URL ingest**. Paste a YouTube or yt-dlp-supported URL and pick the
@@ -52,8 +59,9 @@ considered alpha quality - expect rough edges and breaking changes before 1.0.
 
 ### Known issues
 
-- Standalone (no-Python) binaries are not built yet - install requires
-  Python 3.10+. Tracked for 0.5.0.
+- Standalone Windows / macOS builds are still source-archive only. Linux
+  has the AppImage; equivalent Windows `.exe` and macOS `.app` tracked
+  for 0.5.0.
 - macOS launchers exist but are untested.
 - Fun mode CPU spend scales linearly with the clip count; a 7-hour
   stream with 1,300 TTS replacements takes ~30-60 min on a modern CPU.

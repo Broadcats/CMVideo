@@ -26,7 +26,10 @@ from censor.plugins import ensure_user_plugin_dir
 from censor.version import APP_VERSION
 
 
-HERE = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    HERE = Path(sys._MEIPASS)
+else:
+    HERE = Path(__file__).resolve().parent
 
 
 # tkinterdnd2 is optional - if missing we still work via the Browse button.

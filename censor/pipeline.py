@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,10 @@ from typing import Callable
 from . import audio, download, funtts, transcribe, wordlist
 
 
-WORDLISTS_DIR = Path(__file__).resolve().parent.parent / "wordlists"
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    WORDLISTS_DIR = Path(sys._MEIPASS) / "wordlists"
+else:
+    WORDLISTS_DIR = Path(__file__).resolve().parent.parent / "wordlists"
 
 
 @dataclass

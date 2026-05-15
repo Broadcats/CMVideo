@@ -54,12 +54,32 @@ shortcuts and (with confirmation) the local `.venv` and `bin\` folder.
 It does **not** uninstall system Python, ffmpeg, or espeak-ng - those
 might be useful for other apps.
 
-### Linux
+### Linux (recommended: AppImage)
 
-1. Make sure git / unzip the folder, then in a terminal:
-   ```
-   ./install.sh
-   ```
+The fastest path is the single-file [AppImage](https://github.com/Broadcats/CMVideo/releases/latest):
+
+```
+chmod +x CMVideo-0.4.0-alpha-x86_64.AppImage
+./CMVideo-0.4.0-alpha-x86_64.AppImage
+```
+
+That's it. The AppImage carries Python, ffmpeg, espeak-ng and every Python
+dep inside (~230 MB). No `sudo`, no `apt install`, no venv. Whisper model
+weights are downloaded on first transcribe and cached under
+`~/.cache/huggingface/`.
+
+If you want to integrate it into your apps menu, drop it anywhere on disk
+and double-click - tools like [`appimaged`](https://github.com/probonopd/go-appimage)
+or your file manager's "open with" will register the desktop entry.
+
+### Linux (source install)
+
+If you prefer to use your system Python (e.g. for a GPU build), clone the
+repo and run:
+
+```
+./install.sh
+```
 
 The installer detects your distribution (apt / dnf / pacman / zypper)
 and installs the system packages it needs (`ffmpeg`, `python3-tk`,

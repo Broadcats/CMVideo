@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CMVideo - Clean My Video</title>
+  <meta name="description" content="Drag-and-drop desktop app that automatically removes swears and racial slurs from video and audio. Free, open, runs locally." />
+  <meta name="theme-color" content="#0d1018" />
+
+  <!-- Open Graph / social previews -->
+  <meta property="og:title" content="CMVideo - Clean My Video" />
+  <meta property="og:description" content="Drag in a video. Drop out clean. Auto-removes swears and slurs from any video or audio." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://cmvideo.online/" />
+  <meta property="og:image" content="https://cmvideo.online/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="accent-strip" aria-hidden="true"></div>
+
+  <header class="hero">
+    <div class="container">
+      <div class="hero-text">
+        <p class="eyebrow">v0.4.0-alpha &middot; open &middot; local-first</p>
+        <h1>Clean My <span class="grad-text">Video</span>.</h1>
+        <p class="lede">
+          Drag in any clip. Drop out a clean copy. CMVideo finds every swear
+          and slur with on-device speech recognition, then silences, beeps,
+          or replaces them with a Microsoft Sam style TTS - whichever you
+          pick.
+        </p>
+
+        <div class="cta">
+          <a id="primary-download" class="btn btn-primary" href="#downloads">
+            <span class="btn-label">Download</span>
+            <span class="btn-meta" id="primary-download-meta">choose your OS below</span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">
+            View on GitHub
+          </a>
+        </div>
+
+        <p class="sub-note">
+          100&#37; local. No accounts, no telemetry, no clip uploads.
+          Audio never leaves your machine.
+        </p>
+      </div>
+
+      <div class="hero-shot" aria-hidden="true">
+        <div class="shot-frame">
+          <div class="shot-titlebar">
+            <span class="dot dot-r"></span>
+            <span class="dot dot-y"></span>
+            <span class="dot dot-g"></span>
+            <span class="shot-title">CMVideo 0.4.0-alpha</span>
+          </div>
+          <div class="shot-body">
+            <div class="shot-brand">Clean My Video</div>
+            <div class="shot-tag">Automatic profanity removal for video and audio</div>
+            <div class="shot-strip" aria-hidden="true"></div>
+            <div class="shot-drop">
+              <div class="shot-arrow">&darr;</div>
+              <div class="shot-drop-title">Drop a file here</div>
+              <div class="shot-drop-sub">MP4, MOV, MP3, WAV, OGG &mdash; or click to browse</div>
+            </div>
+            <div class="shot-row">
+              <span class="chip checked">Remove swears</span>
+              <span class="chip checked">Remove racial slurs</span>
+              <span class="chip">Save transcript</span>
+            </div>
+            <div class="shot-row">
+              <span class="chip pill on">Silence</span>
+              <span class="chip pill">Beep</span>
+              <span class="chip pill">Fun</span>
+            </div>
+            <button class="shot-btn">Censor</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="features">
+    <div class="container">
+      <article class="card">
+        <div class="card-glyph">&#9679;</div>
+        <h3>Local &amp; private</h3>
+        <p>
+          Whisper-class speech-to-text runs on your machine. Audio is
+          never uploaded; the only network calls are when you ask
+          CMVideo to download a video from a URL.
+        </p>
+      </article>
+
+      <article class="card">
+        <div class="card-glyph">&#9650;</div>
+        <h3>Drag-drop or URL</h3>
+        <p>
+          Drop one or many files, or paste a YouTube / yt-dlp-supported
+          URL. Pick the output format (MP4, MOV, MP3, WAV, OGG) and
+          quality. Batches run unattended.
+        </p>
+      </article>
+
+      <article class="card">
+        <div class="card-glyph">&#9670;</div>
+        <h3>Silence, Beep, or Fun</h3>
+        <p>
+          Replace flagged words with crisp silence, a classic 1 kHz
+          censor beep, or a Microsoft Sam style TTS overlay that turns
+          a 7-hour stream into something genuinely watchable.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section id="downloads" class="downloads">
+    <div class="container">
+      <h2>Get CMVideo <span class="ver">0.4.0-alpha</span></h2>
+      <p class="muted">
+        Source release. Requires Python 3.10+. The bundled
+        <code>install.sh</code> / <code>install.ps1</code> sets up
+        ffmpeg and a private venv with the heavy ML deps on first
+        launch - usually 1-3 minutes.
+      </p>
+
+      <div class="download-grid">
+        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-source.tar.gz">
+          <div class="dl-icon">L</div>
+          <div class="dl-title">Linux</div>
+          <div class="dl-sub">
+            <code>.tar.gz</code> &middot; install with
+            <code>./install.sh</code>
+          </div>
+        </a>
+
+        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-source.zip">
+          <div class="dl-icon">W</div>
+          <div class="dl-title">Windows</div>
+          <div class="dl-sub">
+            <code>.zip</code> &middot; right-click
+            <code>install.ps1</code> &rarr; Run with PowerShell
+          </div>
+        </a>
+
+        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-source.tar.gz">
+          <div class="dl-icon">M</div>
+          <div class="dl-title">macOS</div>
+          <div class="dl-sub">
+            <code>.tar.gz</code> &middot; works via the Linux instructions
+            <span class="tag">untested</span>
+          </div>
+        </a>
+      </div>
+
+      <p class="muted small">
+        Checksums and full release notes:
+        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.0-alpha" target="_blank" rel="noopener">github.com &rarr; releases &rarr; v0.4.0-alpha</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="how">
+    <div class="container">
+      <h2>Three steps</h2>
+      <ol class="how-list">
+        <li>
+          <span class="how-num">1</span>
+          <div>
+            <h4>Drop a file or paste a URL</h4>
+            <p>MP4, MOV, MP3, WAV, OGG locally - or any YouTube / 1,800+ site URL supported by yt-dlp.</p>
+          </div>
+        </li>
+        <li>
+          <span class="how-num">2</span>
+          <div>
+            <h4>Pick what to remove</h4>
+            <p>Swears, slurs, or both. Choose Silence, Beep, or Fun TTS. Optionally save a full transcript.</p>
+          </div>
+        </li>
+        <li>
+          <span class="how-num">3</span>
+          <div>
+            <h4>Hit Censor</h4>
+            <p>CMVideo transcribes, finds every match (including phonetic / leet-speak variants), and writes the cleaned file next to the original.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <footer class="site-foot">
+    <div class="container">
+      <span>&copy; Daniel Brown 2026</span>
+      <span class="dot-sep">&middot;</span>
+      <a href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">GitHub</a>
+      <span class="dot-sep">&middot;</span>
+      <a href="https://github.com/Broadcats/CMVideo/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <span class="dot-sep">&middot;</span>
+      <a href="https://github.com/Broadcats/CMVideo/issues" target="_blank" rel="noopener">Report a bug</a>
+    </div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

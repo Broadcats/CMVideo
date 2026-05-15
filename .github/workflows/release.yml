@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  source:
+    name: Build + publish source release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build source archives
+        run: |
+          chmod +x scripts/build-release.sh
+          ./scripts/build-release.sh
+
+      - name: Read version from tag
+        id: ver
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: CMVideo ${{ steps.ver.outputs.tag }}
+          body_path: CHANGELOG.md
+          prerelease: ${{ contains(steps.ver.outputs.tag, '-') }}
+          files: |
+            dist/CMVideo-*-source.zip
+            dist/CMVideo-*-source.tar.gz
+            dist/SHA256SUMS.txt

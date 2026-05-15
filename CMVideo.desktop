@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=CMVideo
+GenericName=Video Censor
+Comment=Remove swears and slurs from video or audio
+Exec="/home/dbcomp/CMVideo/run.sh"
+Icon=/home/dbcomp/CMVideo/icon.svg
+Terminal=false
+Categories=AudioVideo;
+StartupNotify=true
+StartupWMClass=CMVideo

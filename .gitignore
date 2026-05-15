@@ -1,0 +1,38 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Generated icons (rebuilt from icon.svg)
+icon-32.png
+icon-64.png
+icon-128.png
+icon.png
+icon.ico
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Runtime artefacts
+*.log
+config.json
+
+# Custom site outputs (if anyone runs site/build locally)
+site/.build/

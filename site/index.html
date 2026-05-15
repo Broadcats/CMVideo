@@ -25,7 +25,7 @@
     <div class="container">
       <div class="hero-text">
         <p class="eyebrow">v0.4.3-alpha &middot; open &middot; local-first &middot; live</p>
-        <h1>Clean My <span class="grad-text">Video</span>.</h1>
+        <h1>Clean My <span class="grad-text">V<span class="cam-i"><span aria-hidden="true">ı</span><span class="sr-only">i</span></span>deo</span>.</h1>
         <p class="lede">
           Drag in any clip. Drop out a clean copy. CMVideo finds every swear
           and slur with on-device speech recognition, then silences, beeps,
@@ -35,7 +35,7 @@
 
         <div class="cta">
           <a id="primary-download" class="btn btn-primary" href="#downloads">
-            <span class="btn-label">Download</span>
+            <span class="btn-label">Download the full app</span>
             <span class="btn-meta" id="primary-download-meta">choose your OS below</span>
           </a>
           <a class="btn btn-ghost" href="https://github.com/Broadcats/CMVideo" target="_blank" rel="noopener">
@@ -58,7 +58,7 @@
             <span class="shot-title">CMVideo Mini</span>
           </div>
           <form class="shot-body" id="mini-form" autocomplete="off" novalidate>
-            <div class="shot-brand">Clean My Video</div>
+            <div class="shot-brand">Clean My V<span class="cam-i cam-i-sm"><span aria-hidden="true">ı</span><span class="sr-only">i</span></span>deo <span class="mini-tag" title="Free web slice of the full desktop app">mini</span></div>
             <div class="shot-tag">Mini web version &middot; paste a URL or drop a file</div>
             <div class="shot-strip" aria-hidden="true"></div>
 
@@ -113,6 +113,35 @@
               format, fuzzy / leetspeak matching and the "Fun" TTS
               &mdash; <a href="#downloads">download the app &darr;</a>
             </p>
+
+            <details class="shot-legal">
+              <summary>Why no YouTube download here?</summary>
+              <p>
+                YouTube’s Terms of Service forbid third-party servers from
+                downloading their content, and YouTube actively blocks cloud-hosted
+                scrapers at the network level. Running a public YouTube downloader
+                on a free host would be both a ToS violation and a constant
+                cat-and-mouse game.
+              </p>
+              <p>
+                So instead, when you paste a YouTube URL here we embed the
+                official YouTube player and auto-mute the swears in your browser.
+                No video bytes ever touch our server. Embedding is explicitly
+                allowed by YouTube’s ToS.
+              </p>
+              <p>
+                <strong>Every other source still works as a normal download here</strong>
+                — Vimeo, TikTok, Reddit, X, Twitch, SoundCloud, Bandcamp and
+                ~1,800 other sites that yt-dlp supports.
+              </p>
+              <p>
+                <strong>And YouTube downloads work perfectly in the full desktop
+                app</strong> — because it runs on your machine, on your IP, as a
+                personal-use tool. That’s the legally clean path and the one
+                that doesn’t depend on whatever YouTube’s anti-bot system did
+                this week.
+              </p>
+            </details>
           </form>
         </div>
       </div>
@@ -164,7 +193,7 @@
 
       <div class="download-grid">
         <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-x86_64.AppImage">
-          <div class="dl-icon">L</div>
+          <div class="dl-icon"><svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-2.2 0-3.6 1.7-3.6 4 0 1 .2 1.9.5 2.6-.7.5-1.5 1.4-1.9 2.4-.6 1.5-.9 3-1.6 4.2-.6 1-1.6 1.8-1.6 3 0 .8.4 1.4 1.1 1.6.7.2 1.5.1 2.3.4.5.2 1 .5 1.6.8.6.3 1.4.4 2 .4h2.4c.6 0 1.4-.1 2-.4.6-.3 1.1-.6 1.6-.8.8-.3 1.6-.2 2.3-.4.7-.2 1.1-.8 1.1-1.6 0-1.2-1-2-1.6-3-.7-1.2-1-2.7-1.6-4.2-.4-1-1.2-1.9-1.9-2.4.3-.7.5-1.6.5-2.6 0-2.3-1.4-4-3.6-4z"/><circle cx="10.4" cy="6.6" r="0.9" fill="#0d1018"/><circle cx="13.6" cy="6.6" r="0.9" fill="#0d1018"/><path d="M11 8.4c.3.4.7.6 1 .6s.7-.2 1-.6" stroke="#0d1018" stroke-width="0.6" fill="none" stroke-linecap="round"/></svg></div>
           <div class="dl-title">Linux</div>
           <div class="dl-sub">
             <code>.AppImage</code> &middot; <code>chmod +x</code> &rarr; double-click
@@ -173,7 +202,7 @@
         </a>
 
         <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-win-amd64.exe">
-          <div class="dl-icon">W</div>
+          <div class="dl-icon"><svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.2 11 4v7H3zM12 3.9 21 2.6V11h-9zM3 12h8v7L3 17.8zM12 12h9v9.4L12 20.1z"/></svg></div>
           <div class="dl-title">Windows</div>
           <div class="dl-sub">
             <code>.exe</code> &middot; double-click to run
@@ -182,7 +211,7 @@
         </a>
 
         <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.3-alpha/CMVideo-0.4.3-alpha-source.tar.gz">
-          <div class="dl-icon">M</div>
+          <div class="dl-icon"><svg class="os-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.4 12.5c0-2.4 2-3.5 2.1-3.6-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.6.9-.8 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.1 1.2 9.4.8 1.1 1.8 2.4 3 2.3 1.2 0 1.6-.8 3.1-.8s1.8.8 3.1.7c1.3 0 2.1-1.1 2.9-2.3.6-.8 1-1.7 1.4-2.7-.2 0-2.7-1-2.7-3.6z"/><path d="M15.1 5.3c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.2 1.9-1 2.9 1.1.1 2.2-.5 2.8-1.3z"/></svg></div>
           <div class="dl-title">macOS</div>
           <div class="dl-sub">
             <code>.tar.gz</code> &middot; works via the Linux instructions

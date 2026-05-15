@@ -34,7 +34,7 @@
 
   if (match && primary && primaryMeta) {
     primary.setAttribute("href", match.getAttribute("href"));
-    primary.querySelector(".btn-label").textContent = "Download for " + labels[os].name;
+    primary.querySelector(".btn-label").textContent = "Download the full app for " + labels[os].name;
     primaryMeta.textContent = labels[os].meta;
     match.classList.add("recommended");
   } else if (primary && primaryMeta) {

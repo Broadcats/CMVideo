@@ -45,28 +45,6 @@ jobs:
             dist/CMVideo-*-source.tar.gz
             dist/SHA256SUMS.txt
 
-  windows-exe:
-    name: Build Windows standalone .exe
-    needs: source
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build single-file executable
-        shell: pwsh
-        run: ./scripts/build-windows.ps1
-
-      - name: Attach Windows binaries to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            dist/CMVideo-*-win-amd64.exe
-            dist/CMVideo-*-win-amd64.exe.sha256
+# Note: the Windows .exe build lives in windows-exe.yml so it can also be
+# manually dispatched against an existing tag (e.g. to back-fill a binary
+# onto a release cut before the workflow existed).

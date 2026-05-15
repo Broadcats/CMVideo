@@ -20,15 +20,12 @@ This service is intentionally limited so it can stay free:
 
 | Cap | Value |
 |---|---|
-| Max video resolution         | 720p MP4 |
-| Max audio bitrate            | 192 kbps MP3 |
-| Max duration (download mode) | 30 min |
-| Max filesize (download mode) | 200 MB |
-| Max duration (censor mode)   | 8 min |
-| Max filesize (censor + upload) | 100 MB |
-| Per-IP rate limit            | 5 jobs / hour |
-| Download job timeout         | 120 s |
-| Censor job timeout           | 240 s |
+| Max duration per clip | 30 min |
+| Max output filesize   | 200 MB |
+| Max video resolution  | 720p MP4 |
+| Max audio bitrate     | 192 kbps MP3 |
+| Per-IP rate limit     | 5 downloads / hour |
+| Job timeout           | 120 s |
 
 For full quality (up to 4K / 320 kbps), every format (MP4, MOV, MKV,
 WebM, AVI, FLV, MP3, M4A, AAC, OGG, Opus, WAV, FLAC), batch processing,
@@ -54,30 +51,15 @@ web-mini/
 
 ## Endpoints
 
-| Path             | Method | What it does                                                          |
-|------------------|--------|-----------------------------------------------------------------------|
-| `/`              | GET    | The mini-app UI (fallback for direct visitors)                        |
-| `/api/info`      | POST   | `{url}` JSON → title, duration, thumbnail, etc.                       |
-| `/api/process`   | POST   | multipart: `format`, `mode`, `url` OR `file` → streams the result     |
-| `/api/download`  | POST   | back-compat shim: form-encoded `format` + `url`, delegates to process |
-| `/api/limits`    | GET    | JSON dump of the current caps                                         |
-| `/healthz`       | GET    | Liveness probe (also reports loaded wordlist token count)             |
+| Path             | Method | What it does                                    |
+|------------------|--------|-------------------------------------------------|
+| `/`              | GET    | The mini-app UI                                 |
+| `/api/info`      | POST   | `{url}` → title, duration, thumbnail, etc.      |
+| `/api/download`  | POST   | `{url, format: "mp4"|"mp3"}` → streams the file |
+| `/api/limits`    | GET    | JSON dump of the current caps                   |
+| `/healthz`       | GET    | Liveness probe                                  |
 
 ---
-
-
-
-## Modes (`mode=` field on `/api/process`)
-
-| Mode       | Source     | Pipeline                                                                                |
-|------------|-----------|-----------------------------------------------------------------------------------------|
-| `download` | URL only  | `yt-dlp` → file. No transcription, no audio rewrite.                                    |
-| `silence`  | URL or file | `yt-dlp` (if URL) → `ffprobe` → `faster-whisper tiny.en` → exact-token match → `ffmpeg volume=0` over matched intervals → re-encode |
-| `beep`     | URL or file | same as `silence`, but a gated 1 kHz `sine` overlay replaces the muted intervals      |
-
-Mini matching is **exact-token only** against `wordlists/*.txt`. The
-desktop app additionally does leetspeak / phonetic / fuzzy variants -
-also part of the upsell pitch.
 
 ## Local development
 
@@ -107,85 +89,51 @@ The Space is configured via the YAML frontmatter at the top of this
 file (`sdk: docker`, `app_port: 7860`, etc.) so deployment is just
 "push these files to the Space repo".
 
-**1. Create the Space** (one-time).
+### Quick path (recommended)
 
-Either through the web UI at <https://huggingface.co/new-space>:
-
-- Owner: your account (e.g. `Broadcats`)
-- Space name: `cmvideo-mini`
-- License: leave as-is
-- Space SDK: **Docker** → "Blank"
-- Visibility: Public
-- Hardware: CPU basic (free)
-
-Or via the `huggingface_hub` CLI:
+There's a one-shot script in `scripts/deploy-mini.py` that creates the
+Space if it's missing and uploads everything in one go:
 
 ```bash
-pip install huggingface_hub
-huggingface-cli login              # paste a token from huggingface.co/settings/tokens
-huggingface-cli repo create cmvideo-mini --type space --space_sdk docker
+# 1. Generate a Write-access token at https://huggingface.co/settings/tokens
+# 2. Run the deploy script:
+HF_TOKEN=hf_xxx python3 scripts/deploy-mini.py
 ```
 
-**2. Push the `web-mini/` directory as the Space root.**
+It defaults to `Broadcats/cmvideo-mini`; override with
+`--owner <user>` and `--space <name>` if needed, or pass `--dry-run` to
+see what would ship without touching HF.
 
-The Space repo lives at `https://huggingface.co/spaces/<user>/cmvideo-mini`.
+HF will start building the Docker image as soon as the upload lands.
+Build + start takes ~2-4 minutes the first time and ~1-2 minutes on
+updates. Once it's running, the Space is reachable at:
 
-```bash
-# Clone the (empty) Space repo somewhere convenient.
-git clone https://huggingface.co/spaces/<user>/cmvideo-mini hf-cmvideo-mini
-cd hf-cmvideo-mini
+- `https://<owner-lower>-<space>.hf.space` (direct app URL, no chrome)
+- `https://huggingface.co/spaces/<owner>/<space>` (with HF chrome)
 
-# Copy the mini app in.
-cp -r /path/to/CMVideo/web-mini/. .
-
-# Push.
-git add -A
-git commit -m "Initial deploy of CMVideo Mini"
-git push
-```
-
-HF will start building the Docker image as soon as you push. Build +
-start takes ~2-4 minutes the first time. Once it's running, the Space
-is reachable at:
-
-- `https://<user>-cmvideo-mini.hf.space` (direct app URL, no chrome)
-- `https://huggingface.co/spaces/<user>/cmvideo-mini` (with HF chrome)
-
-The cmvideo.online "Try the mini web version" CTA points at the direct
-`.hf.space` URL.
-
-**3. Update the link on cmvideo.online.**
-
-Once you have your actual `<user>-cmvideo-mini.hf.space` URL, search
-the main repo for the placeholder and replace it. The cmvideo.online
-hero embeds the widget directly via cross-origin fetch, so the
-primary place to update is `site/app.js`:
+The widget on cmvideo.online points at the direct `.hf.space` URL
+(currently `https://broadcats-cmvideo-mini.hf.space`). If you deploy
+under a different name, search the main repo for that string and
+update it:
 
 ```bash
-cd /path/to/CMVideo
 grep -rln 'broadcats-cmvideo-mini.hf.space' site/ web-mini/
-# matches: site/app.js  (MINI_API_BASE constant)
-# edit the const to use your real Space URL
 ```
 
-The Space's own root URL (`<user>-cmvideo-mini.hf.space`) still
-serves the same widget at `/` as a fallback for visitors who land
-on it directly.
+### Manual path
 
-**4. Updating the Space later.**
-
-Any time you change `web-mini/`, just rsync into the `hf-cmvideo-mini`
-clone and push again:
+If you'd rather drive HF yourself: create the Space at
+<https://huggingface.co/new-space> (Owner: `Broadcats`, Name:
+`cmvideo-mini`, SDK: **Docker** → Blank, Visibility: Public, Hardware:
+CPU basic / free), then push the directory the usual git way:
 
 ```bash
+git clone https://huggingface.co/spaces/<owner>/cmvideo-mini hf-cmvideo-mini
 rsync -a --delete --exclude .git /path/to/CMVideo/web-mini/. hf-cmvideo-mini/
-cd hf-cmvideo-mini
-git add -A
-git commit -m "Update mini app"
-git push
+cd hf-cmvideo-mini && git add -A && git commit -m "Deploy" && git push
 ```
 
-HF will rebuild automatically.
+HF will rebuild automatically on every push.
 
 ---
 
@@ -204,19 +152,3 @@ RATE_LIMIT_PER_HOUR = "5/hour"
 
 Lower = less abuse risk, less compute. Higher = better mini-app, but
 defeats the "encourage the full download" goal of this service.
-
-
-## Wordlists
-
-`web-mini/wordlists/*.txt` is a **committed copy** of the desktop app's
-`wordlists/` at the root of this repo. The Dockerfile copies it into
-the image so the Space stays buildable without network access at
-build time.
-
-When you change the canonical wordlists, sync them with:
-
-```bash
-cp -f wordlists/*.txt web-mini/wordlists/
-```
-
-Then push to both `main` and the HF Space.

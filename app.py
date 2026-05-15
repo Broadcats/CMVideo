@@ -84,9 +84,16 @@ APP_TAGLINE = "Automatic profanity removal for video and audio"
 COPYRIGHT = f"\u00a9 Daniel Brown 2026 \u00b7 v{APP_VERSION}"
 
 SUPPORTED_FILETYPES = [
-    ("All supported", "*.mp4 *.mov *.mp3 *.wav *.ogg"),
-    ("Video (MP4, MOV)", "*.mp4 *.mov"),
-    ("Audio (MP3, WAV, OGG)", "*.mp3 *.wav *.ogg"),
+    (
+        "All supported",
+        "*.mp4 *.mov *.mkv *.webm *.avi *.flv "
+        "*.mp3 *.m4a *.aac *.ogg *.opus *.wav *.flac",
+    ),
+    ("Video (MP4, MOV, MKV, WebM, AVI, FLV)", "*.mp4 *.mov *.mkv *.webm *.avi *.flv"),
+    (
+        "Audio (MP3, M4A/AAC, OGG, Opus, WAV, FLAC)",
+        "*.mp3 *.m4a *.aac *.ogg *.opus *.wav *.flac",
+    ),
     ("All files", "*.*"),
 ]
 
@@ -221,7 +228,7 @@ class CensorApp:
         # per kind so Format swaps don't lose them.
         self.quality_var = tk.StringVar(value="Best")
         self._last_video_quality = "Best"
-        self._last_audio_quality = "High (192k)"
+        self._last_audio_quality = "192 kbps"
         self._quality_kind = "video"  # "video" / "audio" / "wav"
 
         # Output folder. None = auto (Downloads for URL jobs, the input
@@ -1156,16 +1163,19 @@ class CensorApp:
             self._last_audio_quality = current
 
         fmt = self.download_format_var.get().lower()
-        if fmt in ("mp4", "mov"):
+        # Video containers: full resolution ladder.
+        if fmt in ("mp4", "mov", "mkv", "webm", "avi", "flv"):
             self._quality_kind = "video"
             self.quality_combo.configure(values=list(VIDEO_QUALITY_LABELS))
             self.quality_var.set(self._last_video_quality)
-        elif fmt in ("mp3", "ogg"):
+        # Lossy audio: kbps ladder.
+        elif fmt in ("mp3", "m4a", "ogg", "opus"):
             self._quality_kind = "audio"
             self.quality_combo.configure(values=list(AUDIO_QUALITY_LABELS))
             self.quality_var.set(self._last_audio_quality)
-        elif fmt == "wav":
-            self._quality_kind = "wav"
+        # Lossless audio: no choice to make.
+        elif fmt in ("wav", "flac"):
+            self._quality_kind = "lossless"
             self.quality_combo.configure(values=["Lossless"])
             self.quality_var.set("Lossless")
 
@@ -1177,7 +1187,7 @@ class CensorApp:
         if not hasattr(self, "quality_combo"):
             return
         url_active = bool(self.url_var.get().strip())
-        usable = url_active and self._quality_kind != "wav"
+        usable = url_active and self._quality_kind not in ("wav", "lossless")
         try:
             self.quality_combo.configure(
                 state="readonly" if usable else "disabled"

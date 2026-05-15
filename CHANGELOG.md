@@ -3,6 +3,39 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.1-alpha] - 2026-05-15
+
+Maintenance release that broadens the format / quality matrix and rolls
+the bundled Windows .exe and Linux AppImage off the same source tree.
+Older versions stay available on the
+[releases page](https://github.com/Broadcats/CMVideo/releases) - this
+release does not change any wordlists or runtime behaviour for existing
+inputs.
+
+### Added
+
+- **Six more output formats** for URL downloads and censor runs:
+  - Video: `mkv`, `webm`, `avi`, `flv` (joining `mp4` / `mov`).
+  - Audio: `m4a`, `opus`, `flac` (joining `mp3` / `ogg` / `wav`).
+  Each format uses a codec that the container actually supports, so the
+  written file plays back without a "this container can't hold that
+  codec" stumble (e.g. webm gets Opus audio, avi gets MP3, mkv accepts
+  anything, flac/wav stay lossless).
+- **Full video quality ladder**: `Best`, `4K (2160p)`, `1440p`, `1080p`,
+  `720p`, `480p`, `360p`, `240p`, `144p`, `Worst`. Caps `bestvideo`
+  selection by height; `Worst` swaps in `worstvideo+worstaudio` for the
+  smallest stream the site offers.
+- **Full audio quality ladder**: `Best`, `320 kbps`, `256 kbps`, `192
+  kbps`, `160 kbps`, `128 kbps`, `96 kbps`, `64 kbps`, `48 kbps`,
+  `Worst`. Lossless containers (`wav` / `flac`) display "Lossless" and
+  ignore the kbps choice.
+- **All new formats accepted as inputs** too - drag-and-drop, browse
+  dialog and the right-click "Add all files from folder..." action all
+  walk the expanded extension list (`.mp4 .mov .mkv .webm .avi .flv
+  .mp3 .m4a .aac .ogg .opus .wav .flac`).
+- Legacy quality labels (`High (192k)`, raw `192` etc.) still resolve so
+  any saved config from 0.4.0-alpha keeps working.
+
 ## [0.4.0-alpha] - 2026-05-15
 
 First public download. Everything in this release is feature-complete but

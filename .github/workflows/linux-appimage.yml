@@ -1,0 +1,83 @@
+name: Linux AppImage
+
+# Builds the Linux x86_64 AppImage and attaches it to a release.
+#
+# Triggers mirror windows-exe.yml: push of v*.*.* OR workflow_dispatch
+# against an existing tag (back-fill mode).
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build against and upload to"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build + attach AppImage
+    runs-on: ubuntu-22.04   # older glibc -> wider download compatibility
+
+    steps:
+      - name: Resolve target tag + checkout ref
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "checkout=main" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "checkout=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.checkout }}
+
+      - name: Verify in-tree version matches target tag
+        shell: bash
+        run: |
+          IN_TREE="$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' censor/version.py)"
+          TARGET="${{ steps.tag.outputs.value }}"
+          TARGET_STRIPPED="${TARGET#v}"
+          if [ "$IN_TREE" != "$TARGET_STRIPPED" ]; then
+            echo "::error::version mismatch — in-tree '$IN_TREE' vs target '$TARGET_STRIPPED'."
+            exit 1
+          fi
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg espeak-ng wget fuse libfuse2 python3-tk python3-venv \
+            xz-utils file desktop-file-utils
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build AppImage
+        env:
+          # Some sandboxed CI environments lack FUSE; force AppImage
+          # bootstrappers (linuxdeploy, appimagetool) to extract first.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          chmod +x scripts/build-appimage.sh
+          ./scripts/build-appimage.sh
+
+      - name: Attach AppImage to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          files: |
+            dist/CMVideo-*-x86_64.AppImage
+            dist/CMVideo-*-x86_64.AppImage.sha256

@@ -9,7 +9,12 @@ import tempfile
 from pathlib import Path
 
 
-SUPPORTED_INPUT_EXTS = {".mp4", ".mov", ".mp3", ".wav", ".ogg"}
+SUPPORTED_INPUT_EXTS = {
+    # Video containers
+    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".flv",
+    # Audio formats
+    ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac",
+}
 
 
 def _ffmpeg() -> str:
@@ -75,15 +80,33 @@ def _between_expr(intervals: list[tuple[float, float]]) -> str:
 
 
 def _audio_codec_args_for(output_path: Path) -> list[str]:
-    """Pick a sensible audio codec + bitrate based on the output extension."""
+    """Pick a sensible audio codec + bitrate based on the output extension.
+
+    Targets are chosen to produce a container that actually plays back
+    everywhere - e.g. webm only allows opus/vorbis audio, avi/flv want
+    mp3 or aac respectively, and flac/wav stay lossless.
+    """
     ext = output_path.suffix.lower()
-    if ext == ".mp3":
-        return ["-c:a", "libmp3lame", "-b:a", "192k"]
+    # Lossless
     if ext == ".wav":
         return ["-c:a", "pcm_s16le"]
+    if ext == ".flac":
+        return ["-c:a", "flac"]
+    # Lossy standalone audio
+    if ext == ".mp3":
+        return ["-c:a", "libmp3lame", "-b:a", "192k"]
     if ext == ".ogg":
         return ["-c:a", "libvorbis", "-q:a", "5"]
-    # .mp4 / .mov / anything else with video: AAC
+    if ext in (".m4a", ".aac"):
+        return ["-c:a", "aac", "-b:a", "192k"]
+    if ext == ".opus":
+        return ["-c:a", "libopus", "-b:a", "128k"]
+    # Containers with video
+    if ext == ".webm":
+        return ["-c:a", "libopus", "-b:a", "128k"]
+    if ext == ".avi":
+        return ["-c:a", "libmp3lame", "-b:a", "192k"]
+    # mp4 / mov / mkv / flv / fallback
     return ["-c:a", "aac", "-b:a", "192k"]
 
 

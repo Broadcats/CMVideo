@@ -2,7 +2,8 @@
 
 Accepts any URL yt-dlp can extract, plus any community plugin sitting
 in the CMVideo plugin folder (see `censor.plugins`). Output format is
-one of {mp4, mov, mp3, wav, ogg}.
+one of `SUPPORTED_DOWNLOAD_FORMATS` (mp4/mov/mkv/webm/avi/flv for video,
+mp3/wav/ogg/m4a/flac/opus for audio).
 """
 
 from __future__ import annotations
@@ -18,37 +19,90 @@ from . import plugins as _user_plugins
 _URL_RE = re.compile(r"^\s*https?://\S+\s*$", re.IGNORECASE)
 
 
-SUPPORTED_DOWNLOAD_FORMATS = ("mp4", "mov", "mp3", "wav", "ogg")
-_AUDIO_FORMATS = {"mp3", "wav", "ogg"}
+VIDEO_DOWNLOAD_FORMATS = ("mp4", "mov", "mkv", "webm", "avi", "flv")
+AUDIO_DOWNLOAD_FORMATS = ("mp3", "m4a", "ogg", "opus", "wav", "flac")
+SUPPORTED_DOWNLOAD_FORMATS = VIDEO_DOWNLOAD_FORMATS + AUDIO_DOWNLOAD_FORMATS
+_AUDIO_FORMATS = set(AUDIO_DOWNLOAD_FORMATS)
+# Lossless formats: kbps choice is meaningless.
+_LOSSLESS_FORMATS = {"wav", "flac"}
 
-# UI labels -> max video height. "Best" means no cap.
-VIDEO_QUALITY_LABELS = ("Best", "1080p", "720p", "480p", "360p")
-_VIDEO_HEIGHT = {
+# UI labels -> max video height. None = no cap (best); "worst" = take the
+# lowest-resolution stream the site offers.
+VIDEO_QUALITY_LABELS = (
+    "Best",
+    "4K (2160p)",
+    "1440p",
+    "1080p",
+    "720p",
+    "480p",
+    "360p",
+    "240p",
+    "144p",
+    "Worst",
+)
+_VIDEO_HEIGHT: dict[str, int | None | str] = {
     "Best": None,
+    "4K (2160p)": 2160,
+    "1440p": 1440,
     "1080p": 1080,
     "720p": 720,
     "480p": 480,
     "360p": 360,
+    "240p": 240,
+    "144p": 144,
+    "Worst": "worst",
 }
 
-# UI labels -> postprocessor preferredquality (kbps as string, "0" = best).
+# UI labels -> postprocessor preferredquality (kbps as string).
+# "0" tells yt-dlp's FFmpegExtractAudio postprocessor to keep the source
+# bitrate; for "Worst" we additionally pick worstaudio as the source.
 AUDIO_QUALITY_LABELS = (
     "Best",
-    "High (192k)",
-    "Medium (128k)",
-    "Low (96k)",
+    "320 kbps",
+    "256 kbps",
+    "192 kbps",
+    "160 kbps",
+    "128 kbps",
+    "96 kbps",
+    "64 kbps",
+    "48 kbps",
+    "Worst",
 )
 _AUDIO_BITRATE = {
     "Best": "0",
+    "320 kbps": "320",
+    "256 kbps": "256",
+    "192 kbps": "192",
+    "160 kbps": "160",
+    "128 kbps": "128",
+    "96 kbps": "96",
+    "64 kbps": "64",
+    "48 kbps": "48",
+    "Worst": "0",
+    # Back-compat with the v0.4.0 labels and raw kbps strings (for configs
+    # / scripts that still pass the old vocabulary through the pipeline).
     "High (192k)": "192",
     "Medium (128k)": "128",
     "Low (96k)": "96",
-    # Also accept raw kbps strings so the pipeline can pass them through.
     "320": "320",
+    "256": "256",
     "192": "192",
+    "160": "160",
     "128": "128",
     "96": "96",
+    "64": "64",
+    "48": "48",
     "0": "0",
+}
+
+# yt-dlp postprocessor codec names per output format.
+_YTDLP_AUDIO_CODEC = {
+    "mp3": "mp3",
+    "m4a": "m4a",
+    "ogg": "vorbis",
+    "opus": "opus",
+    "wav": "wav",
+    "flac": "flac",
 }
 
 
@@ -84,10 +138,11 @@ def download(
 ) -> Path:
     """Download a URL to `output_dir` in the requested format.
 
-    `video_quality` is one of VIDEO_QUALITY_LABELS (used for MP4/MOV).
+    `video_quality` is one of VIDEO_QUALITY_LABELS (used for video
+    formats: mp4/mov/mkv/webm/avi/flv).
     `audio_quality` is either an AUDIO_QUALITY_LABELS label or a raw
-    kbps string ("96", "128", "192", "320", or "0" for best). Used for
-    MP3/OGG only; WAV is always lossless PCM.
+    kbps string ("48"-"320", or "0" for "keep source"). Used for the
+    lossy audio formats; WAV and FLAC are always lossless.
 
     `cookies_file` (optional) is a Netscape-format `cookies.txt` exported
     from your browser. Passed straight to yt-dlp as `cookiefile`, which
@@ -128,7 +183,7 @@ def download(
         hooks.append(_make_download_hook(progress_cb))
     hooks.append(_make_finished_hook(final_path_holder))
 
-    if fmt in ("mp4", "mov"):
+    if fmt in VIDEO_DOWNLOAD_FORMATS:
         format_selector = _video_format_selector(fmt, video_quality)
         ydl_opts: dict = {
             "format": format_selector,
@@ -141,20 +196,19 @@ def download(
             "retries": 5,
         }
     else:
-        codec_map = {"mp3": "mp3", "wav": "wav", "ogg": "vorbis"}
-        # WAV is uncompressed; kbps is meaningless. Lossy formats honour
-        # the requested bitrate.
-        if fmt == "wav":
+        # Lossless formats ignore the kbps choice; lossy formats honour it.
+        if fmt in _LOSSLESS_FORMATS or audio_quality == "Best":
             preferred_quality = "0"
         else:
             preferred_quality = _AUDIO_BITRATE.get(audio_quality, "192")
+        audio_source = "worstaudio/worst" if audio_quality == "Worst" else "bestaudio/best"
         ydl_opts = {
-            "format": "bestaudio/best",
+            "format": audio_source,
             "outtmpl": str(output_dir / "%(title).180B [%(id)s].%(ext)s"),
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
-                    "preferredcodec": codec_map[fmt],
+                    "preferredcodec": _YTDLP_AUDIO_CODEC[fmt],
                     "preferredquality": preferred_quality,
                 }
             ],
@@ -178,20 +232,18 @@ def download(
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"Download failed: {e}") from e
 
-    # Audio postprocessor / video remuxer swap the extension.
-    if fmt in _AUDIO_FORMATS or fmt == "mov":
+    # Audio postprocessor / video remuxer often swap the extension.
+    if fmt in _AUDIO_FORMATS or fmt != "mp4":
         candidate = base.with_suffix("." + fmt)
         if candidate.exists():
             return candidate
 
-    # Some merges land at a different extension (e.g. .webm if merge failed).
     if base.exists():
         return base
     if final_path_holder.get("path"):
         p = Path(final_path_holder["path"])
         if p.exists():
-            # Audio postprocessor / mov remux might still have changed the suffix.
-            if fmt != "mp4" and not p.suffix.lower().endswith(fmt):
+            if not p.suffix.lower().endswith(fmt):
                 alt = p.with_suffix("." + fmt)
                 if alt.exists():
                     return alt
@@ -203,12 +255,18 @@ def download(
 
 
 def _video_format_selector(fmt: str, quality_label: str) -> str:
-    """Build a yt-dlp format selector for MP4/MOV, capped to the chosen height.
+    """Build a yt-dlp format selector for video output, capped to the chosen
+    height (or pinned to ``worstvideo`` for ``Worst``).
 
-    MP4 prefers native mp4 streams (no transcoding on merge). MOV doesn't
-    care about input streams - we just remux into a QuickTime container.
+    MP4 prefers native mp4 streams so the merge doesn't transcode.
+    WebM prefers VP9/Opus streams so the resulting container is valid.
+    Other containers (MOV/MKV/AVI/FLV) accept whatever streams yt-dlp
+    grabs and rely on the FFmpeg remux to convert at write time.
     """
     height = _VIDEO_HEIGHT.get(quality_label)
+    if height == "worst":
+        return "worstvideo+worstaudio/worst"
+
     if fmt == "mp4":
         if height is None:
             return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
@@ -216,7 +274,15 @@ def _video_format_selector(fmt: str, quality_label: str) -> str:
             f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/"
             f"best[ext=mp4][height<={height}]/best[height<={height}]/best"
         )
-    # mov
+    if fmt == "webm":
+        if height is None:
+            return "bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo+bestaudio/best"
+        return (
+            f"bestvideo[ext=webm][height<={height}]+bestaudio[ext=webm]/"
+            f"bestvideo[height<={height}]+bestaudio/"
+            f"best[height<={height}]/best"
+        )
+    # mov / mkv / avi / flv: just take the best streams and let yt-dlp remux.
     if height is None:
         return "bestvideo+bestaudio/best"
     return f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"

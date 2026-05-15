@@ -977,3 +977,49 @@ h1 {
   .yt-fullapp-arrow { animation: none; }
   .yt-fullapp-cta:hover { transform: none; }
 }
+
+/* =============================================================
+   Mobile color tone-down (≤ 640px)
+   On phones the warm accents (YT red glow, neon-green MINI tag,
+   coral camera-i) stack on top of each other with no whitespace
+   between them. Desktop has columns and gutters to breathe -
+   phones don't. Soften saturation, calm the glow, and right-size
+   the OS icons so the brand-color marks don't compete with the
+   surrounding chrome.
+   ============================================================= */
+@media (max-width: 640px) {
+  .yt-fullapp-cta {
+    padding: 10px 12px;
+    background:
+      linear-gradient(135deg, rgba(255, 0, 51, 0.12) 0%, rgba(255, 0, 51, 0.04) 100%),
+      rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 0, 51, 0.28);
+    box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.05) inset,
+                0 4px 16px -8px rgba(255, 0, 51, 0.28);
+  }
+  .yt-fullapp-cta:hover {
+    box-shadow: 0 0 0 1px rgba(255, 0, 51, 0.08) inset,
+                0 6px 20px -10px rgba(255, 0, 51, 0.35);
+  }
+  .yt-fullapp-text strong { font-size: 12px; letter-spacing: 0.03em; }
+  .yt-fullapp-sub { font-size: 11px; }
+  .yt-fullapp-icon,
+  .yt-fullapp-icon svg { width: 34px; height: 24px; }
+  .yt-fullapp-icon { max-width: 34px; max-height: 24px; }
+  .yt-fullapp-arrow { font-size: 18px; color: #ff8095; }
+
+  .mini-tag {
+    background: linear-gradient(135deg, #46c47d 0%, #2ea05a 100%);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset,
+                0 0 0 1px rgba(70, 196, 125, 0.35);
+    letter-spacing: 0.12em;
+  }
+
+  .dl-icon { width: 56px; height: 56px; margin-bottom: 10px; }
+  .dl-icon .os-svg {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+  }
+  .dl-card { padding: 18px 16px; }
+  .dl-title { font-size: 15px; }
+  .dl-sub { font-size: 12px; }
+}

@@ -9,3 +9,8 @@ faster-whisper==1.0.3
 # huggingface_hub releases no longer pull it in transitively, so we
 # install it explicitly to keep the import chain happy.
 requests==2.32.3
+# YouTube transcript / timedtext scraping for the legal "embed +
+# client-side mute" path. Hits YouTube's caption endpoint (not the
+# video stream) which is far less aggressively rate-limited and
+# doesn't require an API key.
+youtube-transcript-api==1.2.4

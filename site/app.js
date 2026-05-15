@@ -46,6 +46,16 @@
 
   var MINI_API_BASE = "https://dandyfeet-cmvideo-mini.hf.space";
 
+  // YouTube URLs take a separate, fully-legal path: we fetch the
+  // transcript via the backend (no video download), then embed the
+  // official YouTube iframe player here and schedule client-side
+  // mute()/unMute() calls at every flagged word. No copyrighted
+  // bytes ever touch our infrastructure. Pattern matches
+  // youtube.com/watch?v=ID, youtu.be/ID, /embed/ID, /shorts/ID.
+  var YT_URL_RE = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+  function extractYouTubeId(u) { var m = YT_URL_RE.exec(String(u||"")); return m ? m[1] : null; }
+
+
   var form        = document.getElementById("mini-form");
   if (!form) return;
 
@@ -224,6 +234,13 @@
       if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
     }
 
+    // YouTube takes the embed-and-censor path regardless of mode/format.
+    var ytId = extractYouTubeId(url);
+    if (ytId && !selectedFile) {
+      runYouTubeCensorFlow(url, ytId);
+      return;
+    }
+
     setBusy(true);
     var busyMsg;
     if (mode === "download") {
@@ -292,5 +309,135 @@
       if (!statusEl || statusEl.textContent) return;
       setStatus("Tip: you can also drag an MP4 / MP3 file onto this card.", "");
     });
+  }
+
+  // ============================================================
+  // YouTube embed + client-side mute scheduler (Option B)
+  // ============================================================
+  var ytApiLoading = false;
+  var ytApiReady   = (window.YT && window.YT.Player) ? true : false;
+  var ytApiCbs     = [];
+
+  function loadYouTubeIframeAPI(cb) {
+    if (ytApiReady) { cb(); return; }
+    ytApiCbs.push(cb);
+    if (ytApiLoading) return;
+    ytApiLoading = true;
+    var prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function () {
+      ytApiReady = true;
+      if (typeof prev === "function") { try { prev(); } catch(_){} }
+      var cbs = ytApiCbs.slice(); ytApiCbs.length = 0;
+      cbs.forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
+    };
+    var s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    s.async = true;
+    document.head.appendChild(s);
+  }
+
+  function runYouTubeCensorFlow(url, ytId) {
+    setBusy(true);
+    setStatus("Reading the YouTube transcript\u2026", "busy");
+    fetch(MINI_API_BASE + "/api/yt-censor", {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url }),
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error("The mini service is offline right now \u2014 grab the desktop app below.");
+          }
+          if (res.status === 429) {
+            throw new Error("Hit the 30-per-hour cap for YouTube transcripts. Try again later or use the desktop app.");
+          }
+          return res.json().then(
+            function (d) { throw new Error((d && d.detail) || ("HTTP " + res.status)); },
+            function ()  { throw new Error("HTTP " + res.status + " from the mini service"); }
+          );
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        renderEmbedPlayer(data);
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) || String(err);
+        if (msg === "Failed to fetch" || /NetworkError/i.test(msg)) {
+          msg = "Couldn\u2019t reach the mini service. Try again in 30 seconds.";
+        }
+        setStatus(msg, "error");
+        setBusy(false);
+      });
+  }
+
+  function renderEmbedPlayer(data) {
+    var hero = form.closest(".hero-mini");
+    if (!hero) return;
+    var body = hero.querySelector(".shot-body") || hero;
+    var intervals = (data && data.intervals) || [];
+    var countMsg = intervals.length === 0
+      ? "Nothing flagged in this video\u2019s transcript \u2014 plays normally."
+      : intervals.length + " word" + (intervals.length === 1 ? "" : "s") + " will auto-mute.";
+    body.innerHTML =
+      "<div class=\"shot-embed\">" +
+      "  <div class=\"shot-embed-eyebrow\">YouTube cleanwatch</div>" +
+      "  <div class=\"shot-embed-frame\"><div id=\"yt-player\"></div></div>" +
+      "  <div class=\"shot-embed-meta\">" +
+      "    <span class=\"shot-embed-pill\" id=\"yt-state\">Ready</span>" +
+      "    <span class=\"shot-embed-count\">" + countMsg + "</span>" +
+      "  </div>" +
+      "  <div class=\"shot-embed-hint\">Watching only \u2014 we never download YouTube videos. Want a saved file? <a href=\"#downloads\">Get the desktop app</a>.</div>" +
+      "  <button type=\"button\" class=\"shot-embed-back\" id=\"yt-back\">\u2190 Try another URL or file</button>" +
+      "</div>";
+
+    var backBtn = document.getElementById("yt-back");
+    if (backBtn) backBtn.addEventListener("click", function () { window.location.reload(); });
+
+    loadYouTubeIframeAPI(function () {
+      var player = new YT.Player("yt-player", {
+        height: "100%", width: "100%",
+        videoId: data.video_id,
+        playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+        events: {
+          onReady: function () { setStatus("", ""); setBusy(false); },
+          onStateChange: function (e) {
+            var stateEl = document.getElementById("yt-state");
+            if (!stateEl) return;
+            if (e.data === YT.PlayerState.PLAYING) { stateEl.textContent = "Playing"; startMuteScheduler(player, intervals); }
+            else if (e.data === YT.PlayerState.PAUSED) { stateEl.textContent = "Paused"; stopMuteScheduler(); }
+            else if (e.data === YT.PlayerState.ENDED) { stateEl.textContent = "Ended"; stopMuteScheduler(); player.unMute(); }
+          },
+          onError: function () { setStatus("YouTube refused to embed this video (uploader disabled embedding, or age-restricted). Try a different one.", "error"); }
+        }
+      });
+    });
+  }
+
+  var muteTimer = null;
+  function stopMuteScheduler() { if (muteTimer) { clearInterval(muteTimer); muteTimer = null; } }
+  function startMuteScheduler(player, intervals) {
+    stopMuteScheduler();
+    if (!intervals.length) return;
+    var muted = false;
+    var stateEl = document.getElementById("yt-state");
+    muteTimer = setInterval(function () {
+      if (!player || typeof player.getCurrentTime !== "function") return;
+      var t = player.getCurrentTime();
+      var hit = null;
+      for (var i = 0; i < intervals.length; i++) {
+        if (t >= intervals[i].start && t <= intervals[i].end) { hit = intervals[i]; break; }
+      }
+      if (hit && !muted) {
+        try { player.mute(); } catch(_){}
+        muted = true;
+        if (stateEl) { stateEl.textContent = "\ud83d\udd07 muted"; stateEl.classList.add("muting"); }
+      } else if (!hit && muted) {
+        try { player.unMute(); } catch(_){}
+        muted = false;
+        if (stateEl) { stateEl.textContent = "Playing"; stateEl.classList.remove("muting"); }
+      }
+    }, 80);
   }
 })();

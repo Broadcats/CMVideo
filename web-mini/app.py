@@ -170,6 +170,104 @@ def _media_type(fmt: str) -> str:
     return "video/mp4" if fmt == "mp4" else "audio/mpeg"
 
 
+# ---- YouTube embed-and-censor ---------------------------------------------
+# Legal/safe alternative to downloading: we fetch the transcript via the
+# (public, no-auth, no-API-key) timedtext endpoint that YouTube serves
+# to its own player, run it through our wordlists, and return the list
+# of (start, end) intervals plus the video_id. The frontend then embeds
+# the official YouTube iframe player and schedules mute()/unMute()
+# calls. We never download the video itself.
+YOUTUBE_ID_RE = re.compile(
+    r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|v/)|youtu\.be/)"
+    r"([A-Za-z0-9_-]{11})",
+    re.IGNORECASE,
+)
+
+
+def _extract_youtube_id(url: str) -> str | None:
+    m = YOUTUBE_ID_RE.search(url)
+    return m.group(1) if m else None
+
+
+_TRANSCRIPT_TOKEN_RE = re.compile(r"[^\w']+")
+
+
+def _normalize_token(tok: str) -> str:
+    return _TRANSCRIPT_TOKEN_RE.sub("", tok).lower()
+
+
+def _transcript_intervals(video_id: str, words: set) -> list[dict]:
+    """Fetch the English transcript for `video_id` and return a list
+    of {start, end, word} dicts for every token whose normalised form
+    is in `words`. Token-level timestamps are interpolated within
+    each transcript segment.
+
+    Uses youtube-transcript-api v1.x which returns FetchedTranscript
+    objects (iterable of FetchedTranscriptSnippet with .text /
+    .start / .duration attrs)."""
+    from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api._errors import (
+        TranscriptsDisabled,
+        NoTranscriptFound,
+        VideoUnavailable,
+        AgeRestricted,
+        IpBlocked,
+        RequestBlocked,
+        PoTokenRequired,
+        CouldNotRetrieveTranscript,
+        VideoUnplayable,
+    )
+    api = YouTubeTranscriptApi()
+    try:
+        fetched = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+    except (TranscriptsDisabled, NoTranscriptFound):
+        raise HTTPException(
+            status_code=400,
+            detail="This video doesn\u2019t have English captions, so we can\u2019t tell which words to mute. Try a different video, or use the desktop app for full Whisper transcription."
+        )
+    except (VideoUnavailable, VideoUnplayable):
+        raise HTTPException(status_code=400, detail="That video isn\u2019t available (private, region-locked, or removed).")
+    except AgeRestricted:
+        raise HTTPException(status_code=400, detail="That video is age-restricted, which blocks transcript access. Try a non-restricted upload, or use the desktop app.")
+    except (IpBlocked, RequestBlocked, PoTokenRequired):
+        raise HTTPException(
+            status_code=502,
+            detail="YouTube blocked the transcript fetch from this server. Try again in a minute, or use the desktop app \u2014 it runs from your own connection."
+        )
+    except CouldNotRetrieveTranscript:
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn\u2019t fetch the transcript. Try a different video or use the desktop app."
+        )
+
+    hits = []
+    for seg in fetched:
+        text = (getattr(seg, "text", "") or "").replace("\n", " ")
+        if not text.strip():
+            continue
+        toks = text.split()
+        if not toks:
+            continue
+        start = float(getattr(seg, "start", 0.0) or 0.0)
+        dur = float(getattr(seg, "duration", 0.0) or 0.0) or 0.5
+        # Even distribution across the segment, with a 150 ms safety
+        # pad on each interval so the browser's mute call lands a hair
+        # early and we never leak the first phoneme.
+        per = dur / len(toks)
+        for idx, tok in enumerate(toks):
+            norm = _normalize_token(tok)
+            if not norm or norm not in words:
+                continue
+            t0 = start + idx * per
+            t1 = t0 + per
+            hits.append({
+                "start": round(max(0.0, t0 - 0.15), 3),
+                "end":   round(t1 + 0.15, 3),
+                "word":  norm,
+            })
+    return hits
+
+
 # ---- yt-dlp ---------------------------------------------------------------
 # YouTube has been increasingly aggressive about blocking datacenter
 # IPs with 'Sign in to confirm you're not a bot'. The free HF Space
@@ -481,6 +579,36 @@ async def api_download_compat(
     return await api_process(request=request, format=format, mode="download", url=url, file=None)
 
 
+class YTCensorRequest(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2048)
+
+
+@app.post("/api/yt-censor")
+@limiter.limit("30/hour")
+async def api_yt_censor(request: Request, body: YTCensorRequest):
+    """Return mute intervals + video_id for a YouTube URL so the
+    frontend can embed the official iframe player and overlay
+    client-side mute scheduling. Never touches video bytes."""
+    url = _validate_url(body.url)
+    vid = _extract_youtube_id(url)
+    if not vid:
+        raise HTTPException(status_code=400, detail="That doesn't look like a YouTube URL.")
+    words = _wordlist_tokens()
+    try:
+        intervals = await asyncio.wait_for(
+            asyncio.to_thread(_transcript_intervals, vid, words),
+            timeout=20,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Transcript fetch took too long. Try again in a minute.")
+    return JSONResponse({
+        "video_id": vid,
+        "embed_url": f"https://www.youtube.com/embed/{vid}?enablejsapi=1&rel=0&modestbranding=1",
+        "intervals": intervals,
+        "interval_count": len(intervals),
+    })
+
+
 @app.get("/api/limits", include_in_schema=False)
 async def api_limits():
     return {
@@ -495,5 +623,6 @@ async def api_limits():
         "modes": sorted(ALLOWED_MODES),
         "formats": sorted(ALLOWED_FORMATS),
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
+        "yt_censor_enabled": True,
         "full_app_url": "https://cmvideo.online",
     }

@@ -121,9 +121,9 @@
     <div class="container">
       <h2>Get CMVideo <span class="ver">0.4.0-alpha</span></h2>
       <p class="muted">
-        Linux ships as a single-file AppImage &mdash; download, mark it
-        executable, double-click. No install, no Python setup. Windows and
-        macOS use the source archive with the bundled installer.
+        Linux gets a single-file AppImage; Windows gets a single
+        <code>.exe</code> &mdash; download and double-click. No installer,
+        no Python. macOS stays source-first for now (untested).
       </p>
 
       <div class="download-grid">
@@ -136,12 +136,12 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-source.zip">
+        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.0-alpha/CMVideo-0.4.0-alpha-win-amd64.exe">
           <div class="dl-icon">W</div>
           <div class="dl-title">Windows</div>
           <div class="dl-sub">
-            <code>.zip</code> &middot; right-click
-            <code>install.ps1</code> &rarr; Run with PowerShell
+            <code>.exe</code> &middot; double-click to run
+            <span class="tag">no install</span>
           </div>
         </a>
 
@@ -156,8 +156,11 @@
       </div>
 
       <p class="muted small">
-        Linux first run:
+        Linux quickstart:
         <code>chmod +x CMVideo-0.4.0-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.0-alpha-x86_64.AppImage</code>
+        &middot;
+        Windows: if SmartScreen appears, choose &ldquo;More info&rdquo; &rarr;
+        &ldquo;Run anyway&rdquo; (unsigned prerelease build).
         &middot;
         <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.0-alpha" target="_blank" rel="noopener">checksums &amp; release notes</a>
       </p>

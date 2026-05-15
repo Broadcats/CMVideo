@@ -604,11 +604,14 @@ h1 {
 .shot-file-clear:hover { color: var(--danger); }
 
 .shot-fmt-row,
-.shot-mode-row {
+.shot-mode-row,
+.shot-fps-row {
   margin-bottom: 8px;
 }
+.shot-fps-row.hidden { display: none; }
 .shot-fmt-row .pill,
-.shot-mode-row .pill {
+.shot-mode-row .pill,
+.shot-fps-row .pill {
   position: relative;
   cursor: pointer;
   user-select: none;
@@ -616,7 +619,8 @@ h1 {
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .shot-fmt-row .pill input[type="radio"],
-.shot-mode-row .pill input[type="radio"] {
+.shot-mode-row .pill input[type="radio"],
+.shot-fps-row .pill input[type="radio"] {
   position: absolute;
   opacity: 0;
   inset: 0;
@@ -1040,9 +1044,9 @@ h1 {
   .shot-field input[type="url"] { font-size: 16px; }
   .shot-hint { font-size: 12px; margin: 2px 4px 12px; }
 
-  /* ---- format / mode pills: bigger tap targets ------------ */
-  .shot-fmt-row, .shot-mode-row { gap: 6px; margin-bottom: 10px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill {
+  /* ---- format / mode / fps pills: bigger tap targets ----- */
+  .shot-fmt-row, .shot-mode-row, .shot-fps-row { gap: 6px; margin-bottom: 10px; }
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill {
     padding: 9px 14px;
     font-size: 13px;
     min-height: 36px;
@@ -1135,7 +1139,7 @@ h1 {
   .mini-tag { font-size: 0.5em; padding: 2px 6px; }
 
   .shot-row { gap: 6px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill {
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill {
     padding: 8px 12px;
     font-size: 12px;
   }

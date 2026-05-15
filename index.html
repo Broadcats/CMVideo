@@ -119,6 +119,21 @@
               </label>
             </div>
 
+            <div class="shot-row shot-fps-row" role="radiogroup" aria-label="Frame rate" id="mini-fps-row">
+              <label class="chip pill on" data-fps="source">
+                <input type="radio" name="mini-fps" value="source" checked />
+                Source fps
+              </label>
+              <label class="chip pill" data-fps="30">
+                <input type="radio" name="mini-fps" value="30" />
+                30 fps
+              </label>
+              <label class="chip pill" data-fps="60">
+                <input type="radio" name="mini-fps" value="60" />
+                60 fps
+              </label>
+            </div>
+
             <div class="shot-row shot-mode-row" role="radiogroup" aria-label="Mode">
               <label class="chip pill on" data-mode="download">
                 <input type="radio" name="mini-mode" value="download" checked />
@@ -139,7 +154,7 @@
             <p class="shot-status" id="mini-status" aria-live="polite"></p>
 
             <p class="shot-caps">
-              Mini caps: 720p / 192&nbsp;k &middot; download &le;30&nbsp;min &middot;
+              Mini caps: 720p / 30&ndash;60&nbsp;fps / 192&nbsp;k &middot; download &le;30&nbsp;min &middot;
               censor &le;8&nbsp;min &middot; 5 jobs/hour. For full quality, every
               format, fuzzy / leetspeak matching and the "Fun" TTS
               &mdash; <a href="#downloads">download the app &darr;</a>

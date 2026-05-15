@@ -510,8 +510,25 @@ class CensorApp:
     def _build_header(self, parent: tk.Frame) -> None:
         header = tk.Frame(parent, bg=Theme.BG)
         header.pack(side="top", fill="x", pady=(0, 8))
-        ttk.Label(header, text=APP_BRAND, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(header, text=APP_TAGLINE, style="Tagline.TLabel").pack(
+
+        # Invisible top-right click target. 69 hits reveals an image.
+        self._egg_clicks = 0
+        self._egg_window = None
+        self.egg_zone = tk.Frame(
+            header,
+            bg=Theme.BG,
+            width=28,
+            height=28,
+            cursor="arrow",
+        )
+        self.egg_zone.pack(side="right", anchor="ne")
+        self.egg_zone.pack_propagate(False)
+        self.egg_zone.bind("<Button-1>", self._on_easter_egg_click)
+
+        title_holder = tk.Frame(header, bg=Theme.BG)
+        title_holder.pack(side="left", fill="x", expand=True)
+        ttk.Label(title_holder, text=APP_BRAND, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_holder, text=APP_TAGLINE, style="Tagline.TLabel").pack(
             anchor="w", pady=(2, 0)
         )
 
@@ -526,6 +543,55 @@ class CensorApp:
         )
         self.accent_strip.pack(side="top", fill="x", pady=(0, 12))
         self.accent_strip.bind("<Configure>", self._redraw_accent_strip)
+
+    def _on_easter_egg_click(self, _event=None) -> None:  # type: ignore[no-untyped-def]
+        self._egg_clicks += 1
+        if self._egg_clicks >= 69:
+            self._egg_clicks = 0
+            self._show_easter_egg()
+
+    def _show_easter_egg(self) -> None:
+        existing = getattr(self, "_egg_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.lift()
+                    return
+            except tk.TclError:
+                pass
+
+        img_path = HERE / "assets" / "easter_egg.png"
+        if not img_path.exists():
+            return
+        try:
+            photo = tk.PhotoImage(file=str(img_path))
+        except tk.TclError:
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("nice")
+        win.configure(bg=Theme.BG_DEEP)
+        win.transient(self.root)
+        try:
+            win.iconphoto(False, *self._icons)
+        except (tk.TclError, AttributeError):
+            pass
+
+        label = tk.Label(win, image=photo, bg=Theme.BG_DEEP, borderwidth=0)
+        label.image = photo  # type: ignore[attr-defined]
+        label.pack(padx=12, pady=(12, 6))
+
+        tk.Label(
+            win,
+            text="69 clicks. nice.",
+            bg=Theme.BG_DEEP,
+            fg=Theme.TEXT_MUTED,
+            font=self.font_drop_sub,
+        ).pack(pady=(0, 12))
+
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.bind("<Button-1>", lambda _e: win.destroy())
+        self._egg_window = win
 
     def _build_drop_zone(self, parent: tk.Frame) -> None:
         # 1px halo ring; the inner card keeps the real interactive border.

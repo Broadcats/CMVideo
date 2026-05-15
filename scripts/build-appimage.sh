@@ -80,6 +80,7 @@ pyinstaller \
     --collect-all av \
     --collect-submodules censor \
     --add-data "$HERE/wordlists:wordlists" \
+    --add-data "$HERE/assets:assets" \
     --add-data "$HERE/icon.png:." \
     --add-data "$HERE/icon-32.png:." \
     --add-data "$HERE/icon-64.png:." \

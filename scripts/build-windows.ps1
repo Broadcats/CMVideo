@@ -137,6 +137,7 @@ $WorkPath = Join-Path $Here "build\winexe\work"
 
 $Data = @(
     "$(Join-Path $Here 'wordlists');wordlists",
+    "$(Join-Path $Here 'assets');assets",
     "$(Join-Path $Here 'icon.png');.",
     "$(Join-Path $Here 'icon-32.png');.",
     "$(Join-Path $Here 'icon-64.png');.",

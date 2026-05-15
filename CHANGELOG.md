@@ -3,6 +3,19 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.2-alpha] - 2026-05-15
+
+Tiny release, single addition.
+
+### Added
+
+- **Easter egg.** Click the top-right corner of the app 69 times to
+  reveal a hidden image (`assets/easter_egg.png`). The hit zone is a
+  ~28x28 region in the corner of the title bar and is invisible by
+  design - same colour as the background. Click outside the modal or
+  press <kbd>Esc</kbd> to dismiss. The counter resets after each
+  reveal, so it can be triggered again.
+
 ## [0.4.1-alpha] - 2026-05-15
 
 Maintenance release that broadens the format / quality matrix and rolls

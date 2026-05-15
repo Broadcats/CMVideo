@@ -44,7 +44,7 @@
 
   /* ---------- (2) Mini widget ---------- */
 
-  var MINI_API_BASE = "https://broadcats-cmvideo-mini.hf.space";
+  var MINI_API_BASE = "https://dandyfeet-cmvideo-mini.hf.space";
 
   var form        = document.getElementById("mini-form");
   if (!form) return;

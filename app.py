@@ -544,7 +544,16 @@ class CensorApp:
         self.accent_strip.pack(side="top", fill="x", pady=(0, 12))
         self.accent_strip.bind("<Configure>", self._redraw_accent_strip)
 
+    # Obfuscation key for the bundled resource. Just enough to break
+    # `file` / `strings` recognition - the bundle isn't a secret, the
+    # game is to keep the picture out of casual file listings.
+    _ETERNAL_XOR_KEY = b"\x4e\xa7\x21\x8f\x6d\xc3\x55\x18\xb9\x02\xe7\x4a\x96\x21\xcd\x8e"
+
     def _on_easter_egg_click(self, _event=None) -> None:  # type: ignore[no-untyped-def]
+        # Per-machine: once revealed (and persisted to config.json), the
+        # zone goes inert.
+        if self._config.get("eternal_seen"):
+            return
         self._egg_clicks += 1
         if self._egg_clicks >= 69:
             self._egg_clicks = 0
@@ -560,16 +569,21 @@ class CensorApp:
             except tk.TclError:
                 pass
 
-        img_path = HERE / "assets" / "easter_egg.png"
-        if not img_path.exists():
+        blob_path = HERE / "assets" / "eternal"
+        if not blob_path.is_file():
             return
         try:
-            photo = tk.PhotoImage(file=str(img_path))
-        except tk.TclError:
+            raw = blob_path.read_bytes()
+            key = self._ETERNAL_XOR_KEY
+            klen = len(key)
+            png_bytes = bytes(b ^ key[i % klen] for i, b in enumerate(raw))
+            import base64
+            photo = tk.PhotoImage(data=base64.b64encode(png_bytes).decode("ascii"))
+        except (tk.TclError, OSError):
             return
 
         win = tk.Toplevel(self.root)
-        win.title("nice")
+        win.title("???")
         win.configure(bg=Theme.BG_DEEP)
         win.transient(self.root)
         try:
@@ -577,21 +591,33 @@ class CensorApp:
         except (tk.TclError, AttributeError):
             pass
 
+        tk.Label(
+            win,
+            text="???",
+            bg=Theme.BG_DEEP,
+            fg=Theme.TEXT,
+            font=self.font_title,
+        ).pack(pady=(14, 8))
+
         label = tk.Label(win, image=photo, bg=Theme.BG_DEEP, borderwidth=0)
         label.image = photo  # type: ignore[attr-defined]
-        label.pack(padx=12, pady=(12, 6))
+        label.pack(padx=12)
 
         tk.Label(
             win,
-            text="69 clicks. nice.",
+            text="eternal",
             bg=Theme.BG_DEEP,
             fg=Theme.TEXT_MUTED,
             font=self.font_drop_sub,
-        ).pack(pady=(0, 12))
+        ).pack(pady=(8, 16))
 
         win.bind("<Escape>", lambda _e: win.destroy())
         win.bind("<Button-1>", lambda _e: win.destroy())
         self._egg_window = win
+
+        # Persist: once per machine.
+        self._config["eternal_seen"] = True
+        save_config(self._config)
 
     def _build_drop_zone(self, parent: tk.Frame) -> None:
         # 1px halo ring; the inner card keeps the real interactive border.

@@ -3,6 +3,28 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.3-alpha] - 2026-05-15
+
+Refines the easter egg from 0.4.2 - hides it deeper, locks it to a
+single reveal per machine, and tightens the modal copy.
+
+### Changed
+
+- The hidden image is now stored as `assets/eternal` with no file
+  extension and XOR-obfuscated against a fixed key, so `file` reports
+  it as generic `data` and a strings dump turns up nothing useful. The
+  bytes are decoded and fed to Tk directly via `PhotoImage(data=...)`,
+  so the decoded PNG never touches disk.
+- Reveal modal now shows **???** above the image and **eternal**
+  below it.
+- **Once per machine.** A successful reveal sets `eternal_seen: true`
+  in `config.json` (per-OS standard location). After that the click
+  zone is inert until the flag is cleared.
+
+### Removed
+
+- `assets/easter_egg.png` (replaced by the obfuscated blob above).
+
 ## [0.4.2-alpha] - 2026-05-15
 
 Tiny release, single addition.
@@ -10,11 +32,10 @@ Tiny release, single addition.
 ### Added
 
 - **Easter egg.** Click the top-right corner of the app 69 times to
-  reveal a hidden image (`assets/easter_egg.png`). The hit zone is a
-  ~28x28 region in the corner of the title bar and is invisible by
-  design - same colour as the background. Click outside the modal or
-  press <kbd>Esc</kbd> to dismiss. The counter resets after each
-  reveal, so it can be triggered again.
+  reveal a hidden image. The hit zone is a ~28x28 region in the corner
+  of the title bar and is invisible by design - same colour as the
+  background. Click outside the modal or press <kbd>Esc</kbd> to
+  dismiss.
 
 ## [0.4.1-alpha] - 2026-05-15
 

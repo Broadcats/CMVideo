@@ -400,6 +400,7 @@ def _transcript_intervals(video_id: str, words: set) -> list[dict]:
         PoTokenRequired,
         CouldNotRetrieveTranscript,
         VideoUnplayable,
+        YouTubeTranscriptApiException,
     )
     api = YouTubeTranscriptApi()
     try:
@@ -422,6 +423,29 @@ def _transcript_intervals(video_id: str, words: set) -> list[dict]:
         raise HTTPException(
             status_code=502,
             detail="Couldn\u2019t fetch the transcript. Try a different video or use the desktop app."
+        )
+    except YouTubeTranscriptApiException as e:
+        # Cookie / consent / catch-all from the library hierarchy that
+        # doesn't inherit from CouldNotRetrieveTranscript and so escapes
+        # every clause above. Log the concrete type server-side so we
+        # can see in HF Space logs what's actually being thrown.
+        log.warning("yt-transcript library exception %s: %s", type(e).__name__, e)
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn\u2019t fetch the transcript right now. Try again in a minute, or use the desktop app \u2014 it runs from your own connection."
+        )
+    except Exception as e:
+        # Network-layer (SSL handshake / connection reset / timeout)
+        # or parser errors when YouTube returns a captcha / consent
+        # page instead of the expected payload. Log the full traceback
+        # in HF Space logs but keep the user-visible message generic.
+        log.exception(
+            "yt-transcript fetch crashed for video_id=%s: %s",
+            video_id, type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn\u2019t fetch the transcript right now. Try again in a minute, or use the desktop app \u2014 it runs from your own connection."
         )
 
     hits = []

@@ -64,11 +64,18 @@ Banner "Installing eSpeak NG (silent MSI)"
 $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/espeak-ng/espeak-ng/releases/latest" -Headers @{
     "User-Agent" = "CMVideo-build-script"
 }
-$msiUrl = ($rel.assets | Where-Object { $_.name -eq "espeak-ng-X64.msi" } |
-    Select-Object -First 1 -ExpandProperty browser_download_url)
-if (-not $msiUrl) {
-    Fail "Could not find espeak-ng-X64.msi in the latest GitHub release"
+# Asset name has churned across releases (espeak-ng-X64.msi, espeak-ng.msi, ...).
+# Prefer an explicitly x64-named MSI; otherwise pick whichever .msi the release
+# offers (1.52+ ships a single platform-neutral espeak-ng.msi).
+$msiAsset = $rel.assets |
+    Where-Object { $_.name -like "*.msi" } |
+    Sort-Object @{ Expression = { if ($_.name -match "(?i)x64") { 0 } else { 1 } } }, name |
+    Select-Object -First 1
+if (-not $msiAsset) {
+    Fail ("Could not find an .msi asset in espeak-ng release {0}" -f $rel.tag_name)
 }
+$msiUrl = $msiAsset.browser_download_url
+Write-Host ("    Using {0} from espeak-ng {1}" -f $msiAsset.name, $rel.tag_name)
 $MsiPath = Join-Path $env:TEMP ("cmv-espeak-" + [Guid]::NewGuid().ToString("N") + ".msi")
 Invoke-WebRequest -Uri $msiUrl -OutFile $MsiPath -UseBasicParsing
 

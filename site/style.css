@@ -515,12 +515,18 @@ h1 {
   h1 { font-size: clamp(32px, 8vw, 44px); }
 }
 
-
-
 /* ---------- interactive mini widget (hero-shot variant) ---------- */
 
 .hero-mini .shot-frame {
   transform: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.hero-mini.dragover .shot-frame {
+  border-color: var(--accent-hi);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--accent-hi),
+    0 0 24px rgba(167, 139, 250, 0.35);
 }
 .hero-mini .shot-body {
   display: block;
@@ -533,7 +539,7 @@ h1 {
   border: 1px solid var(--border-hi);
   border-radius: 12px;
   padding: 10px 12px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .shot-field:focus-within {
@@ -554,20 +560,65 @@ h1 {
   border: 0;
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
   padding: 0;
 }
 .shot-field input[type="url"]::placeholder { color: var(--text-dim); }
 
-.shot-fmt-row .pill {
+.shot-hint {
+  margin: 0 4px 10px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+
+.shot-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid var(--accent-lo);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.shot-file.hidden { display: none; }
+.shot-file-icon { color: var(--accent-glow); font-size: 13px; }
+.shot-file-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shot-file-clear {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.shot-file-clear:hover { color: var(--danger); }
+
+.shot-fmt-row,
+.shot-mode-row {
+  margin-bottom: 8px;
+}
+.shot-fmt-row .pill,
+.shot-mode-row .pill {
   position: relative;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
-.shot-fmt-row .pill input[type="radio"] {
+.shot-fmt-row .pill input[type="radio"],
+.shot-mode-row .pill input[type="radio"] {
   position: absolute;
   opacity: 0;
   inset: 0;

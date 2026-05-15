@@ -59,22 +59,47 @@
           </div>
           <form class="shot-body" id="mini-form" autocomplete="off" novalidate>
             <div class="shot-brand">Clean My Video</div>
-            <div class="shot-tag">Mini web version &middot; paste a URL, get an MP4 or MP3</div>
+            <div class="shot-tag">Mini web version &middot; paste a URL or drop a file</div>
             <div class="shot-strip" aria-hidden="true"></div>
 
             <label class="shot-field" for="mini-url">
-              <span class="shot-field-label">Video URL</span>
-              <input id="mini-url" type="url" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false" autocomplete="off" required />
+              <span class="shot-field-label">Video URL or local file</span>
+              <input id="mini-url" type="url" placeholder="https://...   or drop a file onto this card" spellcheck="false" autocomplete="off" />
             </label>
+            <p class="shot-hint">
+              Most sites work &mdash; YouTube, X, TikTok, Reddit, Twitch and 1,800+ others.
+            </p>
+
+            <input id="mini-file" type="file" accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.avi,.flv,.mp3,.m4a,.aac,.ogg,.opus,.wav,.flac" hidden />
+            <div class="shot-file hidden" id="mini-file-row" aria-live="polite">
+              <span class="shot-file-icon" aria-hidden="true">&#9834;</span>
+              <span class="shot-file-name" id="mini-file-name"></span>
+              <button type="button" class="shot-file-clear" id="mini-file-clear" aria-label="Remove file">&times;</button>
+            </div>
 
             <div class="shot-row shot-fmt-row" role="radiogroup" aria-label="Format">
               <label class="chip pill on" data-fmt="mp4">
                 <input type="radio" name="mini-fmt" value="mp4" checked />
-                MP4 &middot; up to 720p
+                MP4 &middot; 720p
               </label>
               <label class="chip pill" data-fmt="mp3">
                 <input type="radio" name="mini-fmt" value="mp3" />
-                MP3 &middot; 192 kbps
+                MP3 &middot; 192k
+              </label>
+            </div>
+
+            <div class="shot-row shot-mode-row" role="radiogroup" aria-label="Mode">
+              <label class="chip pill on" data-mode="download">
+                <input type="radio" name="mini-mode" value="download" checked />
+                Download
+              </label>
+              <label class="chip pill" data-mode="silence">
+                <input type="radio" name="mini-mode" value="silence" />
+                Silence swears
+              </label>
+              <label class="chip pill" data-mode="beep">
+                <input type="radio" name="mini-mode" value="beep" />
+                Beep swears
               </label>
             </div>
 
@@ -83,9 +108,10 @@
             <p class="shot-status" id="mini-status" aria-live="polite"></p>
 
             <p class="shot-caps">
-              Capped to 720p / 192&nbsp;k / 30&nbsp;min / 5 per hour. For full
-              quality, every format, batch processing and the actual
-              <strong>censoring</strong> &mdash; <a href="#downloads">download the app &darr;</a>
+              Mini caps: 720p / 192&nbsp;k &middot; download &le;30&nbsp;min &middot;
+              censor &le;8&nbsp;min &middot; 5 jobs/hour. For full quality, every
+              format, fuzzy / leetspeak matching and the "Fun" TTS
+              &mdash; <a href="#downloads">download the app &darr;</a>
             </p>
           </form>
         </div>

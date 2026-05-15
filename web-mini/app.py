@@ -1,22 +1,29 @@
-"""CMVideo Mini - the URL -> MP4/MP3 slice of CMVideo, running on the web.
+"""CMVideo Mini - the URL/file -> MP4/MP3 slice of CMVideo, on the web.
 
-Designed to deploy as a Hugging Face Space (Docker SDK). Intentionally
-limited: 720p / 192 kbps caps, 30 minute max duration, 200 MB max file,
-5 downloads per hour per IP. Anything richer (censoring, batch, every
-format and quality, no caps) lives in the desktop app at
-https://cmvideo.online.
+Deploys as a Hugging Face Space (Docker SDK). Three modes:
+
+* `download` - URL only; yt-dlp pulls the clip and returns the file.
+* `silence`  - URL or uploaded file; transcribe with whisper-tiny.en,
+               mute every match against the bundled wordlists.
+* `beep`     - URL or uploaded file; same matching as `silence` but
+               overlays a 1 kHz tone on every match.
+
+Caps stay tight on purpose - the full desktop app at
+https://cmvideo.online is the upsell.
 """
 
 import asyncio
 import logging
+import os
 import re
 import shutil
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 import yt_dlp
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,21 +34,29 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.background import BackgroundTask
 
+import mini_censor
+
 
 # ---------------------------------------------------------------------------
-# Hard caps - these are the whole point of the "mini" version. Bumping any
-# of these turns the demo into a YouTube-downloads-as-a-service that I do
-# not want to run on a free tier.
+# Caps. The "mini" pitch only holds if these stay tight.
 # ---------------------------------------------------------------------------
-MAX_DURATION_SECONDS = 30 * 60         # 30 minutes
-MAX_FILESIZE_BYTES = 200 * 1024 * 1024 # 200 MB
-MAX_VIDEO_HEIGHT = 720                 # mp4 capped at 720p
-AUDIO_BITRATE_KBPS = "192"             # mp3 capped at 192 kbps
-JOB_TIMEOUT_SECONDS = 120              # yt-dlp wall-clock cap
+MAX_DOWNLOAD_DURATION_SECONDS = 30 * 60          # URL download only
+MAX_DOWNLOAD_FILESIZE_BYTES = 200 * 1024 * 1024  # URL download only
+MAX_CENSOR_DURATION_SECONDS = 8 * 60             # transcription is slow on free CPU
+MAX_CENSOR_FILESIZE_BYTES = 100 * 1024 * 1024    # cap upload + output
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024             # multipart body size
+MAX_VIDEO_HEIGHT = 720
+AUDIO_BITRATE_KBPS = "192"
+
+DOWNLOAD_TIMEOUT_SECONDS = 120
+CENSOR_TIMEOUT_SECONDS = 240
 
 RATE_LIMIT_PER_HOUR = "5/hour"
 
 ALLOWED_FORMATS = {"mp4", "mp3"}
+ALLOWED_MODES = {"download", "silence", "beep"}
+
+WORDLISTS_DIR = Path(os.environ.get("CMVIDEO_WORDLISTS_DIR", "wordlists")).resolve()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("cmvideo-mini")
@@ -52,17 +67,28 @@ log = logging.getLogger("cmvideo-mini")
 # ---------------------------------------------------------------------------
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
+_WORDS_CACHE: Optional[set] = None
+
+
+def _wordlist_tokens() -> set:
+    global _WORDS_CACHE
+    if _WORDS_CACHE is None:
+        _WORDS_CACHE = mini_censor.load_wordlists(WORDLISTS_DIR)
+    return _WORDS_CACHE
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     log.info(
-        "CMVideo Mini starting. Caps: %s min duration, %s MB filesize, %sp / %s kbps, %s/IP",
-        MAX_DURATION_SECONDS // 60,
-        MAX_FILESIZE_BYTES // (1024 * 1024),
-        MAX_VIDEO_HEIGHT,
-        AUDIO_BITRATE_KBPS,
+        "CMVideo Mini starting. Caps: download %d min / %d MB, censor %d min / %d MB, %s/IP",
+        MAX_DOWNLOAD_DURATION_SECONDS // 60,
+        MAX_DOWNLOAD_FILESIZE_BYTES // (1024 * 1024),
+        MAX_CENSOR_DURATION_SECONDS // 60,
+        MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024),
         RATE_LIMIT_PER_HOUR,
     )
+    # Warm the wordlists; the whisper model loads lazily on first use.
+    _wordlist_tokens()
     yield
 
 
@@ -70,9 +96,9 @@ app = FastAPI(title="CMVideo Mini", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS: the canonical UI is the widget embedded on cmvideo.online, which
-# calls this Space cross-origin. The Space's own / endpoint is a fallback
-# for direct visitors and same-origin from there needs no CORS.
+# CORS: cmvideo.online embeds the widget in its hero and calls this
+# Space cross-origin. The Space's own / endpoint is fallback for direct
+# visitors and is same-origin from there.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -94,32 +120,29 @@ templates = Jinja2Templates(directory="templates")
 
 
 # ---------------------------------------------------------------------------
-# Request models
+# Helpers
 # ---------------------------------------------------------------------------
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-class DownloadRequest(BaseModel):
-    url: str = Field(..., min_length=8, max_length=2048)
-    format: str = Field(..., pattern="^(mp4|mp3)$")
-
-
-class InfoRequest(BaseModel):
-    url: str = Field(..., min_length=8, max_length=2048)
-
-
-# ---------------------------------------------------------------------------
-# yt-dlp helpers
-# ---------------------------------------------------------------------------
 def _validate_url(url: str) -> str:
-    """Trim and sanity-check the URL. yt-dlp itself does the heavy lifting."""
-    url = url.strip()
+    url = (url or "").strip()
     if not URL_RE.match(url):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
     return url
 
 
-def _ydl_common_opts(tmpdir: Path) -> dict:
+def _safe_name(stem: str, fmt: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", stem)[:80] or "cmvideo-mini"
+    return f"{cleaned}.{fmt}"
+
+
+def _media_type(fmt: str) -> str:
+    return "video/mp4" if fmt == "mp4" else "audio/mpeg"
+
+
+# ---- yt-dlp ---------------------------------------------------------------
+def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict:
     return {
         "outtmpl": str(tmpdir / "%(title).80s.%(ext)s"),
         "noplaylist": True,
@@ -127,9 +150,9 @@ def _ydl_common_opts(tmpdir: Path) -> dict:
         "no_warnings": True,
         "restrictfilenames": True,
         "windowsfilenames": True,
-        "max_filesize": MAX_FILESIZE_BYTES,
+        "max_filesize": max_filesize,
         "match_filter": yt_dlp.utils.match_filter_func(
-            f"duration <? {MAX_DURATION_SECONDS}"
+            f"duration <? {max_duration}"
         ),
         "socket_timeout": 25,
         "retries": 1,
@@ -138,7 +161,6 @@ def _ydl_common_opts(tmpdir: Path) -> dict:
 
 
 def _video_format_selector() -> str:
-    """Cap height + prefer mp4-friendly streams."""
     h = MAX_VIDEO_HEIGHT
     return (
         f"bestvideo[height<={h}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
@@ -148,9 +170,8 @@ def _video_format_selector() -> str:
     )
 
 
-def _do_download(url: str, fmt: str, tmpdir: Path) -> Path:
-    """Run yt-dlp synchronously and return the produced file path."""
-    opts = _ydl_common_opts(tmpdir)
+def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesize: int) -> Path:
+    opts = _ydl_common_opts(tmpdir, max_duration, max_filesize)
     if fmt == "mp4":
         opts.update({
             "format": _video_format_selector(),
@@ -159,7 +180,7 @@ def _do_download(url: str, fmt: str, tmpdir: Path) -> Path:
                 {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"},
             ],
         })
-    else:  # mp3
+    else:
         opts.update({
             "format": "bestaudio/best",
             "postprocessors": [
@@ -174,13 +195,10 @@ def _do_download(url: str, fmt: str, tmpdir: Path) -> Path:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         if info is None:
-            raise RuntimeError("Source rejected by length / size filter (likely longer than 30 min or larger than 200 MB).")
+            raise RuntimeError(f"Source rejected (likely longer than {max_duration // 60} min or larger than {max_filesize // (1024 * 1024)} MB).")
 
-    # The post-processor swap means the on-disk extension can drift from
-    # what extract_info reports, so just glob what landed in tmpdir.
     out_files = [p for p in tmpdir.iterdir() if p.is_file() and p.suffix.lower() == f".{fmt}"]
     if not out_files:
-        # Fallback: any file (could be a partial mp4 webm pre-remux race)
         out_files = [p for p in tmpdir.iterdir() if p.is_file()]
         if not out_files:
             raise RuntimeError("Download finished but no output file was produced.")
@@ -188,7 +206,6 @@ def _do_download(url: str, fmt: str, tmpdir: Path) -> Path:
 
 
 def _do_info(url: str) -> dict:
-    """Cheap metadata pull. No download. Strict timeouts via socket_timeout."""
     with yt_dlp.YoutubeDL({
         "quiet": True,
         "no_warnings": True,
@@ -206,21 +223,64 @@ def _do_info(url: str) -> dict:
         "duration": int(duration) if isinstance(duration, (int, float)) else None,
         "thumbnail": info.get("thumbnail"),
         "extractor": info.get("extractor_key"),
-        "over_cap": isinstance(duration, (int, float)) and duration > MAX_DURATION_SECONDS,
+        "over_cap_download": isinstance(duration, (int, float)) and duration > MAX_DOWNLOAD_DURATION_SECONDS,
+        "over_cap_censor": isinstance(duration, (int, float)) and duration > MAX_CENSOR_DURATION_SECONDS,
     }
+
+
+# ---- censor pipeline ------------------------------------------------------
+def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path) -> Path:
+    duration = mini_censor.probe_duration(src)
+    if duration > MAX_CENSOR_DURATION_SECONDS + 5:
+        raise RuntimeError(
+            f"Censoring is capped at {MAX_CENSOR_DURATION_SECONDS // 60} minutes "
+            f"on the mini version (this clip is {int(duration // 60)} min). Use the full app."
+        )
+    words = _wordlist_tokens()
+    intervals = mini_censor.find_intervals(src, words)
+    dst = tmpdir / f"censored.{fmt}"
+    mini_censor.render(src, dst, intervals, mode=mode, fmt=fmt)
+    return dst
+
+
+# ---- file upload ----------------------------------------------------------
+async def _save_upload(upload: UploadFile, tmpdir: Path) -> Path:
+    suffix = Path(upload.filename or "upload.bin").suffix.lower() or ".bin"
+    safe_suffix = suffix if re.match(r"^\.[A-Za-z0-9]{1,8}$", suffix) else ".bin"
+    dst = tmpdir / f"upload{safe_suffix}"
+    total = 0
+    with dst.open("wb") as out:
+        while True:
+            chunk = await upload.read(1 << 20)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail=f"Upload over the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB cap.")
+            out.write(chunk)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Empty upload.")
+    log.info("Received upload: %s (%d bytes)", upload.filename, total)
+    return dst
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+class InfoRequest(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2048)
+
+
 @app.get("/", include_in_schema=False)
 async def index(request: Request):
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "max_duration_min": MAX_DURATION_SECONDS // 60,
-            "max_filesize_mb": MAX_FILESIZE_BYTES // (1024 * 1024),
+            "max_dl_min": MAX_DOWNLOAD_DURATION_SECONDS // 60,
+            "max_dl_mb": MAX_DOWNLOAD_FILESIZE_BYTES // (1024 * 1024),
+            "max_censor_min": MAX_CENSOR_DURATION_SECONDS // 60,
+            "max_censor_mb": MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024),
             "max_video_height": MAX_VIDEO_HEIGHT,
             "audio_bitrate_kbps": AUDIO_BITRATE_KBPS,
             "rate_limit": RATE_LIMIT_PER_HOUR,
@@ -230,7 +290,7 @@ async def index(request: Request):
 
 @app.get("/healthz", include_in_schema=False)
 async def healthz():
-    return {"ok": True}
+    return {"ok": True, "words": len(_wordlist_tokens())}
 
 
 @app.post("/api/info")
@@ -249,47 +309,82 @@ async def api_info(request: Request, body: InfoRequest):
     return JSONResponse(info)
 
 
-@app.post("/api/download")
+@app.post("/api/process")
 @limiter.limit(RATE_LIMIT_PER_HOUR)
-async def api_download(request: Request, body: DownloadRequest):
-    url = _validate_url(body.url)
-    fmt = body.format.lower()
+async def api_process(
+    request: Request,
+    format: str = Form(...),
+    mode: str = Form(...),
+    url: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+):
+    fmt = (format or "").lower().strip()
+    md = (mode or "").lower().strip()
     if fmt not in ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
+    if md not in ALLOWED_MODES:
+        raise HTTPException(status_code=400, detail="Mode must be 'download', 'silence', or 'beep'.")
+
+    have_url = bool(url and url.strip())
+    have_file = file is not None and bool(file.filename)
+    if have_url == have_file:
+        raise HTTPException(status_code=400, detail="Provide either a URL or a file, not both / neither.")
+
+    if md == "download" and have_file:
+        raise HTTPException(status_code=400, detail="Download mode is URL-only - you already have the file locally.")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="cmvm_"))
     try:
-        try:
-            out_path: Path = await asyncio.wait_for(
-                asyncio.to_thread(_do_download, url, fmt, tmpdir),
-                timeout=JOB_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=504,
-                detail=f"Download exceeded the {JOB_TIMEOUT_SECONDS}s mini-app cap. Try a shorter clip or download the full desktop app.",
-            )
-        except yt_dlp.utils.DownloadError as e:
-            msg = str(e).splitlines()[-1]
-            if "File is larger than max-filesize" in msg or "max-filesize" in msg.lower():
-                raise HTTPException(status_code=413, detail=f"That clip is over the {MAX_FILESIZE_BYTES // (1024 * 1024)} MB mini-app cap.")
-            raise HTTPException(status_code=400, detail=msg)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # 1) Get the source media into tmpdir.
+        if have_url:
+            clean_url = _validate_url(url)
+            max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
+            max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+            try:
+                src = await asyncio.wait_for(
+                    asyncio.to_thread(_do_download, clean_url, fmt, tmpdir, max_dur, max_size),
+                    timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail=f"Source download exceeded the {DOWNLOAD_TIMEOUT_SECONDS}s mini-app cap.")
+            except yt_dlp.utils.DownloadError as e:
+                msg = str(e).splitlines()[-1]
+                if "max-filesize" in msg.lower():
+                    raise HTTPException(status_code=413, detail=f"Source exceeds the {max_size // (1024 * 1024)} MB mini-app cap.")
+                raise HTTPException(status_code=400, detail=msg)
+        else:
+            src = await _save_upload(file, tmpdir)
+            if src.stat().st_size > MAX_CENSOR_FILESIZE_BYTES:
+                raise HTTPException(status_code=413, detail=f"Upload exceeds the {MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024)} MB cap.")
 
+        # 2) Either return it as-is (download) or run the censor pipeline.
+        if md == "download":
+            out_path = src
+        else:
+            try:
+                out_path = await asyncio.wait_for(
+                    asyncio.to_thread(_do_censor, src, fmt, md, tmpdir),
+                    timeout=CENSOR_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Censoring exceeded the {CENSOR_TIMEOUT_SECONDS}s mini-app cap. Try a shorter clip or use the desktop app.",
+                )
+            except RuntimeError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+        # 3) Final filesize gate (catches outputs that grew during re-encode).
         size = out_path.stat().st_size
-        if size > MAX_FILESIZE_BYTES:
-            raise HTTPException(status_code=413, detail=f"Output is over the {MAX_FILESIZE_BYTES // (1024 * 1024)} MB cap.")
+        active_cap = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+        if size > active_cap:
+            raise HTTPException(status_code=413, detail=f"Output exceeds the {active_cap // (1024 * 1024)} MB cap.")
 
-        # Sanitised download filename for the browser.
-        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", out_path.stem)[:80] or "video"
-        download_name = f"{safe_name}.{fmt}"
-
-        media_type = "video/mp4" if fmt == "mp4" else "audio/mpeg"
+        stem = src.stem if md == "download" else f"{src.stem}-{md}"
         return FileResponse(
             path=str(out_path),
-            media_type=media_type,
-            filename=download_name,
+            media_type=_media_type(fmt),
+            filename=_safe_name(stem, fmt),
             background=BackgroundTask(shutil.rmtree, tmpdir, ignore_errors=True),
         )
     except HTTPException:
@@ -297,16 +392,34 @@ async def api_download(request: Request, body: DownloadRequest):
         raise
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
-        raise
+        log.exception("process failed")
+        raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
+
+
+@app.post("/api/download", include_in_schema=False)
+@limiter.limit(RATE_LIMIT_PER_HOUR)
+async def api_download_compat(
+    request: Request,
+    format: str = Form(...),
+    url: str = Form(...),
+):
+    """Back-compat shim for old clients that used the JSON /api/download.
+    Delegates to /api/process with mode=download."""
+    return await api_process(request=request, format=format, mode="download", url=url, file=None)
 
 
 @app.get("/api/limits", include_in_schema=False)
 async def api_limits():
     return {
-        "max_duration_seconds": MAX_DURATION_SECONDS,
-        "max_filesize_bytes": MAX_FILESIZE_BYTES,
+        "max_download_duration_seconds": MAX_DOWNLOAD_DURATION_SECONDS,
+        "max_download_filesize_bytes": MAX_DOWNLOAD_FILESIZE_BYTES,
+        "max_censor_duration_seconds": MAX_CENSOR_DURATION_SECONDS,
+        "max_censor_filesize_bytes": MAX_CENSOR_FILESIZE_BYTES,
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
         "max_video_height": MAX_VIDEO_HEIGHT,
         "audio_bitrate_kbps": AUDIO_BITRATE_KBPS,
         "rate_limit": RATE_LIMIT_PER_HOUR,
+        "modes": sorted(ALLOWED_MODES),
+        "formats": sorted(ALLOWED_FORMATS),
         "full_app_url": "https://cmvideo.online",
     }

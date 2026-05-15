@@ -10,14 +10,25 @@ user-facing behaviour changes versus 0.4.2-alpha.
 
 ### Added (out-of-tree, alongside 0.4.3)
 
-- **CMVideo Mini** - the URL-grabber slice of the full app, embedded
-  directly into the cmvideo.online hero. The right-side mockup is now
-  a working widget: paste a URL, pick MP4 or MP3, hit Download. Capped
-  to 720p / 192 kbps / 30 min / 200 MB / 5 downloads per hour per IP
-  so it stays free and keeps the desktop app the obvious next step.
-  Backend lives in [`web-mini/`](web-mini/) and deploys to a free
-  Hugging Face Space; the cmvideo.online widget calls it cross-origin
-  via CORS.
+- **CMVideo Mini** - the slimmed-down version of the full app,
+  embedded directly into the cmvideo.online hero. The right-side
+  mockup is now a working widget that supports:
+  - **Paste a URL** (YouTube, X, TikTok, Reddit, Twitch and 1,800+
+    other yt-dlp-covered sites) **or drag a local MP4 / MP3 onto
+    the card**.
+  - **Output as MP4 (up to 720p) or MP3 (192 kbps).**
+  - **Three modes:** `Download` (URL only, no censoring), `Silence
+    swears` (transcribe with whisper-tiny.en + mute every match
+    against `wordlists/`), `Beep swears` (same matching but with a
+    gated 1 kHz sine overlay).
+  Capped to 720p / 192 kbps / 5 jobs per hour per IP, with separate
+  download (30 min / 200 MB) and censor (8 min / 100 MB) duration
+  /filesize ceilings so the free HF Space CPU tier holds up. Backend
+  lives in [`web-mini/`](web-mini/) (FastAPI + faster-whisper + ffmpeg)
+  and deploys to a single HF Docker Space; the cmvideo.online widget
+  calls it cross-origin via CORS. Mini uses exact-token matching only
+  - the desktop app's fuzzy / leetspeak / phonetic matching and "Fun"
+  TTS replacement stay in-app on purpose.
 
 ## [0.4.2-alpha] - 2026-05-15
 

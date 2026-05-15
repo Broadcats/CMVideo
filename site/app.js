@@ -1,11 +1,10 @@
 /* CMVideo landing site behaviour:
  *   1. OS detection swaps the primary download button + highlights
- *      the matching tile in the downloads grid. Pure progressive
- *      enhancement; if JS is off the user still sees every download.
- *   2. The hero mini widget posts the URL + format to the CMVideo Mini
- *      backend (a free Hugging Face Space) and streams the result back
- *      to the user as a file download. Capped server-side - the form
- *      below the input nudges visitors toward the desktop app.
+ *      the matching tile in the downloads grid.
+ *   2. The hero mini widget posts to the CMVideo Mini backend (a free
+ *      Hugging Face Space) - URL or uploaded file, MP4 or MP3, and
+ *      either pure download or Silence / Beep censoring. Capped on the
+ *      server so the desktop app stays the obvious next step.
  */
 (function () {
   "use strict";
@@ -18,9 +17,7 @@
     var combined = (p + " " + ua).toLowerCase();
     if (combined.indexOf("win") !== -1) return "windows";
     if (combined.indexOf("mac") !== -1) return "mac";
-    if (combined.indexOf("linux") !== -1 || combined.indexOf("x11") !== -1) {
-      return "linux";
-    }
+    if (combined.indexOf("linux") !== -1 || combined.indexOf("x11") !== -1) return "linux";
     return null;
   }
 
@@ -37,8 +34,7 @@
 
   if (match && primary && primaryMeta) {
     primary.setAttribute("href", match.getAttribute("href"));
-    primary.querySelector(".btn-label").textContent =
-      "Download for " + labels[os].name;
+    primary.querySelector(".btn-label").textContent = "Download for " + labels[os].name;
     primaryMeta.textContent = labels[os].meta;
     match.classList.add("recommended");
   } else if (primary && primaryMeta) {
@@ -48,17 +44,33 @@
 
   /* ---------- (2) Mini widget ---------- */
 
-  // The backend lives on a free Hugging Face Space; the page calls it
-  // cross-origin. CORS is allow-listed on the Space side.
   var MINI_API_BASE = "https://broadcats-cmvideo-mini.hf.space";
 
-  var form = document.getElementById("mini-form");
+  var form        = document.getElementById("mini-form");
   if (!form) return;
 
-  var urlInput  = document.getElementById("mini-url");
-  var btn       = document.getElementById("mini-btn");
-  var statusEl  = document.getElementById("mini-status");
-  var defaultBtnText = btn ? btn.textContent : "Download";
+  var card        = form.closest(".hero-mini") || form;
+  var urlInput    = document.getElementById("mini-url");
+  var fileInput   = document.getElementById("mini-file");
+  var fileRow     = document.getElementById("mini-file-row");
+  var fileName    = document.getElementById("mini-file-name");
+  var fileClear   = document.getElementById("mini-file-clear");
+  var btn         = document.getElementById("mini-btn");
+  var statusEl    = document.getElementById("mini-status");
+
+  var BTN_LABELS = {
+    download: "Download",
+    silence:  "Silence swears",
+    beep:     "Beep swears"
+  };
+  var BUSY_LABELS = {
+    download: "Downloading\u2026",
+    silence:  "Transcribing\u2026",
+    beep:     "Transcribing\u2026"
+  };
+
+  function getMode()   { var s = form.querySelector('input[name="mini-mode"]:checked'); return s ? s.value : "download"; }
+  function getFormat() { var s = form.querySelector('input[name="mini-fmt"]:checked');  return s ? s.value : "mp4"; }
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -67,39 +79,90 @@
     if (kind) statusEl.classList.add(kind);
   }
 
+  function syncBtnLabel() {
+    if (!btn) return;
+    btn.textContent = BTN_LABELS[getMode()] || "Download";
+  }
+
   function setBusy(b) {
     if (!btn) return;
     btn.disabled = b;
-    btn.textContent = b ? "Working\u2026" : defaultBtnText;
+    btn.textContent = b ? (BUSY_LABELS[getMode()] || "Working\u2026") : (BTN_LABELS[getMode()] || "Download");
   }
 
-  function getFormat() {
-    var sel = form.querySelector('input[name="mini-fmt"]:checked');
-    return sel ? sel.value : "mp4";
-  }
-
-  // Pill "on" class follows the chosen radio.
+  /* ---- pill highlight + button-label sync ---- */
   Array.prototype.forEach.call(
-    form.querySelectorAll('input[name="mini-fmt"]'),
+    form.querySelectorAll('input[name="mini-fmt"], input[name="mini-mode"]'),
     function (input) {
       input.addEventListener("change", function () {
+        var groupName = input.getAttribute("name");
         Array.prototype.forEach.call(
-          form.querySelectorAll(".shot-fmt-row .pill"),
-          function (p) { p.classList.remove("on"); }
+          form.querySelectorAll('input[name="' + groupName + '"]'),
+          function (i) {
+            var pill = i.closest(".pill");
+            if (pill) pill.classList.toggle("on", i.checked);
+          }
         );
-        var parent = input.closest(".pill");
-        if (parent) parent.classList.add("on");
+        if (groupName === "mini-mode") syncBtnLabel();
       });
     }
   );
+  syncBtnLabel();
 
+  /* ---- selected file row ---- */
+  var selectedFile = null;
+
+  function setFile(file) {
+    selectedFile = file || null;
+    if (selectedFile) {
+      if (urlInput) urlInput.value = "";
+      if (fileName) fileName.textContent = selectedFile.name + " (" + Math.round(selectedFile.size / 1024) + " KB)";
+      if (fileRow)  fileRow.classList.remove("hidden");
+    } else {
+      if (fileName) fileName.textContent = "";
+      if (fileRow)  fileRow.classList.add("hidden");
+      if (fileInput) fileInput.value = "";
+    }
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener("change", function () {
+      if (fileInput.files && fileInput.files[0]) setFile(fileInput.files[0]);
+    });
+  }
+  if (fileClear) {
+    fileClear.addEventListener("click", function () { setFile(null); setStatus(""); });
+  }
+  if (urlInput) {
+    urlInput.addEventListener("input", function () {
+      if (urlInput.value && selectedFile) setFile(null);
+    });
+  }
+
+  /* ---- drag-drop on the whole card ---- */
+  function blockEvent(e) { e.preventDefault(); e.stopPropagation(); }
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    card.addEventListener(ev, function (e) { blockEvent(e); card.classList.add("dragover"); });
+  });
+  ["dragleave", "dragend"].forEach(function (ev) {
+    card.addEventListener(ev, function (e) { blockEvent(e); card.classList.remove("dragover"); });
+  });
+  card.addEventListener("drop", function (e) {
+    blockEvent(e);
+    card.classList.remove("dragover");
+    var dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    setFile(dt.files[0]);
+    setStatus("Loaded \u201C" + dt.files[0].name + "\u201D. Pick a mode and hit the button.", "ok");
+  });
+
+  /* ---- submit ---- */
   function downloadBlob(blob, name) {
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = name || "cmvideo-mini";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
   }
 
@@ -113,25 +176,42 @@
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
-    if (!urlInput) return;
 
-    var url = (urlInput.value || "").trim();
-    if (!url) {
-      setStatus("Paste a video URL first.", "error");
-      urlInput.focus();
+    var mode = getMode();
+    var fmt  = getFormat();
+    var url  = (urlInput && urlInput.value || "").trim();
+
+    if (!url && !selectedFile) {
+      setStatus("Paste a URL or drop a file onto the card first.", "error");
+      if (urlInput) urlInput.focus();
       return;
     }
+    if (url && selectedFile) {
+      setStatus("Pick one: URL OR file, not both. Clearing the URL.", "error");
+      if (urlInput) urlInput.value = "";
+    }
+    if (mode === "download" && selectedFile) {
+      setStatus("Download mode is URL-only \u2014 you already have the file. Switching to Silence.", "error");
+      var s = form.querySelector('input[name="mini-mode"][value="silence"]');
+      if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
+    }
 
-    var fmt = getFormat();
     setBusy(true);
-    setStatus("Downloading " + fmt.toUpperCase() + "\u2026 this can take 10\u201390 seconds. Stay on this tab.", "busy");
+    var busyMsg;
+    if (mode === "download") {
+      busyMsg = "Pulling " + fmt.toUpperCase() + "\u2026 typically 10\u201360 sec.";
+    } else {
+      busyMsg = "Transcribing + " + mode + "\u2026 typically 30\u2013120 sec on free CPU. Stay on this tab.";
+    }
+    setStatus(busyMsg, "busy");
 
-    fetch(MINI_API_BASE + "/api/download", {
-      method: "POST",
-      mode: "cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: url, format: fmt })
-    })
+    var fd = new FormData();
+    fd.append("format", fmt);
+    fd.append("mode", mode);
+    if (selectedFile) fd.append("file", selectedFile);
+    else              fd.append("url", url);
+
+    fetch(MINI_API_BASE + "/api/process", { method: "POST", mode: "cors", body: fd })
       .then(function (res) {
         if (!res.ok) {
           return res.json().then(
@@ -144,18 +224,27 @@
       })
       .then(function (out) {
         downloadBlob(out.blob, out.name);
-        setStatus(
-          "Saved " + out.name + ". Want no caps and actual censoring? Grab the full app below.",
-          "ok"
-        );
+        if (mode === "download") {
+          setStatus("Saved " + out.name + ". Want fuzzy matching, more formats, and the actual censoring? Grab the app below.", "ok");
+        } else {
+          setStatus("Saved " + out.name + ". Mini uses exact-token matching; the full app catches leetspeak / phonetic variants and 'Fun' TTS replacement.", "ok");
+        }
       })
       .catch(function (err) {
         var msg = (err && err.message) || String(err);
-        if (msg === "Failed to fetch" || msg === "NetworkError when attempting to fetch resource.") {
-          msg = "Couldn't reach the mini-app service. It might be cold-booting - retry in 30 seconds, or grab the desktop app below.";
+        if (msg === "Failed to fetch" || /NetworkError/i.test(msg)) {
+          msg = "Couldn't reach the mini-app service. It might be cold-booting \u2014 retry in 30 seconds, or grab the desktop app below.";
         }
         setStatus(msg, "error");
       })
       .then(function () { setBusy(false); });
   });
+
+  /* ---- handy: click on the URL field shows a hint about drag-drop ---- */
+  if (urlInput) {
+    urlInput.addEventListener("focus", function () {
+      if (!statusEl || statusEl.textContent) return;
+      setStatus("Tip: you can also drag an MP4 / MP3 file onto this card.", "");
+    });
+  }
 })();

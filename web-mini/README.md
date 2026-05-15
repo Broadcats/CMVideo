@@ -20,12 +20,15 @@ This service is intentionally limited so it can stay free:
 
 | Cap | Value |
 |---|---|
-| Max duration per clip | 30 min |
-| Max output filesize   | 200 MB |
-| Max video resolution  | 720p MP4 |
-| Max audio bitrate     | 192 kbps MP3 |
-| Per-IP rate limit     | 5 downloads / hour |
-| Job timeout           | 120 s |
+| Max video resolution         | 720p MP4 |
+| Max audio bitrate            | 192 kbps MP3 |
+| Max duration (download mode) | 30 min |
+| Max filesize (download mode) | 200 MB |
+| Max duration (censor mode)   | 8 min |
+| Max filesize (censor + upload) | 100 MB |
+| Per-IP rate limit            | 5 jobs / hour |
+| Download job timeout         | 120 s |
+| Censor job timeout           | 240 s |
 
 For full quality (up to 4K / 320 kbps), every format (MP4, MOV, MKV,
 WebM, AVI, FLV, MP3, M4A, AAC, OGG, Opus, WAV, FLAC), batch processing,
@@ -51,15 +54,30 @@ web-mini/
 
 ## Endpoints
 
-| Path             | Method | What it does                                    |
-|------------------|--------|-------------------------------------------------|
-| `/`              | GET    | The mini-app UI                                 |
-| `/api/info`      | POST   | `{url}` → title, duration, thumbnail, etc.      |
-| `/api/download`  | POST   | `{url, format: "mp4"|"mp3"}` → streams the file |
-| `/api/limits`    | GET    | JSON dump of the current caps                   |
-| `/healthz`       | GET    | Liveness probe                                  |
+| Path             | Method | What it does                                                          |
+|------------------|--------|-----------------------------------------------------------------------|
+| `/`              | GET    | The mini-app UI (fallback for direct visitors)                        |
+| `/api/info`      | POST   | `{url}` JSON → title, duration, thumbnail, etc.                       |
+| `/api/process`   | POST   | multipart: `format`, `mode`, `url` OR `file` → streams the result     |
+| `/api/download`  | POST   | back-compat shim: form-encoded `format` + `url`, delegates to process |
+| `/api/limits`    | GET    | JSON dump of the current caps                                         |
+| `/healthz`       | GET    | Liveness probe (also reports loaded wordlist token count)             |
 
 ---
+
+
+
+## Modes (`mode=` field on `/api/process`)
+
+| Mode       | Source     | Pipeline                                                                                |
+|------------|-----------|-----------------------------------------------------------------------------------------|
+| `download` | URL only  | `yt-dlp` → file. No transcription, no audio rewrite.                                    |
+| `silence`  | URL or file | `yt-dlp` (if URL) → `ffprobe` → `faster-whisper tiny.en` → exact-token match → `ffmpeg volume=0` over matched intervals → re-encode |
+| `beep`     | URL or file | same as `silence`, but a gated 1 kHz `sine` overlay replaces the muted intervals      |
+
+Mini matching is **exact-token only** against `wordlists/*.txt`. The
+desktop app additionally does leetspeak / phonetic / fuzzy variants -
+also part of the upsell pitch.
 
 ## Local development
 
@@ -186,3 +204,19 @@ RATE_LIMIT_PER_HOUR = "5/hour"
 
 Lower = less abuse risk, less compute. Higher = better mini-app, but
 defeats the "encourage the full download" goal of this service.
+
+
+## Wordlists
+
+`web-mini/wordlists/*.txt` is a **committed copy** of the desktop app's
+`wordlists/` at the root of this repo. The Dockerfile copies it into
+the image so the Space stays buildable without network access at
+build time.
+
+When you change the canonical wordlists, sync them with:
+
+```bash
+cp -f wordlists/*.txt web-mini/wordlists/
+```
+
+Then push to both `main` and the HF Space.

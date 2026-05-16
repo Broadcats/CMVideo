@@ -3,6 +3,76 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.16.3-alpha] - 2026-05-16
+
+Mobile-fix hotfix on top of v0.4.16.2-alpha.
+**The "mini service is offline" message users were seeing on
+mobile after submitting a job was a misdiagnosis caused by the
+backend's `_get_job` IP-scope check.** Fixed: the check is
+gone (it was breaking legit users on every CGNAT carrier on
+the planet, while contributing zero real security on top of
+the 32-byte unpredictable token that's already the access
+boundary).
+
+### Fixed
+
+- **Mobile users got "mini service is offline" mid-flow.**
+  Reproduced on the user's iPhone with a thisvid URL: submit
+  succeeded, polling failed with 404, frontend mapped 404 to
+  the "offline" message. Diagnosed the actual path:
+    1. `POST /api/process?async=1` from mobile cellular ->
+       succeeds, job stored with `_client_ip = <egress_A>`.
+    2. `GET /api/jobs/{id}` 700ms later -> mobile network
+       has shifted egress (CGNAT pool rotation, LTE/5G
+       handoff, NAT timeout, carrier load-balancing - all
+       normal on mobile, can happen between successive
+       requests on the same TCP socket).
+    3. `_get_job` saw `<egress_B> != <egress_A>` and
+       returned 404 with deceptive `"That job has expired
+       or never existed."` text - same response as a real
+       missing job_id, by design (so an attacker who knew a
+       job_id couldn't tell whether it had ever been valid).
+    4. Frontend `mapHttpError` mapped 404 -> "mini service
+       is offline" -> red error text.
+
+  None of /healthz, the routes, or replica routing were
+  actually broken. The user's offline message was the result
+  of a security check that was paranoid about an attack
+  scenario (someone guessing a 32-byte unpredictable token,
+  ~10**77 possibilities) while breaking real users every
+  ~700ms on mobile.
+
+  **`_get_job` no longer enforces IP equality.** The token IS
+  the access boundary. `client_ip` is still accepted by the
+  function for forensics-only use - mismatches are logged at
+  INFO level so any genuine leaked-token incident shows up in
+  ops logs - but the request is allowed to proceed. Verified
+  against 4 in-process unit cases (same IP, shifted IP, empty
+  creator IP, missing job).
+
+- **`site/app.js mapHttpError` 404 message updated.** "Mini
+  service is offline" was misleading even before this fix
+  because /healthz is independent and the page-load
+  `probeService` would have already shown the offline panel
+  if the service were truly down. The message now says "That
+  download seems to have expired - click Download again to
+  retry" which matches what a real 404 from the now-narrowed
+  set of 404 sources actually means.
+
+### Notes
+
+- This makes `_get_job(client_ip=...)` purely advisory. The
+  parameter is kept on the call sites and the function
+  signature so a future ownership boundary (signed URLs,
+  cookies, HMAC nonces) can layer on cleanly without churn.
+  Don't bring back IP-equality - it's broken by design on
+  CGNAT and will silently re-introduce this bug on every
+  mobile user.
+- `JOB_TTL_SECONDS = 30 min` and the in-memory `_jobs` dict
+  are unchanged. A real 404 on poll/fetch now means the job
+  truly evaporated (deploy / TTL / typo). Those are rarer
+  and the new message handles them honestly.
+
 ## [0.4.16.2-alpha] - 2026-05-16
 
 Pre-deploy bug audit on top of the v0.4.16.x security work.

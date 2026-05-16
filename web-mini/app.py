@@ -1275,24 +1275,51 @@ def _create_job(client_ip: str, fmt: str, tmpdir: Path) -> JobState:
 
 
 def _get_job(job_id: str, *, client_ip: str | None = None) -> JobState:
-    """Look a job up by id, optionally enforcing the IP scope.
+    """Look a job up by id.
 
-    Two layers of access control:
-      1. The job_id itself is a 32-byte unpredictable token (see
-         _create_job) - effectively unguessable.
-      2. When `client_ip` is supplied we require it to match the
-         creator's. Belt-and-braces: even if a job_id leaks through
-         a referer or shoulder-surf, the file is still locked to the
-         original requester's network identity.
-    """
+    Access control: the job_id itself is a 32-byte unpredictable
+    token (see _create_job). At ~10**77 possibilities even an
+    adversary checking 10**9 ids/second would need 10**60 years
+    of guessing - the token IS the security boundary.
+
+    Earlier versions of this function ALSO required `client_ip`
+    to match the creator's, returning a deceptive 404 on
+    mismatch. That looked like belt-and-braces in code review
+    but in practice was load-bearing for nothing while breaking
+    every legitimate mobile user whose CGNAT egress shifts
+    between requests:
+
+      * Mobile carrier CGNAT pools rotate egress IPs across
+        successive HTTP requests (LTE/5G handoff, NAT timeout,
+        carrier load-balancing) - sometimes within seconds of
+        each other.
+      * The frontend polls `/api/jobs/{id}` every 700ms. With
+        IP-scope ON, ONE shifted egress mid-poll = 404 to the
+        client, mapped to "mini service is offline" by
+        site/app.js mapHttpError.
+      * Reproduced live on the user's iPhone: thisvid URL
+        submitted, polling failed, offline message shown,
+        even though /healthz was 200 and the submit had
+        returned a valid job_id.
+
+    `client_ip` is now accepted for logging/forensics only and
+    never blocks the request. If you ever need a real ownership
+    boundary on top of the token (e.g. cookies / signed URLs /
+    HMAC nonces), add it here as an explicit second factor -
+    don't bring back IP-equality, it's broken by design on
+    mobile and CGNAT networks."""
     with _jobs_lock:
         j = _jobs.get(job_id)
     if j is None:
         raise HTTPException(status_code=404, detail="That job has expired or never existed.")
     if client_ip is not None and j._client_ip and j._client_ip != client_ip:
-        # Lie about the reason - same response as a missing job_id so
-        # an attacker can't tell whether a given id was ever valid.
-        raise HTTPException(status_code=404, detail="That job has expired or never existed.")
+        # Soft signal only: log the IP shift but DO NOT block.
+        # Useful as a forensics breadcrumb if a leaked-token
+        # incident ever materialises in the wild.
+        log.info(
+            "job %s: client IP shifted %s -> %s (allowed; CGNAT/handoff is normal on mobile)",
+            job_id[:8], j._client_ip, client_ip,
+        )
     return j
 
 

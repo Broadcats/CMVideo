@@ -581,8 +581,24 @@
 
   function mapHttpError(res) {
     if (res.status === 404) {
+      // 404 on a job poll/fetch USED to be the "mini offline"
+      // message because the backend's _get_job returned 404 in
+      // two cases:
+      //   (a) the job genuinely doesn't exist (rare: deploy /
+      //       30-min TTL / typo in job_id), OR
+      //   (b) the polling client's IP shifted between submit
+      //       and poll - which on mobile CGNAT is normal and
+      //       happens to legitimate users mid-session.
+      // (b) is now removed in the backend (v0.4.16.3-alpha) -
+      // see web-mini/app.py _get_job. So a real 404 here is
+      // (a): the job evaporated. The right user message is
+      // "retry" rather than "we are offline" because /healthz
+      // is independent and the /healthz probe at page load
+      // would have already drawn the offline panel if the
+      // service were actually down.
       throw new Error(
-        "The mini service is offline right now \u2014 grab the desktop app below, it does everything this widget does (and a lot more)."
+        "That download seems to have expired \u2014 click Download again to retry. " +
+        "If this keeps happening, grab the desktop app below."
       );
     }
     if (res.status === 429) {

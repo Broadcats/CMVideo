@@ -76,15 +76,36 @@
   })();
 
   function showOffline() {
+    // Defense-in-depth: build the offline panel via DOM nodes
+    // rather than innerHTML. Every string here is a static
+    // literal, but createElement makes that property visible to
+    // every reviewer + every static-analysis tool.
     var hero = form.closest(".hero-mini");
     if (!hero) return;
     var body = hero.querySelector(".shot-body") || hero;
-    body.innerHTML =
-      '<div class="shot-offline">' +
-      '  <div class="shot-offline-eyebrow">Mini service offline</div>' +
-      '  <p>The free web slice isn’t reachable right now. The desktop app is the full deal anyway — unlimited length, every format, real censoring, and it runs locally.</p>' +
-      '  <a class="btn btn-primary" href="#downloads">Download CMVideo</a>' +
-      '</div>';
+    while (body.firstChild) body.removeChild(body.firstChild);
+
+    var wrap = document.createElement("div");
+    wrap.className = "shot-offline";
+
+    var eyebrow = document.createElement("div");
+    eyebrow.className = "shot-offline-eyebrow";
+    eyebrow.textContent = "Mini service offline";
+    wrap.appendChild(eyebrow);
+
+    var p = document.createElement("p");
+    p.textContent = "The free web slice isn\u2019t reachable right now. " +
+      "The desktop app is the full deal anyway \u2014 unlimited length, " +
+      "every format, real censoring, and it runs locally.";
+    wrap.appendChild(p);
+
+    var a = document.createElement("a");
+    a.className = "btn btn-primary";
+    a.href = "#downloads";
+    a.textContent = "Download CMVideo";
+    wrap.appendChild(a);
+
+    body.appendChild(wrap);
   }
 
   var card        = form.closest(".hero-mini") || form;
@@ -398,6 +419,10 @@
   }
 
   function renderEmbedPlayer(data) {
+    // Defense-in-depth: same story as showOffline. The only
+    // dynamic input is intervals.length (an integer). We still
+    // build via DOM nodes so a future change can't accidentally
+    // interpolate untrusted text into innerHTML.
     var hero = form.closest(".hero-mini");
     if (!hero) return;
     var body = hero.querySelector(".shot-body") || hero;
@@ -405,20 +430,59 @@
     var countMsg = intervals.length === 0
       ? "Nothing flagged in this video\u2019s transcript \u2014 plays normally."
       : intervals.length + " word" + (intervals.length === 1 ? "" : "s") + " will auto-mute.";
-    body.innerHTML =
-      "<div class=\"shot-embed\">" +
-      "  <div class=\"shot-embed-eyebrow\">YouTube cleanwatch</div>" +
-      "  <div class=\"shot-embed-frame\"><div id=\"yt-player\"></div></div>" +
-      "  <div class=\"shot-embed-meta\">" +
-      "    <span class=\"shot-embed-pill\" id=\"yt-state\">Ready</span>" +
-      "    <span class=\"shot-embed-count\">" + countMsg + "</span>" +
-      "  </div>" +
-      "  <div class=\"shot-embed-hint\">Watching only \u2014 we never download YouTube videos. Want a saved file? <a href=\"#downloads\">Get the desktop app</a>.</div>" +
-      "  <button type=\"button\" class=\"shot-embed-back\" id=\"yt-back\">\u2190 Try another URL or file</button>" +
-      "</div>";
+    while (body.firstChild) body.removeChild(body.firstChild);
 
-    var backBtn = document.getElementById("yt-back");
-    if (backBtn) backBtn.addEventListener("click", function () { window.location.reload(); });
+    var wrap = document.createElement("div");
+    wrap.className = "shot-embed";
+
+    var eyebrow = document.createElement("div");
+    eyebrow.className = "shot-embed-eyebrow";
+    eyebrow.textContent = "YouTube cleanwatch";
+    wrap.appendChild(eyebrow);
+
+    var frame = document.createElement("div");
+    frame.className = "shot-embed-frame";
+    var yt = document.createElement("div");
+    yt.id = "yt-player";
+    frame.appendChild(yt);
+    wrap.appendChild(frame);
+
+    var meta = document.createElement("div");
+    meta.className = "shot-embed-meta";
+    var pill = document.createElement("span");
+    pill.className = "shot-embed-pill";
+    pill.id = "yt-state";
+    pill.textContent = "Ready";
+    meta.appendChild(pill);
+    var count = document.createElement("span");
+    count.className = "shot-embed-count";
+    count.textContent = countMsg;
+    meta.appendChild(count);
+    wrap.appendChild(meta);
+
+    var hint = document.createElement("div");
+    hint.className = "shot-embed-hint";
+    hint.appendChild(document.createTextNode(
+      "Watching only \u2014 we never download YouTube videos. " +
+      "Want a saved file? "
+    ));
+    var hintLink = document.createElement("a");
+    hintLink.href = "#downloads";
+    hintLink.textContent = "Get the desktop app";
+    hint.appendChild(hintLink);
+    hint.appendChild(document.createTextNode("."));
+    wrap.appendChild(hint);
+
+    var backBtn = document.createElement("button");
+    backBtn.type = "button";
+    backBtn.className = "shot-embed-back";
+    backBtn.id = "yt-back";
+    backBtn.textContent = "\u2190 Try another URL or file";
+    wrap.appendChild(backBtn);
+
+    body.appendChild(wrap);
+
+    backBtn.addEventListener("click", function () { window.location.reload(); });
 
     loadYouTubeIframeAPI(function () {
       var player = new YT.Player("yt-player", {

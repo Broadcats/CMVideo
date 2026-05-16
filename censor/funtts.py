@@ -22,6 +22,53 @@ from pathlib import Path
 # Klatt formant variants give that classic talking-computer timbre.
 # `+klatt5` is a low/male voice which fits casual swears best.
 _DEFAULT_VOICE = "en+klatt5"
+
+# Ten Fun-mode voices: (id stored in config / CensorOptions, UI label,
+# espeak-ng `-v` argument).
+FUN_VOICES: tuple[tuple[str, str, str], ...] = (
+    ("klatt5", "Classic Klatt", "en+klatt5"),
+    ("klatt6", "Bright Klatt", "en+klatt6"),
+    ("klatt4", "Deep Klatt", "en+klatt4"),
+    ("klatt2", "Alt Klatt", "en+klatt2"),
+    ("en_us", "US English", "en-us"),
+    ("en_gb", "UK English", "en-gb"),
+    ("scot", "Scotland", "en-gb-scotland"),
+    ("rp", "RP English", "en-gb-x-rp"),
+    ("lancs", "Lancashire", "en-gb-x-gbclan"),
+    ("wmids", "West Midlands", "en-gb-x-gbcwmd"),
+)
+
+DEFAULT_FUN_VOICE_ID: str = FUN_VOICES[0][0]
+
+
+def fun_voice_labels() -> list[str]:
+    """Human-readable labels in FUN_VOICES order."""
+    return [label for _, label, _ in FUN_VOICES]
+
+
+def fun_voice_ids() -> list[str]:
+    return [vid for vid, _, _ in FUN_VOICES]
+
+
+def espeak_voice_for_choice(choice_id: str) -> str:
+    """Map a stored voice id to an espeak-ng voice string."""
+    for vid, _, esp in FUN_VOICES:
+        if vid == choice_id:
+            return esp
+    return _DEFAULT_VOICE
+
+
+def fun_voice_index_for_id(choice_id: str) -> int:
+    for i, (vid, _, _) in enumerate(FUN_VOICES):
+        if vid == choice_id:
+            return i
+    return 0
+
+
+def fun_voice_id_at_index(index: int) -> str:
+    if 0 <= index < len(FUN_VOICES):
+        return FUN_VOICES[index][0]
+    return DEFAULT_FUN_VOICE_ID
 # Slightly faster than the espeak-ng default (175) so short PG words fit
 # inside short intervals without obvious cut-offs.
 _DEFAULT_SPEED = "200"

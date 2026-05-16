@@ -56,7 +56,7 @@ import tkinter.font as tkfont
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
-from censor import pipeline
+from censor import funtts, pipeline
 from censor.audio import SUPPORTED_INPUT_EXTS
 from censor.config_store import load_config, save_config
 from censor.download import (
@@ -82,6 +82,14 @@ APP_TITLE = "CMVideo"           # window / taskbar title (short)
 APP_BRAND = "Clean My Video"    # full wordmark shown inside the UI
 APP_TAGLINE = "Automatic profanity removal for video and audio"
 COPYRIGHT = f"\u00a9 Daniel Brown 2026 \u00b7 v{APP_VERSION}"
+
+# Downsize preset labels shown in the UI -> pipeline keys.
+_DOWNSIZE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("Original", "none"),
+    ("Small", "small"),
+    ("Medium", "medium"),
+    ("Large", "large"),
+)
 
 SUPPORTED_FILETYPES = [
     (
@@ -219,6 +227,7 @@ class CensorApp:
         self.remove_swears = tk.BooleanVar(value=True)
         self.remove_slurs = tk.BooleanVar(value=True)
         self.mode = tk.StringVar(value="silence")
+        self.mode.trace_add("write", lambda *_a: self._refresh_fun_voice_row())
         self.save_transcript = tk.BooleanVar(value=False)
         self.fuzzy_matching = tk.BooleanVar(value=False)
         self.url_var = tk.StringVar(value="")
@@ -246,6 +255,20 @@ class CensorApp:
         # trigger an immediate save back to disk.
         self._suppress_remember_trace = False
         self._config = load_config()
+
+        # Fun voice + output extras (persisted on each job start).
+        _fv = self._config.get("fun_voice")
+        if not isinstance(_fv, str) or _fv not in funtts.fun_voice_ids():
+            _fv = funtts.DEFAULT_FUN_VOICE_ID
+        self._fun_voice_id = _fv
+
+        _dsp = self._config.get("downsize_preset") or "none"
+        if _dsp not in ("none", "small", "medium", "large"):
+            _dsp = "none"
+        self.downsize_label_var = tk.StringVar(
+            value=next((lab for lab, k in _DOWNSIZE_CHOICES if k == _dsp), "Original")
+        )
+        self.retro_audio_var = tk.BooleanVar(value=bool(self._config.get("retro_audio")))
 
         self.status_var = tk.StringVar(
             value="Drop a file or paste a URL to get started."
@@ -561,7 +584,24 @@ class CensorApp:
 
         title_holder = tk.Frame(header, bg=Theme.BG)
         title_holder.pack(side="left", fill="x", expand=True)
-        ttk.Label(title_holder, text=APP_BRAND, style="Title.TLabel").pack(anchor="w")
+        brand_row = tk.Frame(title_holder, bg=Theme.BG)
+        brand_row.pack(anchor="w", fill="x")
+        self._brand_image: tk.PhotoImage | None = None
+        _logo = HERE / "icon-64.png"
+        if _logo.is_file():
+            try:
+                self._brand_image = tk.PhotoImage(file=str(_logo))
+                tk.Label(
+                    brand_row,
+                    image=self._brand_image,
+                    bg=Theme.BG,
+                ).pack(side="left", padx=(0, 12))
+            except tk.TclError:
+                self._brand_image = None
+        if self._brand_image is None:
+            ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
+                side="left", anchor="w"
+            )
         ttk.Label(title_holder, text=APP_TAGLINE, style="Tagline.TLabel").pack(
             anchor="w", pady=(2, 0)
         )
@@ -934,7 +974,30 @@ class CensorApp:
             value="fun",
             style="Dark.TRadiobutton",
         )
-        self.fun_radio.pack(anchor="w", pady=(2, 12))
+        self.fun_radio.pack(anchor="w", pady=(2, 0))
+
+        fv_row = tk.Frame(opts_inner, bg=Theme.SURFACE)
+        fv_row.pack(anchor="w", fill="x", pady=(0, 12))
+        self.fun_voice_label = ttk.Label(
+            fv_row, text="Fun voice", style="OptionLabel.TLabel"
+        )
+        self.fun_voice_label.pack(side="left", padx=(0, 8))
+        self.fun_voice_combo = ttk.Combobox(
+            fv_row,
+            width=24,
+            values=funtts.fun_voice_labels(),
+            state="readonly",
+        )
+        self.fun_voice_combo.pack(side="left")
+        self.fun_voice_combo.bind(
+            "<<ComboboxSelected>>", self._on_fun_voice_combo_selected
+        )
+        try:
+            self.fun_voice_combo.current(
+                funtts.fun_voice_index_for_id(self._fun_voice_id)
+            )
+        except tk.TclError:
+            pass
 
         ttk.Label(opts_inner, text="EXTRAS", style="Section.TLabel").pack(anchor="w")
         ttk.Checkbutton(
@@ -948,7 +1011,28 @@ class CensorApp:
             text="Fuzzy matching (catches fucks, fuuuck, phuck, f*ck, kunt...)",
             variable=self.fuzzy_matching,
             style="Dark.TCheckbutton",
-        ).pack(anchor="w", pady=(2, 0))
+        ).pack(anchor="w", pady=(2, 12))
+
+        ttk.Label(opts_inner, text="OUTPUT", style="Section.TLabel").pack(anchor="w")
+        ds_row = tk.Frame(opts_inner, bg=Theme.SURFACE)
+        ds_row.pack(anchor="w", fill="x", pady=(6, 0))
+        ttk.Label(ds_row, text="File size", style="OptionLabel.TLabel").pack(
+            side="left", padx=(0, 8)
+        )
+        self.downsize_combo = ttk.Combobox(
+            ds_row,
+            width=14,
+            textvariable=self.downsize_label_var,
+            values=[lab for lab, _ in _DOWNSIZE_CHOICES],
+            state="readonly",
+        )
+        self.downsize_combo.pack(side="left")
+        ttk.Checkbutton(
+            opts_inner,
+            text="Retro audio",
+            variable=self.retro_audio_var,
+            style="Dark.TCheckbutton",
+        ).pack(anchor="w", pady=(8, 0))
 
     # ---------- Context menus / right-click ----------
 
@@ -1275,6 +1359,32 @@ class CensorApp:
             self.fun_radio.state([state])
             self.replace_label.configure(
                 style="Section.TLabel" if censoring else "SectionDim.TLabel"
+            )
+        except tk.TclError:
+            pass
+        self._refresh_fun_voice_row()
+
+    def _on_fun_voice_combo_selected(self, _event=None) -> None:  # type: ignore[no-untyped-def]
+        idx = int(self.fun_voice_combo.current())
+        self._fun_voice_id = funtts.fun_voice_id_at_index(idx)
+
+    def _downsize_key(self) -> str:
+        lab = self.downsize_label_var.get()
+        for dlab, key in _DOWNSIZE_CHOICES:
+            if dlab == lab:
+                return key
+        return "none"
+
+    def _refresh_fun_voice_row(self) -> None:
+        """Enable the Fun voice picker only when Fun mode can run."""
+        if not hasattr(self, "fun_voice_combo"):
+            return
+        censoring = self.remove_swears.get() or self.remove_slurs.get()
+        fun_ok = censoring and self.mode.get() == "fun"
+        try:
+            self.fun_voice_combo.configure(state="readonly" if fun_ok else "disabled")
+            self.fun_voice_label.configure(
+                style="OptionLabel.TLabel" if fun_ok else "OptionLabelDim.TLabel"
             )
         except tk.TclError:
             pass
@@ -2100,6 +2210,11 @@ class CensorApp:
         # firing <<ComboboxSelected>>.
         self._on_quality_selected()
 
+        self._config["fun_voice"] = self._fun_voice_id
+        self._config["downsize_preset"] = self._downsize_key()
+        self._config["retro_audio"] = self.retro_audio_var.get()
+        save_config(self._config)
+
         options = pipeline.CensorOptions(
             remove_swears=self.remove_swears.get(),
             remove_slurs=self.remove_slurs.get(),
@@ -2113,6 +2228,10 @@ class CensorApp:
             # Only meaningful in URL mode; pipeline ignores it for
             # local-file jobs since `download.download` isn't called.
             cookies_file=self._cookies_file,
+            fun_voice=self._fun_voice_id,
+            downsize_preset=self._downsize_key(),
+            retro_audio=self.retro_audio_var.get(),
+            model_size=str(self._config.get("whisper_model_size") or "small"),
         )
 
         # Snapshot the work list. URL mode is always a single-item job;
@@ -2195,7 +2314,8 @@ class CensorApp:
         "transcribe": (0.05, 0.78),
         "match": (0.78, 0.80),
         "transcript": (0.80, 0.82),
-        "render": (0.82, 1.00),
+        "render": (0.82, 0.97),
+        "post": (0.97, 1.00),
         "done": (1.0, 1.0),
     }
     # When downloading, the download takes meaningful time; carve out a slice.
@@ -2205,12 +2325,18 @@ class CensorApp:
         "transcribe": (0.23, 0.80),
         "match": (0.80, 0.81),
         "transcript": (0.81, 0.83),
-        "render": (0.83, 1.00),
+        "render": (0.83, 0.97),
+        "post": (0.97, 1.00),
         "done": (1.0, 1.0),
     }
     # Download-only mode: the download fills the whole bar.
     _STAGE_RANGES_DOWNLOAD_ONLY = {
         "download": (0.0, 1.0),
+        "done": (1.0, 1.0),
+    }
+    _STAGE_RANGES_DOWNLOAD_ONLY_POST = {
+        "download": (0.0, 0.92),
+        "post": (0.92, 1.0),
         "done": (1.0, 1.0),
     }
 
@@ -2223,11 +2349,17 @@ class CensorApp:
             or self.remove_slurs.get()
             or self.save_transcript.get()
         )
-        return (
-            self._STAGE_RANGES_DOWNLOAD
-            if will_process
-            else self._STAGE_RANGES_DOWNLOAD_ONLY
-        )
+        if will_process:
+            return self._STAGE_RANGES_DOWNLOAD
+        # Pure download: optional finalize pass uses the "post" slice.
+        if getattr(self, "retro_audio_var", None) and self.retro_audio_var.get():
+            return self._STAGE_RANGES_DOWNLOAD_ONLY_POST
+        try:
+            if self._downsize_key() != "none":
+                return self._STAGE_RANGES_DOWNLOAD_ONLY_POST
+        except Exception:  # noqa: BLE001
+            pass
+        return self._STAGE_RANGES_DOWNLOAD_ONLY
 
     def _drain_events(self) -> None:
         self._drain_after_id = None

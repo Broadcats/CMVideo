@@ -134,27 +134,6 @@ def _write_filter_script(filter_text: str) -> str:
     return path
 
 
-def _video_codec_for(fps: str, has_video: bool) -> list[str]:
-    """Return the ffmpeg -c:v / -r argv slice for the chosen fps.
-
-    - "source" or no video: "-c:v copy" (zero re-encode cost).
-    - "24" / "30" / "48" / "60": full re-encode at the chosen rate.
-      Uses libx264 veryfast / CRF 20 which on a desktop CPU runs
-      well above realtime, keeping the censor pass snappy.
-    """
-    if not has_video:
-        return []
-    if fps == "source" or fps not in {"24", "30", "48", "60"}:
-        return ["-c:v", "copy"]
-    return [
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "20",
-        "-r", str(int(fps)),
-        "-pix_fmt", "yuv420p",
-    ]
-
-
 def _run_ffmpeg(cmd: list[str], failure_msg: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -166,7 +145,6 @@ def render_censored(
     output_path: Path,
     intervals: list[tuple[float, float]],
     mode: str,
-    fps: str = "source",
 ) -> None:
     """Write `output_path` = `input_path` with the given audio intervals censored.
 
@@ -183,28 +161,12 @@ def render_censored(
     audio_codec = _audio_codec_args_for(output_path)
 
     if not intervals:
-        if fps == "source" or not has_video:
-            _run_ffmpeg(
-                [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
-                "ffmpeg copy failed",
-            )
-        else:
-            # User picked a non-source fps but there are no censor
-            # intervals - re-encode video at the target rate, copy
-            # the audio through untouched.
-            video_codec = _video_codec_for(fps, has_video)
-            _run_ffmpeg(
-                [
-                    _ffmpeg(), "-y", "-i", str(input_path),
-                    *video_codec,
-                    "-c:a", "copy",
-                    str(output_path),
-                ],
-                "ffmpeg fps re-encode failed",
-            )
+        _run_ffmpeg(
+            [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
+            "ffmpeg copy failed",
+        )
         return
 
-    video_codec = _video_codec_for(fps, has_video)
     expr = _between_expr(intervals)
     script_path: str | None = None
     try:
@@ -221,7 +183,7 @@ def render_censored(
                 cmd = base + [
                     "-map", "0:v:0",
                     "-map", "0:a:0",
-                    *video_codec,
+                    "-c:v", "copy",
                     *af_args,
                     *audio_codec,
                     str(output_path),
@@ -246,7 +208,7 @@ def render_censored(
                 cmd = base + [
                     "-map", "0:v:0",
                     "-map", "[a]",
-                    *video_codec,
+                    "-c:v", "copy",
                     *audio_codec,
                     str(output_path),
                 ]
@@ -266,7 +228,6 @@ def render_censored_fun(
     input_path: Path,
     output_path: Path,
     clips: list[tuple[float, float, Path]],
-    fps: str = "source",
 ) -> None:
     """'Fun' mode: silence each interval and mix a TTS clip on top.
 
@@ -279,25 +240,11 @@ def render_censored_fun(
     audio_codec = _audio_codec_args_for(output_path)
 
     if not clips:
-        if fps == "source" or not has_video:
-            _run_ffmpeg(
-                [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
-                "ffmpeg copy failed",
-            )
-        else:
-            video_codec = _video_codec_for(fps, has_video)
-            _run_ffmpeg(
-                [
-                    _ffmpeg(), "-y", "-i", str(input_path),
-                    *video_codec,
-                    "-c:a", "copy",
-                    str(output_path),
-                ],
-                "ffmpeg fps re-encode failed",
-            )
+        _run_ffmpeg(
+            [_ffmpeg(), "-y", "-i", str(input_path), "-c", "copy", str(output_path)],
+            "ffmpeg copy failed",
+        )
         return
-
-    video_codec = _video_codec_for(fps, has_video)
 
     intervals = [(s, e) for s, e, _ in clips]
     silence_expr = _between_expr(intervals)
@@ -347,7 +294,7 @@ def render_censored_fun(
             cmd.extend([
                 "-map", "0:v:0",
                 "-map", "[a]",
-                *video_codec,
+                "-c:v", "copy",
                 *audio_codec,
                 str(output_path),
             ])
@@ -361,3 +308,146 @@ def render_censored_fun(
                 os.unlink(script_path)
             except OSError:
                 pass
+
+
+# (max_width_hint, crf, aac_or_mp3_bitrate) — used for video + lossy audio.
+_DOWNSIZE_PRESETS: dict[str, tuple[str, str, str]] = {
+    "small": ("640", "28", "96k"),
+    "medium": ("960", "25", "128k"),
+    "large": ("1280", "22", "160k"),
+}
+
+# MP3-only bitrate ladder when container is audio MP3.
+_DOWNSIZE_MP3_BITRATE: dict[str, str] = {
+    "small": "96k",
+    "medium": "128k",
+    "large": "192k",
+}
+
+_RETRO_ACRUSHER = "acrusher=bits=8:mode=log:aa=46:mix=0.65"
+
+
+def finalize_output(
+    path: Path,
+    *,
+    retro_audio: bool = False,
+    downsize_preset: str = "none",
+) -> None:
+    """Optional second pass: retro (lo-fi) audio and/or smaller MP4/MP3.
+
+    Rewrites `path` in place via a temp file. Skips when nothing is
+    requested or when the preset does not apply (e.g. lossless WAV/FLAC
+    ignores downsize-only; retro still applies there).
+    """
+    if downsize_preset not in ("none", "small", "medium", "large"):
+        downsize_preset = "none"
+
+    ext = path.suffix.lower()
+    want_down = downsize_preset != "none"
+    # Lossless containers: do not re-encode for "smaller file" presets.
+    if want_down and ext in (".wav", ".flac"):
+        want_down = False
+
+    if not retro_audio and not want_down:
+        return
+
+    has_v = has_video_stream(path)
+    has_a = has_audio_stream(path)
+    if not has_a and not has_v:
+        return
+
+    tmp = path.with_name(f"{path.stem}.cmvfinalize{path.suffix}")
+    if tmp.exists():
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+    try:
+        cmd: list[str] = [_ffmpeg(), "-y", "-i", str(path)]
+
+        if has_v and want_down:
+            w, crf, abr = _DOWNSIZE_PRESETS[downsize_preset]
+            vf = f"scale='min({w},iw)':-2:flags=lanczos"
+            af_chain: list[str] = []
+            if retro_audio and has_a:
+                af_chain.append(_RETRO_ACRUSHER)
+            cmd.extend(["-map", "0:v:0"])
+            if ext == ".webm":
+                cmd.extend(["-vf", vf, "-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0"])
+            else:
+                cmd.extend([
+                    "-vf", vf,
+                    "-c:v", "libx264",
+                    "-preset", "fast",
+                    "-crf", crf,
+                ])
+            if has_a:
+                cmd.extend(["-map", "0:a:0"])
+                if af_chain:
+                    cmd.extend(["-af", ",".join(af_chain)])
+                if ext == ".webm":
+                    cmd.extend(["-c:a", "libopus", "-b:a", "96k"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", abr])
+            else:
+                cmd.append("-an")
+        elif has_v and retro_audio and has_a and not want_down:
+            cmd.extend([
+                "-map", "0:v:0",
+                "-c:v", "copy",
+                "-map", "0:a:0",
+                "-af", _RETRO_ACRUSHER,
+                *_audio_codec_args_for(path),
+            ])
+        elif not has_v and has_a:
+            # Audio-only output.
+            if want_down and ext == ".mp3":
+                br = _DOWNSIZE_MP3_BITRATE[downsize_preset]
+                af_parts: list[str] = []
+                if retro_audio:
+                    af_parts.append(_RETRO_ACRUSHER)
+                if af_parts:
+                    cmd.extend(["-af", ",".join(af_parts)])
+                cmd.extend(["-c:a", "libmp3lame", "-b:a", br])
+            elif want_down and ext in (".m4a", ".aac"):
+                _, _, abr = _DOWNSIZE_PRESETS[downsize_preset]
+                af_parts = []
+                if retro_audio:
+                    af_parts.append(_RETRO_ACRUSHER)
+                if af_parts:
+                    cmd.extend(["-af", ",".join(af_parts)])
+                cmd.extend(["-c:a", "aac", "-b:a", abr])
+            elif want_down and ext == ".ogg":
+                _, _, _abr = _DOWNSIZE_PRESETS[downsize_preset]
+                af_parts = []
+                if retro_audio:
+                    af_parts.append(_RETRO_ACRUSHER)
+                if af_parts:
+                    cmd.extend(["-af", ",".join(af_parts)])
+                cmd.extend(["-c:a", "libvorbis", "-q:a", "4"])
+            elif want_down and ext == ".opus":
+                af_parts = []
+                if retro_audio:
+                    af_parts.append(_RETRO_ACRUSHER)
+                if af_parts:
+                    cmd.extend(["-af", ",".join(af_parts)])
+                cmd.extend(["-c:a", "libopus", "-b:a", "96k"])
+            else:
+                # No applicable downsize (or lossless): retro only.
+                if not retro_audio:
+                    return
+                cmd.extend(["-af", _RETRO_ACRUSHER, *_audio_codec_args_for(path)])
+        else:
+            return
+
+        cmd.append(str(tmp))
+        _run_ffmpeg(cmd, "ffmpeg finalize pass failed")
+        os.replace(str(tmp), str(path))
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise

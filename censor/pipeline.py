@@ -24,6 +24,13 @@ class CensorOptions:
     remove_slurs: bool = True
     mode: str = "silence"
     model_size: str = "small"
+    # Fun-mode espeak voice id (see `censor.funtts.FUN_VOICES`).
+    fun_voice: str = funtts.DEFAULT_FUN_VOICE_ID
+    # none | small | medium | large — smaller MP4/MP3-style outputs.
+    downsize_preset: str = "none"
+    # Lo-fi / crushed audio colour (ffmpeg `acrusher`), never applied to
+    # transcript-only runs.
+    retro_audio: bool = False
     padding_seconds: float = 0.05
     save_transcript: bool = False
     # Fuzzy / leet matcher. Off by default - exact token match is faster
@@ -43,13 +50,6 @@ class CensorOptions:
     # `cookiefile`. Used to authenticate against login-gated sites.
     # Ignored for local-file jobs.
     cookies_file: Path | None = None
-    # Output frame rate. "source" passes the source's fps through
-    # untouched (-c:v copy on the render side, no yt-dlp filter on
-    # the download side). "24" / "30" / "48" / "60" force a video
-    # re-encode at the chosen rate during the censor pass, and ask
-    # yt-dlp to prefer a matching source format during download.
-    fps: str = "source"
-
 
 
 @dataclass
@@ -174,7 +174,6 @@ def run(
                 video_quality=options.video_quality,
                 audio_quality=options.audio_quality,
                 cookies_file=options.cookies_file,
-                fps=options.fps,
                 progress_cb=_dlcb,
             )
         except Exception as e:  # noqa: BLE001
@@ -188,6 +187,13 @@ def run(
             or options.remove_slurs
             or options.save_transcript
         ):
+            if options.retro_audio or options.downsize_preset != "none":
+                _emit(progress, "post", 0.5, "Applying output options...")
+                audio.finalize_output(
+                    downloaded,
+                    retro_audio=options.retro_audio,
+                    downsize_preset=options.downsize_preset,
+                )
             _emit(progress, "done", 1.0, "Done!")
             return CensorResult(
                 output_path=downloaded,
@@ -300,7 +306,11 @@ def run(
                 for i, (s, e) in enumerate(intervals):
                     word = funtts.pick_pg_word(e - s)
                     clip_path = tts_dir / f"tts_{i:04d}.wav"
-                    funtts.generate_tts(word, clip_path)
+                    funtts.generate_tts(
+                        word,
+                        clip_path,
+                        voice=funtts.espeak_voice_for_choice(options.fun_voice),
+                    )
                     clips.append((s, e, clip_path))
                     if intervals and i % 4 == 0:
                         _emit(
@@ -309,15 +319,21 @@ def run(
                             f"Generating TTS clips... ({i + 1}/{len(intervals)})",
                         )
                 _emit(progress, "render", 0.35, "Mixing TTS into audio...")
-                audio.render_censored_fun(input_path, output_path, clips, fps=options.fps)
+                audio.render_censored_fun(input_path, output_path, clips)
             else:
                 _emit(
                     progress, "render", 0.0,
                     f"Censoring {len(flagged)} word(s)...",
                 )
                 audio.render_censored(
-                    input_path, output_path, intervals, options.mode,
-                    fps=options.fps,
+                    input_path, output_path, intervals, options.mode
+                )
+            if options.retro_audio or options.downsize_preset != "none":
+                _emit(progress, "post", 0.92, "Applying output options...")
+                audio.finalize_output(
+                    output_path,
+                    retro_audio=options.retro_audio,
+                    downsize_preset=options.downsize_preset,
                 )
             _emit(progress, "render", 1.0, "Render complete.")
             final_output_path = output_path

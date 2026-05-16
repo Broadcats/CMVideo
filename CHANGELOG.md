@@ -3,6 +3,21 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.15.1-alpha] - 2026-05-16
+
+Hotfix: `proxy_router.py` wasn't being copied into the container.
+
+### Fixed
+
+- **Dockerfile**: added `proxy_router.py` to the explicit COPY list
+  on line 62. The 0.4.15 deploy uploaded the file to the HF repo
+  but the build's COPY was only enumerating the original four
+  Python files (`app.py`, `mini_censor.py`, `extractors.py`,
+  `llm_extract.py`), so the runtime container was missing the
+  module and crashed at uvicorn startup with
+  `ModuleNotFoundError: No module named 'proxy_router'`.
+  Pure ops fix; no functional change.
+
 ## [0.4.15-alpha] - 2026-05-16
 
 Mini-app: per-domain residential-proxy routing for sites that

@@ -116,12 +116,12 @@ updates. Once it's running, the Space is reachable at:
 - `https://huggingface.co/spaces/<owner>/<space>` (with HF chrome)
 
 The widget on cmvideo.online points at the direct `.hf.space` URL
-(currently `https://broadcats-cmvideo-mini.hf.space`). If you deploy
+(currently `https://dandyfeet-cmvideo-mini-v2.hf.space`). If you deploy
 under a different name, search the main repo for that string and
 update it:
 
 ```bash
-grep -rln 'broadcats-cmvideo-mini.hf.space' site/ web-mini/
+grep -rln 'dandyfeet-cmvideo-mini-v2.hf.space' site/ web-mini/
 ```
 
 ### Manual path

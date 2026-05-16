@@ -29,15 +29,29 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_MINI = REPO_ROOT / "web-mini"
 
-# Files/dirs that should never end up in the Space repo.
-IGNORE_PATTERNS = {
+# Files/dirs that should never end up in the Space repo. Patterns
+# are gitignore-style and matched against any path component, so a
+# pattern of ".venv*" catches .venv, .venv-mini, .venv-test,
+# .venv-deploy, etc. Critical: a stray test venv inside web-mini/
+# is hundreds of megabytes and will silently fill up the Space's
+# 1 GB free-tier storage in one upload.
+IGNORE_GLOBS = (
     "__pycache__",
-    ".venv",
-    ".venv-mini",
+    ".venv*",
+    "venv",
+    "env",
     ".pytest_cache",
     ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".coverage",
+    ".coverage.*",
     ".DS_Store",
-}
+    "*.egg-info",
+    "node_modules",
+    "*.pyc",
+    "*.pyo",
+)
 
 
 def _ensure_hf_hub() -> None:
@@ -62,8 +76,18 @@ def _resolve_token(cli_token: str | None) -> str:
 
 
 def _allowed(path: Path) -> bool:
-    parts = set(path.relative_to(WEB_MINI).parts)
-    return not (parts & IGNORE_PATTERNS)
+    """Return False if ANY path component matches one of the
+    IGNORE_GLOBS patterns. Uses fnmatch so we get gitignore-style
+    wildcards (e.g. '.venv*' catches .venv, .venv-test, .venv-deploy).
+    The check runs on each component independently so a leaf file
+    inside an ignored directory is correctly rejected."""
+    import fnmatch
+    rel_parts = path.relative_to(WEB_MINI).parts
+    for component in rel_parts:
+        for pattern in IGNORE_GLOBS:
+            if fnmatch.fnmatch(component, pattern):
+                return False
+    return True
 
 
 def main() -> int:
@@ -81,6 +105,30 @@ def main() -> int:
     files = sorted(p for p in WEB_MINI.rglob("*") if p.is_file() and _allowed(p))
     if not files:
         sys.exit("[deploy-mini] web-mini/ is empty?")
+
+    # Pre-flight size sanity check. The mini's source code should
+    # be a few hundred KB total - if our IGNORE_GLOBS missed
+    # something (a stray venv, a leaked Whisper model, build
+    # artefacts) we'd silently push hundreds of MB to the Space
+    # and burn through the 1 GB storage cap. Cap at 50 MB; the
+    # actual real payload is comfortably under 500 KB.
+    total_size = sum(f.stat().st_size for f in files)
+    SIZE_LIMIT_MB = 50
+    print(f"[deploy-mini] Total payload: {total_size / 1e6:.2f} MB across {len(files)} files")
+    if total_size > SIZE_LIMIT_MB * 1024 * 1024:
+        biggest = sorted(files, key=lambda p: -p.stat().st_size)[:8]
+        print()
+        print(f"[deploy-mini] REFUSING to deploy: payload {total_size / 1e6:.0f} MB exceeds {SIZE_LIMIT_MB} MB sanity cap.")
+        print("  This usually means an ignored directory leaked into web-mini/.")
+        print("  Biggest files in the upload set:")
+        for f in biggest:
+            rel = f.relative_to(WEB_MINI)
+            print(f"    {f.stat().st_size / 1e6:>6.1f} MB  {rel}")
+        print()
+        print("  Either:")
+        print("   * remove the offending directory from web-mini/, OR")
+        print("   * add its name to IGNORE_GLOBS in scripts/deploy-mini.py")
+        sys.exit(2)
 
     repo_id = f"{args.owner}/{args.space}"
     print(f"[deploy-mini] Target: https://huggingface.co/spaces/{repo_id}")
@@ -130,7 +178,11 @@ def main() -> int:
                 repo_id=repo_id,
                 repo_type="space",
                 commit_message="Deploy CMVideo Mini",
-                ignore_patterns=[f"{p}/**" for p in IGNORE_PATTERNS] + list(IGNORE_PATTERNS),
+                ignore_patterns=(
+                    [f"{p}/**" for p in IGNORE_GLOBS]
+                    + [f"**/{p}/**" for p in IGNORE_GLOBS]
+                    + list(IGNORE_GLOBS)
+                ),
             )
             break
         except HfHubHTTPError as exc:

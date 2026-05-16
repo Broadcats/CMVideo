@@ -3,6 +3,93 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.4-alpha] - 2026-05-16
+
+Adds a multi-tool extractor fallback chain so URLs that yt-dlp
+struggles with get a second, third and fourth chance from
+specialised tools, plus targeted desktop-app performance fixes.
+
+### Added
+
+- **Multi-extractor fallback chain** for both desktop and mini,
+  routing URLs through up to eight tiers in sequence:
+  yt-dlp -> gallery-dl -> Cobalt -> lux -> you-get -> streamlink
+  -> Playwright -> LLM. Each tier targets a different class of
+  site: yt-dlp covers the long tail of named extractors,
+  gallery-dl handles social media gallery pages (Tumblr, Twitter,
+  Reddit), Cobalt handles hand-tuned anti-bot sites, lux and
+  you-get cover East-Asian portals (Bilibili, Douyin, Iqiyi),
+  streamlink captures live streams, Playwright is the universal
+  HTML5-player fallback, and the LLM tier reasons over the page
+  when nothing else can.
+- **LLM-assisted Tier 8 extractor** (opt-in). Configured via
+  `CMVIDEO_LLM_BASE_URL` / `CMVIDEO_LLM_API_KEY` /
+  `CMVIDEO_LLM_MODEL` env vars. Works with any OpenAI-compatible
+  endpoint - Groq's free tier is the recommended provider. When
+  the seven traditional tiers fail, this tier opens the page in
+  Playwright, captures the full DOM and network log, and asks an
+  LLM to identify the video's manifest URL. Hardened with SSRF
+  guards, a CDN-domain allowlist, an anti-hallucination check
+  (LLM URL must appear verbatim in the network log), a confidence
+  floor of 0.4, and prompt-input caps. Disabled-by-default - the
+  dispatcher silently skips it if env vars are unset, so nothing
+  changes for users who don't wire up an API key.
+- **Memory guard** for Playwright (Tier 7) and the LLM tier (also
+  Playwright-backed). A `psutil`-driven check prevents either
+  tier from launching headless Chromium on machines with less
+  than 600 MB free RAM. A bounded semaphore caps concurrent
+  Chromium instances at 1 to keep memory pressure predictable.
+- **/api/limits diagnostics** on the mini now expose
+  per-extractor availability and version, plus live free-memory
+  numbers and the LLM tier's configuration state.
+- **107-site stress test** (`scripts/stress/`) that exercises the
+  full chain against a curated list spanning mainstream video,
+  news, Asian portals, adult tubes, social media and live
+  streams. Run with `python scripts/stress/stress_extractors.py`
+  to baseline coverage and track regressions.
+
+### Changed
+
+- **Mini caps relaxed**: max clip duration raised from 30 min to
+  60 min, max output filesize raised from 200 MB to 800 MB,
+  /api/info rate limit raised from 30/hour to 120/hour.
+- **FPS picker** added to the desktop app (24/30/48/60 fps) and
+  the mini (30/60 fps for download mode). For download mode the
+  picker maps to a yt-dlp format filter that prefers a matching
+  fps without forcing a re-encode; for censor mode the value is
+  passed to ffmpeg's `-r` flag (audio is already re-encoded so
+  the cost is negligible).
+- **YouTube transcript fetching** more robust: catches
+  `YouTubeTranscriptApiException`, generic exceptions, and the
+  newer 1.x cookie / parser failures - all degrade to a
+  user-friendly 502 instead of a 500 stack trace.
+- **Cobalt adapter** updated for the v10+ POST endpoint and JWT
+  flow, and now disabled by default (requires self-host with
+  `COBALT_API_BASE` + `COBALT_API_KEY` env vars).
+
+### Performance
+
+- **URL paste debounced** to 80 ms in the desktop app. Before,
+  every keystroke fired six UI refresh methods, so pasting a
+  100-char URL triggered 600 widget updates. Now coalesced to
+  one update per burst.
+- **faster-whisper model cached** in a thread-safe singleton
+  keyed on (model_size, device, compute_type). A batch of N
+  files now pays the 1-2s model-load cost once, not N times.
+- **Background pre-warm** of the Whisper model on app start so
+  the first job starts transcribing instantly. Failures are
+  non-fatal; if the pre-warm crashes the first job just pays
+  the load cost normally.
+- **Cold init** down from ~325 ms to ~275 ms.
+
+### Fixed
+
+- Linux desktop integration (`.desktop` file install via
+  `--install-shortcut`, WM_CLASS now matches the desktop entry,
+  taskbar icon is no longer generic).
+- Windows taskbar icon grouping via
+  `SetCurrentProcessExplicitAppUserModelID`.
+
 ## [0.4.3-alpha] - 2026-05-15
 
 Maintenance release. Minor internal asset and config-store tweaks; no
@@ -10,25 +97,13 @@ user-facing behaviour changes versus 0.4.2-alpha.
 
 ### Added (out-of-tree, alongside 0.4.3)
 
-- **CMVideo Mini** - the slimmed-down version of the full app,
-  embedded directly into the cmvideo.online hero. The right-side
-  mockup is now a working widget that supports:
-  - **Paste a URL** (YouTube, X, TikTok, Reddit, Twitch and 1,800+
-    other yt-dlp-covered sites) **or drag a local MP4 / MP3 onto
-    the card**.
-  - **Output as MP4 (up to 720p) or MP3 (192 kbps).**
-  - **Three modes:** `Download` (URL only, no censoring), `Silence
-    swears` (transcribe with whisper-tiny.en + mute every match
-    against `wordlists/`), `Beep swears` (same matching but with a
-    gated 1 kHz sine overlay).
-  Capped to 720p / 192 kbps / 5 jobs per hour per IP, with separate
-  download (30 min / 200 MB) and censor (8 min / 100 MB) duration
-  /filesize ceilings so the free HF Space CPU tier holds up. Backend
-  lives in [`web-mini/`](web-mini/) (FastAPI + faster-whisper + ffmpeg)
-  and deploys to a single HF Docker Space; the cmvideo.online widget
-  calls it cross-origin via CORS. Mini uses exact-token matching only
-  - the desktop app's fuzzy / leetspeak / phonetic matching and "Fun"
-  TTS replacement stay in-app on purpose.
+- **CMVideo Mini** - a browser-only "URL &rarr; MP4 / MP3" slice of the
+  full app, designed to deploy as a free Hugging Face Space. Sources
+  live in [`web-mini/`](web-mini/). Capped to 720p / 192 kbps / 30 min
+  / 200 MB / 5 downloads per hour per IP so it stays free and keeps
+  the desktop app the obvious next step. The cmvideo.online landing
+  page now links to it from the hero and from a dedicated "Try in the
+  browser" section.
 
 ## [0.4.2-alpha] - 2026-05-15
 

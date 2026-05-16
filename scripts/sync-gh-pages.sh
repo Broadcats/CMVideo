@@ -96,16 +96,35 @@ fi
 # Version + commit metadata
 # -----------------------------------------------------------------------------
 SHA_SHORT="$(git rev-parse --short HEAD)"
-VERSION_PY="censor/version.py"
+
+# ---------------------------------------------------------------
+# Version sources. Desktop + mini are versioned independently
+# since v0.4.16.5-alpha (see censor/version.py and
+# web-mini/version.py for the policy docstring). Each lives in
+# its own file so a mini-only deploy doesn't touch the desktop
+# version (and vice versa).
+# ---------------------------------------------------------------
+DESKTOP_VERSION_PY="censor/version.py"
+MINI_VERSION_PY="web-mini/version.py"
 APP_VERSION=""
-if [[ -f "${VERSION_PY}" ]]; then
-    # Pull APP_VERSION = "x.y.z-alpha" out of the file without importing it.
-    APP_VERSION="$(grep -E '^APP_VERSION' "${VERSION_PY}" | sed -E 's/.*"([^"]+)".*/\1/')"
+MINI_VERSION=""
+if [[ -f "${DESKTOP_VERSION_PY}" ]]; then
+    APP_VERSION="$(grep -E '^APP_VERSION' "${DESKTOP_VERSION_PY}" | sed -E 's/.*"([^"]+)".*/\1/')"
+fi
+if [[ -f "${MINI_VERSION_PY}" ]]; then
+    MINI_VERSION="$(grep -E '^MINI_VERSION' "${MINI_VERSION_PY}" | sed -E 's/.*"([^"]+)".*/\1/')"
 fi
 if [[ -z "${APP_VERSION}" ]]; then
-    APP_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo unknown)"
+    APP_VERSION="$(git describe --tags --match 'desktop-v*' --abbrev=0 2>/dev/null \
+        || git describe --tags --match 'v*' --abbrev=0 2>/dev/null \
+        || echo unknown)"
 fi
-COMMIT_MSG="site: sync ${SOURCE_BRANCH}@${SHA_SHORT} (v${APP_VERSION})"
+if [[ -z "${MINI_VERSION}" ]]; then
+    MINI_VERSION="$(git describe --tags --match 'mini-*' --abbrev=0 2>/dev/null \
+        | sed 's/^mini-//' \
+        || echo unknown)"
+fi
+COMMIT_MSG="site: sync ${SOURCE_BRANCH}@${SHA_SHORT} (desktop v${APP_VERSION} / mini ${MINI_VERSION})"
 
 # Files at the gh-pages root that we want to keep across syncs even
 # though they don't live in site/ (notably CNAME for the apex domain).
@@ -127,7 +146,8 @@ trap cleanup EXIT
 
 echo "[sync-gh-pages] Repo:        ${REPO_ROOT}"
 echo "[sync-gh-pages] Source:      ${SOURCE_BRANCH}@${SHA_SHORT}"
-echo "[sync-gh-pages] Version:     v${APP_VERSION}"
+echo "[sync-gh-pages] Desktop:     v${APP_VERSION}"
+echo "[sync-gh-pages] Mini:        ${MINI_VERSION}"
 echo "[sync-gh-pages] Preserving:  ${PRESERVE}"
 echo "[sync-gh-pages] Worktree:    ${WT_PATH}"
 echo "[sync-gh-pages] Commit msg:  ${COMMIT_MSG}"
@@ -191,22 +211,43 @@ cp -a "${REPO_ROOT}/site/." .
 LATEST_RELEASE=""
 LATEST_BINARY_RELEASE=""
 if command -v gh >/dev/null 2>&1; then
-    LATEST_RELEASE="$(gh release list --limit 1 -R Broadcats/CMVideo \
-        --json tagName -q '.[0].tagName' 2>/dev/null | sed 's/^v//')"
+    # LATEST_RELEASE = newest tag that's a desktop release (legacy
+    # `v*-alpha` or new `desktop-v*-alpha`). Used for cosmetic
+    # desktop version stamps OUTSIDE the eyebrow (e.g. the
+    # "Get CMVideo X.Y.Z-alpha" h2 above the download cards).
+    # Mini tags (`mini-*`) are always skipped here - they don't
+    # advertise a desktop version.
+    LATEST_RELEASE="$(gh release list --limit 25 -R Broadcats/CMVideo \
+        --json tagName -q '.[].tagName' 2>/dev/null \
+        | while read -r tag; do
+            case "${tag}" in
+                mini-*) continue ;;
+                desktop-v*) printf '%s\n' "${tag}" | sed 's/^desktop-v//'; break ;;
+                v*) printf '%s\n' "${tag}" | sed 's/^v//'; break ;;
+            esac
+        done)"
     # Walk the last 25 releases newest-first; pick the first one
     # whose asset list contains an `*.AppImage`. 25 is a generous
     # cap to cover repeated tag-only releases without paying a
     # full-history scan; we've never had more than ~10 between
     # binary releases historically.
+    # Skip `mini-*` tags - those are mini-app deploys and never
+    # carry desktop binaries; including them risks racing the
+    # CI's auto-build of an old `v*` tag and finding stale
+    # AppImages on a tag we don't want to advertise.
     LATEST_BINARY_RELEASE="$(gh release list --limit 25 -R Broadcats/CMVideo \
         --json tagName,isDraft,isPrerelease -q '.[] | select(.isDraft|not) | .tagName' 2>/dev/null \
         | while read -r tag; do
+            case "${tag}" in
+                mini-*) continue ;;
+            esac
             if [[ -n "${tag}" ]] \
                 && gh release view "${tag}" -R Broadcats/CMVideo \
                     --json assets -q '.assets[].name' 2>/dev/null \
                     | grep -q 'AppImage$'
             then
-                printf '%s\n' "${tag}" | sed 's/^v//'
+                # Strip whichever desktop prefix the tag carries.
+                printf '%s\n' "${tag}" | sed -E 's/^(desktop-)?v//'
                 break
             fi
         done)"
@@ -273,13 +314,44 @@ if [[ -n "${LATEST_RELEASE}" && -f index.html ]]; then
             rewritten_any=1
         done
         if [[ ${rewritten_any} -eq 0 ]]; then
-            echo "[sync-gh-pages] Cosmetic stamps already at v${LATEST_RELEASE}, no rewrite needed"
+            echo "[sync-gh-pages] Cosmetic desktop stamps already at v${LATEST_RELEASE}, no rewrite needed"
         fi
     else
-        echo "[sync-gh-pages] index.html has no detectable version stamps to rewrite"
+        echo "[sync-gh-pages] index.html has no detectable desktop version stamps to rewrite"
     fi
 else
-    echo "[sync-gh-pages] Skipping version-stamp rewrite (gh CLI missing or no release found)"
+    echo "[sync-gh-pages] Skipping desktop version-stamp rewrite (gh CLI missing or no release found)"
+fi
+
+# -----------------------------------------------------------------------------
+# Mini version stamp (CalVer YYYY.MM.DD.N-alpha)
+# -----------------------------------------------------------------------------
+# Mini ships continuously and is versioned independently from
+# desktop (see web-mini/version.py). The only stamp it owns on
+# the static site is the eyebrow's "mini ..." segment. Pattern
+# `\d{4}\.\d{2}\.\d{2}\.\d+-[a-z]+` is distinct from the
+# desktop semver pattern (`v?\d+\.\d+\.\d+(\.\d+)?-[a-z]+`), so
+# we don't need to coordinate with the desktop sed passes
+# above - find every mini stamp in index.html and replace with
+# the value from web-mini/version.py.
+if [[ -n "${MINI_VERSION}" && -f index.html ]]; then
+    DISTINCT_MINI="$(grep -oE '20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]+-[a-z]+' index.html | sort -u)"
+    mini_rewritten=0
+    for v in ${DISTINCT_MINI}; do
+        if [[ "${v}" == "${MINI_VERSION}" ]]; then
+            continue
+        fi
+        echo "[sync-gh-pages] Rewriting mini version stamp: ${v} -> ${MINI_VERSION}"
+        sed -i "s/${v}/${MINI_VERSION}/g" index.html
+        mini_rewritten=1
+    done
+    if [[ ${mini_rewritten} -eq 0 ]]; then
+        if [[ -n "${DISTINCT_MINI}" ]]; then
+            echo "[sync-gh-pages] Mini version stamp already at ${MINI_VERSION}, no rewrite needed"
+        else
+            echo "[sync-gh-pages] index.html has no mini version stamps - skipping"
+        fi
+    fi
 fi
 
 # -----------------------------------------------------------------------------
@@ -329,4 +401,4 @@ fi
 popd >/dev/null
 
 echo
-echo "[sync-gh-pages] Done. https://cmvideo.online should reflect v${APP_VERSION} within ~60s."
+echo "[sync-gh-pages] Done. https://cmvideo.online should reflect desktop v${APP_VERSION} / mini ${MINI_VERSION} within ~60s."

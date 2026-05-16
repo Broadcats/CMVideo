@@ -1,7 +1,70 @@
 # Changelog
 
-All notable changes to CMVideo are recorded here. The project follows
-[Semantic Versioning](https://semver.org/) once it leaves the alpha series.
+All notable changes to CMVideo are recorded here.
+
+> **Versioning, since `mini-2026.05.16.1-alpha`:**
+> The desktop app and the mini-app version independently because they
+> ship on completely different cadences. Desktop is SemVer
+> (`v0.X.Y[.Z]-alpha`), bumps only when actual desktop code changes,
+> and is what gets tagged + auto-built into AppImage / Windows .exe
+> binaries. Mini is CalVer (`mini-YYYY.MM.DD.N-alpha`), continuously
+> deployed to the HF Space, bumps every time `web-mini/` ships. The
+> historical `0.4.16.1-alpha` through `0.4.16.4-alpha` entries below
+> were mini-only patches that pre-dated the split (they bumped the
+> shared version number despite not changing desktop code); from
+> `mini-2026.05.16.1-alpha` onward this can't happen because the two
+> have separate counters. See `web-mini/version.py` and
+> `censor/version.py` docstrings for the full policy.
+>
+> Tag format going forward:
+> * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
+> * Mini:    `mini-YYYY.MM.DD.N-alpha`
+
+## [mini-2026.05.16.1-alpha] - 2026-05-16
+
+Mini and desktop versions split. Mini moves to CalVer; desktop
+stays SemVer. From here on the website eyebrow shows both
+explicitly so a mini-only deploy doesn't make desktop users
+think they need to re-download.
+
+### Changed
+
+- **`web-mini/version.py` (new file)** holds `MINI_VERSION`,
+  separate from `censor/version.py`'s `APP_VERSION`. Mini-app
+  imports its own version and exposes it on `/api/limits.mini_version`.
+- **`censor/version.py`** stays at `0.4.16.4-alpha` (matches
+  the latest GitHub release with downloadable AppImages). The
+  `0.4.16.1` through `.4` bumps were mini-only despite the tag
+  format - we accept those as historical drift rather than
+  retcon, and freeze APP_VERSION here until a real desktop
+  change ships as `desktop-v0.4.17-alpha`.
+- **`scripts/sync-gh-pages.sh`** reads both versions, stamps
+  both on the website eyebrow, and scopes the binary-release
+  lookup to `desktop-v*` / legacy `v*` tags only (skips
+  `mini-*`).
+- **CI workflows (`linux-appimage.yml`, `windows-exe.yml`)**
+  trigger on `desktop-v*` and legacy `v[0-9]*` tags only.
+  `mini-*` tags do NOT trigger desktop binary builds.
+- **`site/index.html`** eyebrow now reads
+  `desktop v0.4.X-alpha · mini YYYY.MM.DD.N-alpha · open · local-first · live`.
+
+### Why
+
+Every recent bump (`0.4.16.1` through `0.4.16.4`) was mini-only:
+XFF parsing fix, JSON shim, HD cap mismatch, mobile IP-scope
+fix, rate-limit ease-up. None of those touched the desktop
+binary. But each one bumped a single shared version number that
+desktop users see in their About box and that's stamped on the
+download cards. A user grabbing `CMVideo-0.4.16.4-alpha-x86_64.AppImage`
+got a binary that's functionally identical to v0.4.16-alpha's,
+which is misleading. The split makes the relationship between
+"what version am I running" and "what actually changed" honest.
+
+CalVer for mini specifically (rather than another SemVer
+counter) reflects that mini doesn't have real version
+boundaries: there are no clients pinned to a version, just a URL
+that serves whatever's live. CalVer is honest about what the
+number represents - "the build that went live on this date".
 
 ## [0.4.16.4-alpha] - 2026-05-16
 

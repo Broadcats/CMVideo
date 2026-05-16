@@ -193,3 +193,16 @@ Format is whatever slowapi accepts (`<int>/<unit>`, unit ∈ hour |
 minute | second | day). The route decorators layer a `;2/minute`
 burst guard on top so the per-hour budget can't be spent in a
 single 30-second window.
+
+## Versioning
+
+The mini-app is versioned independently from the desktop binary
+because they ship on completely different cadences. Mini uses
+**CalVer** (`mini-YYYY.MM.DD.N-alpha`); desktop uses **SemVer**
+(`desktop-v0.X.Y-alpha`). The single source of truth for mini
+is [`web-mini/version.py`](version.py); see the policy
+docstring there for how to bump.
+
+The current mini version is exposed on `/api/limits.mini_version`
+and stamped on the `cmvideo.online` eyebrow next to the desktop
+version.

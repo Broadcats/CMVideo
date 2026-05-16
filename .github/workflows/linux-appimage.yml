@@ -2,17 +2,31 @@ name: Linux AppImage
 
 # Builds the Linux x86_64 AppImage and attaches it to a release.
 #
-# Triggers mirror windows-exe.yml: push of v*.*.* OR workflow_dispatch
-# against an existing tag (back-fill mode).
+# Triggers mirror windows-exe.yml: push of a desktop release tag
+# OR workflow_dispatch against an existing tag (back-fill mode).
+#
+# Tag conventions:
+#   * `desktop-v0.X.Y[.Z]-alpha` - new format (since v0.4.16.5).
+#   * `v0.X.Y[.Z]-alpha`         - legacy format (kept for the
+#                                  existing release stream + any
+#                                  back-fills against pre-split
+#                                  releases).
+#   * `mini-YYYY.MM.DD.N-alpha`  - mini deploys. NEVER trigger
+#                                  this workflow. The two
+#                                  patterns above are explicitly
+#                                  filtered to exclude `mini-*`.
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "desktop-v*"
+      - "v[0-9]*"      # legacy: v0.X.Y-alpha. Excludes "v" prefix
+                       # used by no other tag scheme in this repo.
+                       # Specifically does NOT match "mini-*".
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build against and upload to"
+        description: "Existing tag to build against and upload to (desktop-v... or v...)"
         required: true
         type: string
 
@@ -47,7 +61,9 @@ jobs:
         run: |
           IN_TREE="$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' censor/version.py)"
           TARGET="${{ steps.tag.outputs.value }}"
-          TARGET_STRIPPED="${TARGET#v}"
+          # Strip whichever desktop prefix the tag carries.
+          TARGET_STRIPPED="${TARGET#desktop-v}"
+          TARGET_STRIPPED="${TARGET_STRIPPED#v}"
           if [ "$IN_TREE" != "$TARGET_STRIPPED" ]; then
             echo "::error::version mismatch — in-tree '$IN_TREE' vs target '$TARGET_STRIPPED'."
             exit 1

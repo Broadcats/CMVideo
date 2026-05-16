@@ -3,19 +3,24 @@ name: Windows exe
 # Builds the single-file Windows executable and attaches it to a release.
 #
 # Triggers:
-#   * push of a v*.*.* tag (covers fresh releases)
+#   * push of a desktop release tag (`desktop-v*` for new releases or
+#     legacy `v0.X.Y-alpha` style for the existing tag stream)
 #   * manual workflow_dispatch with an existing tag (used to back-fill a
 #     Windows .exe onto a release that was cut before this workflow
 #     existed, e.g. v0.4.0-alpha)
+#
+# Mini-app deploys (`mini-YYYY.MM.DD.N-alpha`) MUST NOT trigger this
+# workflow. The two patterns below explicitly avoid `mini-*`.
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "desktop-v*"
+      - "v[0-9]*"   # legacy desktop tags (v0.X.Y-alpha). Excludes mini-*.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build against and upload to (e.g. v0.4.0-alpha)"
+        description: "Existing tag to build against and upload to (desktop-v0.X.Y-alpha)"
         required: true
         type: string
 
@@ -52,7 +57,9 @@ jobs:
         run: |
           IN_TREE="$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' censor/version.py)"
           TARGET="${{ steps.tag.outputs.value }}"
-          TARGET_STRIPPED="${TARGET#v}"
+          # Strip whichever desktop prefix the tag carries.
+          TARGET_STRIPPED="${TARGET#desktop-v}"
+          TARGET_STRIPPED="${TARGET_STRIPPED#v}"
           echo "in-tree version: $IN_TREE"
           echo "target tag:      $TARGET ($TARGET_STRIPPED)"
           if [ "$IN_TREE" != "$TARGET_STRIPPED" ]; then

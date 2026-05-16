@@ -41,6 +41,7 @@ from starlette.background import BackgroundTask
 import mini_censor
 import extractors as _extractors  # multi-tool fallback chain (yt-dlp -> gallery-dl -> Cobalt -> streamlink)
 import proxy_router as _proxy_router  # per-domain residential-proxy routing (Meta / TT / X / tube sites)
+from version import MINI_VERSION  # CalVer for the mini-app, separate from desktop's APP_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -2088,6 +2089,7 @@ async def api_limits(request: Request):
         cooled_ips = sum(1 for dq in _failures.values() if len(dq) >= FAILURE_THRESHOLD)
     caller_ip = _client_ip(request)
     return {
+        "mini_version": MINI_VERSION,
         "max_download_duration_seconds": MAX_DOWNLOAD_DURATION_SECONDS,
         "max_download_filesize_bytes": MAX_DOWNLOAD_FILESIZE_BYTES,
         "max_censor_duration_seconds": MAX_CENSOR_DURATION_SECONDS,

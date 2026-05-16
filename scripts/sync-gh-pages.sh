@@ -239,15 +239,40 @@ if [[ -n "${LATEST_RELEASE}" && -f index.html ]]; then
         else
             echo "[sync-gh-pages] Download URLs already at v${LATEST_BINARY_RELEASE}, no rewrite needed"
         fi
-        if [[ "${LATEST_RELEASE}" != "${OLD_VER}" ]]; then
-            echo "[sync-gh-pages] Rewriting cosmetic version stamps: ${OLD_VER} -> ${LATEST_RELEASE}"
-            # Pass C: every remaining `${OLD_VER}` (the eyebrow,
-            # the alpha tag in legal copy, etc.) becomes the latest
-            # tag. Pass A/B above already moved the binary refs to
-            # LATEST_BINARY_RELEASE, so this only touches cosmetic
-            # text now.
-            sed -i "s/${OLD_VER}/${LATEST_RELEASE}/g" index.html
-        else
+        # Pass C: rewrite EVERY remaining `vX.Y.Z-alpha` cosmetic
+        # reference to LATEST_RELEASE - not just the dominant one.
+        # If a previous manual edit dropped a single stray version
+        # somewhere (e.g. someone bumped just the eyebrow on a
+        # release day), the dominant-detection above only catches
+        # the most-frequent value and the stray would survive
+        # untouched. Iterating over EVERY distinct value found in
+        # the file (after Pass A / B have already moved binary
+        # refs out of the way) keeps the cosmetic surface
+        # consistent. PRESERVE_VERSIONS is a small allowlist of
+        # versions we *want* to remain on-page as historic
+        # references (the 0.4.0-alpha in the licence-history line
+        # is the canonical example). Adjust here, not in the file.
+        PRESERVE_VERSIONS=( "0.4.0-alpha" )
+        DISTINCT_VERS="$(grep -oE 'v?0\.4\.[0-9]+(\.[0-9]+)?-alpha' index.html \
+            | sed 's/^v//' | sort -u)"
+        rewritten_any=0
+        for v in ${DISTINCT_VERS}; do
+            if [[ "${v}" == "${LATEST_RELEASE}" ]]; then
+                continue
+            fi
+            skip=0
+            for keep in "${PRESERVE_VERSIONS[@]}"; do
+                if [[ "${v}" == "${keep}" ]]; then
+                    skip=1
+                    break
+                fi
+            done
+            [[ ${skip} -eq 1 ]] && continue
+            echo "[sync-gh-pages] Rewriting cosmetic version stamp: ${v} -> ${LATEST_RELEASE}"
+            sed -i "s/${v}/${LATEST_RELEASE}/g" index.html
+            rewritten_any=1
+        done
+        if [[ ${rewritten_any} -eq 0 ]]; then
             echo "[sync-gh-pages] Cosmetic stamps already at v${LATEST_RELEASE}, no rewrite needed"
         fi
     else

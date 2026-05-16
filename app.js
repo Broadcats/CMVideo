@@ -336,7 +336,7 @@
         if (mode === "download") {
           setStatus("Saved " + out.name + ". Want fuzzy matching, more formats, and the actual censoring? Grab the app below.", "ok");
         } else {
-          setStatus("Saved " + out.name + ". Mini uses exact-token matching; the full app catches leetspeak / phonetic variants and 'Fun' TTS replacement.", "ok");
+          setStatus("Saved " + out.name + ". Mini uses exact-token matching; the full app catches leetspeak / phonetic variants and TTS replacement.", "ok");
         }
       })
       .catch(function (err) {

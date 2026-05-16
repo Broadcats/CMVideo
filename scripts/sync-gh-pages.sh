@@ -154,6 +154,46 @@ find . "${FIND_ARGS[@]}" -exec rm -rf {} +
 cp -a "${REPO_ROOT}/site/." .
 
 # -----------------------------------------------------------------------------
+# Auto-bump version stamps to the latest GitHub Release.
+# -----------------------------------------------------------------------------
+# index.html has hardcoded version strings that point at downloadable
+# binaries on GitHub Releases (eyebrow line, the "Get CMVideo X" h2,
+# the per-OS download URLs, the checksums link). We don't want to
+# require a manual sed pass on every deploy, so this stage rewrites
+# those stamps in the WORKTREE COPY of index.html only - the source
+# `site/index.html` stays unchanged, the substitution is purely a
+# deploy artefact.
+#
+# Resolves the latest tag via `gh release list --limit 1`. Falls
+# back to leaving the file alone if `gh` isn't installed or the
+# call fails - we'd rather ship a slightly stale version stamp
+# than break the deploy.
+LATEST_RELEASE=""
+if command -v gh >/dev/null 2>&1; then
+    LATEST_RELEASE="$(gh release list --limit 1 -R Broadcats/CMVideo \
+        --json tagName -q '.[0].tagName' 2>/dev/null | sed 's/^v//')"
+fi
+if [[ -n "${LATEST_RELEASE}" && -f index.html ]]; then
+    # Match every literal `vX.Y.Z-alpha` and `X.Y.Z-alpha` reference
+    # (the dl URLs, the eyebrow, the checksums link) and rewrite to
+    # the latest. Skips obvious historic markers like `0.4.0-alpha`
+    # that appear in the licence-history line.
+    OLD_VER="$(grep -oE 'v?0\.4\.[0-9]+(\.[0-9]+)?-alpha' index.html \
+        | sort | uniq -c | sort -rn | awk 'NR==1{print $2}' | sed 's/^v//')"
+    if [[ -n "${OLD_VER}" && "${OLD_VER}" != "${LATEST_RELEASE}" ]]; then
+        echo "[sync-gh-pages] Rewriting index.html version stamps: ${OLD_VER} -> ${LATEST_RELEASE}"
+        # Both bare and v-prefixed forms; sed is fine with the literal
+        # period in the pattern because we're matching specific old
+        # versions, not regex.
+        sed -i "s/${OLD_VER}/${LATEST_RELEASE}/g" index.html
+    else
+        echo "[sync-gh-pages] index.html already at v${LATEST_RELEASE}, no rewrite needed"
+    fi
+else
+    echo "[sync-gh-pages] Skipping version-stamp rewrite (gh CLI missing or no release found)"
+fi
+
+# -----------------------------------------------------------------------------
 # Diff summary
 # -----------------------------------------------------------------------------
 git add -A

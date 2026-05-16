@@ -3,6 +3,31 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.15.2-alpha] - 2026-05-16
+
+Site: fix the recurring "version reverted to 0.4.7" bug + automate
+version-stamp bumping.
+
+### Fixed
+
+- **Bumped 7 hardcoded `0.4.7-alpha` references in `site/index.html`
+  to `0.4.13.5-alpha`** (the latest GitHub Release with desktop app
+  binaries). Asset names match across releases so the per-OS
+  download URLs work cleanly.
+
+### Added
+
+- **`sync-gh-pages.sh` auto-rewrites version stamps at deploy time.**
+  Resolves the latest release tag via
+  `gh release list --limit 1 -R Broadcats/CMVideo` and rewrites
+  every `vX.Y.Z-alpha` reference in the gh-pages copy of
+  `index.html` to match. Source `site/index.html` is unchanged -
+  the substitution lives only in the published artefact. Falls
+  back gracefully when the `gh` CLI is unavailable (rather than
+  breaking the deploy). This stops the recurring "site shows
+  ancient version" bug for good - the website will always match
+  the latest published desktop release on every gh-pages sync.
+
 ## [0.4.15.1-alpha] - 2026-05-16
 
 Hotfix: `proxy_router.py` wasn't being copied into the container.

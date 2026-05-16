@@ -3,6 +3,42 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.15.3-alpha] - 2026-05-16
+
+Mini-app: stop hard-blocking YouTube downloads; route YT through
+the residential proxy now that 0.4.15 made that available.
+
+### Changed
+
+- **YouTube + download mode no longer short-circuits to the
+  desktop-app section.** Previous behaviour was a frontend block
+  that returned before any backend call - introduced when YT
+  was 100% broken from the HF Space's datacenter IP. With the
+  residential proxy now active, YT downloads have a real chance
+  (success rate roughly 5% direct -> 60-70% proxied for
+  unrestricted videos), so the mini lets the request through
+  and the backend does the actual attempt.
+- **YouTube + censor mode (silence / beep) still redirects to
+  the desktop app.** Censor needs the transcript API, which is
+  more fragile than the video download even with a proxy, and
+  the in-browser iframe alternative isn't fully wired yet. The
+  redirect message now explicitly tells the user "plain MP4 /
+  MP3 download from YouTube is supported - just switch the mode"
+  so they know download mode does work.
+- **`youtube.com`, `youtu.be`, `googlevideo.com`, `ytimg.com`
+  added to `PROXY_DOMAINS`.** All four domains now route through
+  the residential proxy when `CMVIDEO_RESIDENTIAL_PROXY` is
+  configured, just like the existing IG / TT / FB entries.
+
+### Cost notes
+
+- YT clips are bandwidth-heavier than the average IG reel (a
+  3-minute YT clip at 720p is ~30-50 MB vs ~10 MB for an IG
+  reel of the same length). At hobby scale this is fine - even
+  with YT in the mix the IPRoyal $7 starter pack still covers
+  ~100 mixed downloads. If your traffic skews YouTube-heavy
+  the per-month estimate climbs proportionally.
+
 ## [0.4.15.2-alpha] - 2026-05-16
 
 Site: fix the recurring "version reverted to 0.4.7" bug + automate

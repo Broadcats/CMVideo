@@ -418,17 +418,28 @@
       if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
     }
 
-    // YouTube short-circuit. Their anti-bot blocks both the direct
-    // download (datacenter IP) AND the transcript fetch from this
-    // free HF Space, so calling the API is just a 20s wait that ends
-    // in a 502. Tell the user up front and scroll to the desktop app
-    // downloads, which run from their own connection and aren't
-    // affected. Saves the round-trip and the failed-fetch frustration.
+    // YouTube routing.
+    //
+    // Old behaviour (pre-residential-proxy): a hard short-circuit
+    // back to "use the desktop app" because YT was 100% broken
+    // from the HF Space's datacenter IP. Now that the mini routes
+    // youtube.com / googlevideo.com through the residential proxy,
+    // download mode actually has a real chance, so we let it
+    // through to /api/process and surface the real backend error
+    // if YT does fail (anti-bot, login wall, etc.).
+    //
+    // Censor mode (silence / beep) is more involved on YT: it
+    // needs the transcript API, which is harder than the video
+    // download even with a proxy, and the in-browser iframe
+    // alternative isn't fully wired yet. Until that's stable we
+    // keep redirecting censor-mode YT to the desktop app.
     var ytId = extractYouTubeId(url);
-    if (ytId && !selectedFile) {
+    if (ytId && !selectedFile && (mode === "silence" || mode === "beep")) {
       setStatus(
-        "YouTube blocks free cloud servers from fetching captions or video. " +
-        "The desktop app runs from your own connection and handles YouTube fully \u2014 grab it below.",
+        "YouTube censoring needs the transcript API, which the mini can\u2019t " +
+        "always reach. Censoring runs perfectly in the desktop app at " +
+        "cmvideo.online \u2014 grab it below. (Plain MP4 / MP3 download from " +
+        "YouTube is supported in the mini, just switch the mode.)",
         "error"
       );
       var dl = document.getElementById("downloads");

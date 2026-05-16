@@ -51,13 +51,23 @@
   // chain if the custom domain ever has issues.
   var MINI_API_BASE = "https://mini.cmvideo.online";
 
-  // YouTube URLs take a separate, fully-legal path: we fetch the
-  // transcript via the backend (no video download), then embed the
-  // official YouTube iframe player here and schedule client-side
-  // mute()/unMute() calls at every flagged word. No copyrighted
-  // bytes ever touch our infrastructure. Pattern matches
-  // youtube.com/watch?v=ID, youtu.be/ID, /embed/ID, /shorts/ID.
-  var YT_URL_RE = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
+  // YouTube URLs are detected here for two reasons:
+  //   1. Download mode now goes through the regular /api/process
+  //      pipeline (best-effort via the residential proxy on the
+  //      mini-app), so we DON'T short-circuit those.
+  //   2. Censor mode (silence / beep) still needs the desktop app
+  //      because the transcript step is harder than the download
+  //      itself, even with a proxy. So censor-mode YT URLs short-
+  //      circuit to the "use the desktop app" message + scroll.
+  // The earlier in-browser iframe-player censor flow was removed
+  // (see CHANGELOG v0.4.16-alpha) - it added an extra third-party
+  // script source, a global-scoped player object, and intervalled
+  // timers, all for a flow that was never actually wired into the
+  // submit path. Keeping unused code in the bundle expands the
+  // attack surface for no benefit.
+  // Pattern matches youtube.com/watch?v=ID, youtu.be/ID, /embed/ID,
+  // /shorts/ID, plus youtube-nocookie.com variants.
+  var YT_URL_RE = /(?:(?:youtube|youtube-nocookie)\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
   function extractYouTubeId(u) { var m = YT_URL_RE.exec(String(u||"")); return m ? m[1] : null; }
 
   /* Per-URL submit cooldown.

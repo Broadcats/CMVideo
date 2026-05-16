@@ -285,54 +285,41 @@
     }
 
     setBusy(true);
-    var busyMsg;
-    if (mode === "download") {
-      busyMsg = "Pulling " + fmt.toUpperCase() + "\u2026 typically 10\u201360 sec.";
-    } else {
-      busyMsg = "Transcribing + " + mode + "\u2026 typically 30\u2013120 sec on free CPU. Stay on this tab.";
-    }
-    setStatus(busyMsg, "busy");
+    setStatus("Submitting\u2026", "busy");
+    setProgress(0, "Submitting\u2026", true);
 
     var fd = new FormData();
     fd.append("format", fmt);
     fd.append("mode", mode);
-    // Only send fps when MP4. MP3 is audio-only so the backend ignores
-    // it, but skipping it here keeps the request payload honest.
     if (fmt === "mp4") fd.append("fps", getFPS());
     if (selectedFile) fd.append("file", selectedFile);
     else              fd.append("url", url);
 
-    fetch(MINI_API_BASE + "/api/process", { method: "POST", mode: "cors", body: fd })
+    // Async pipeline:
+    //   POST /api/process?async=1   -> { job_id }
+    //   poll GET /api/jobs/{id}     -> { stage, pct, ready, error, filename }
+    //   when ready: GET /api/jobs/{id}/file
+    fetch(MINI_API_BASE + "/api/process?async=1", { method: "POST", mode: "cors", body: fd })
       .then(function (res) {
-        if (!res.ok) {
-          // Special-case the common "Space not deployed yet" path: the
-          // Hugging Face frontend returns 404 with an HTML body for any
-          // route on a Space that doesn't exist.
-          if (res.status === 404) {
-            throw new Error(
-              "The mini service is offline right now — grab the desktop app below, it does everything this widget does (and a lot more)."
-            );
-          }
-          if (res.status === 429) {
-            throw new Error(
-              "Hit the 5-jobs-per-hour mini-app cap. The desktop app has no caps."
-            );
-          }
-          if (res.status === 413) {
-            throw new Error(
-              "That clip is over the mini-app size cap. Use the desktop app for full-length / full-quality runs."
-            );
-          }
-          return res.json().then(
-            function (data) { throw new Error((data && data.detail) || ("HTTP " + res.status)); },
-            function ()    { throw new Error("HTTP " + res.status + " from the mini service"); }
-          );
-        }
-        var name = parseFilename(res.headers, "cmvideo-mini." + fmt);
-        return res.blob().then(function (blob) { return { blob: blob, name: name }; });
+        if (!res.ok) return mapHttpError(res);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.job_id) throw new Error("Mini service didn't return a job id.");
+        return pollJob(data.job_id);
+      })
+      .then(function (jobId) {
+        setProgress(100, "Saving\u2026", false);
+        return fetch(MINI_API_BASE + "/api/jobs/" + encodeURIComponent(jobId) + "/file", { method: "GET", mode: "cors" })
+          .then(function (res) {
+            if (!res.ok) return mapHttpError(res);
+            var name = parseFilename(res.headers, "cmvideo-mini." + fmt);
+            return res.blob().then(function (blob) { return { blob: blob, name: name }; });
+          });
       })
       .then(function (out) {
         downloadBlob(out.blob, out.name);
+        hideProgress();
         if (mode === "download") {
           setStatus("Saved " + out.name + ". Want fuzzy matching, more formats, and the actual censoring? Grab the app below.", "ok");
         } else {
@@ -340,6 +327,7 @@
         }
       })
       .catch(function (err) {
+        hideProgress();
         var msg = (err && err.message) || String(err);
         if (msg === "Failed to fetch" || /NetworkError/i.test(msg)) {
           msg = "Couldn't reach the mini-app service. It might be cold-booting \u2014 retry in 30 seconds, or grab the desktop app below.";
@@ -348,6 +336,122 @@
       })
       .then(function () { setBusy(false); });
   });
+
+  /* ---- async helpers ---- */
+
+  function mapHttpError(res) {
+    if (res.status === 404) {
+      throw new Error(
+        "The mini service is offline right now \u2014 grab the desktop app below, it does everything this widget does (and a lot more)."
+      );
+    }
+    if (res.status === 429) {
+      throw new Error("Hit the 5-jobs-per-hour mini-app cap. The desktop app has no caps.");
+    }
+    if (res.status === 413) {
+      throw new Error("That clip is over the mini-app size cap. Use the desktop app for full-length / full-quality runs.");
+    }
+    if (res.status === 503) {
+      throw new Error("Mini service is busy right now \u2014 try again in a minute, or grab the desktop app.");
+    }
+    return res.json().then(
+      function (data) { throw new Error((data && data.detail) || ("HTTP " + res.status)); },
+      function ()    { throw new Error("HTTP " + res.status + " from the mini service"); }
+    );
+  }
+
+  function pollJob(jobId) {
+    var POLL_MS = 700;
+    var IDLE_TIMEOUT_MS = 6 * 60 * 1000;   // give up if stage hasn't changed for 6 min
+    var lastStage = null;
+    var lastPct = -1;
+    var idleSince = Date.now();
+    return new Promise(function (resolve, reject) {
+      function step() {
+        fetch(MINI_API_BASE + "/api/jobs/" + encodeURIComponent(jobId), { method: "GET", mode: "cors" })
+          .then(function (res) {
+            if (!res.ok) return mapHttpError(res);
+            return res.json();
+          })
+          .then(function (state) {
+            if (!state) throw new Error("Empty job state.");
+            if (state.error) throw new Error(state.error);
+            if (state.stage !== lastStage || state.pct !== lastPct) {
+              idleSince = Date.now();
+              lastStage = state.stage;
+              lastPct = state.pct;
+            }
+            var label = state.stage_label || state.stage || "Working\u2026";
+            // The transcribing stage is the slowest, so explicitly
+            // call out which step we're on so users don't think the
+            // bar is just stuck.
+            if (state.stage === "fetching") label = "Pulling source\u2026 " + state.pct + "%";
+            else if (state.stage === "transcribing") label = "Transcribing audio\u2026 " + state.pct + "%";
+            else if (state.stage === "rendering") label = "Rendering output\u2026 " + state.pct + "%";
+            setProgress(state.pct, label, false);
+
+            if (state.ready) { resolve(jobId); return; }
+            if (Date.now() - idleSince > IDLE_TIMEOUT_MS) {
+              reject(new Error("The job stopped reporting progress. The mini service may have crashed \u2014 retry, or grab the desktop app."));
+              return;
+            }
+            setTimeout(step, POLL_MS);
+          })
+          .catch(function (err) { reject(err); });
+      }
+      step();
+    });
+  }
+
+  /* ---- progress bar UI (created lazily, lives above the status line) ---- */
+
+  var progressEl = null;
+  var progressFill = null;
+  var progressLabel = null;
+
+  function ensureProgress() {
+    if (progressEl) return;
+    progressEl = document.createElement("div");
+    progressEl.className = "mini-progress";
+    progressEl.setAttribute("aria-live", "polite");
+    progressEl.style.display = "none";
+
+    var label = document.createElement("div");
+    label.className = "mini-progress-label";
+    progressLabel = label;
+
+    var bar = document.createElement("div");
+    bar.className = "mini-progress-bar";
+    var fill = document.createElement("div");
+    fill.className = "mini-progress-fill";
+    bar.appendChild(fill);
+    progressFill = fill;
+
+    progressEl.appendChild(label);
+    progressEl.appendChild(bar);
+
+    if (statusEl && statusEl.parentNode) {
+      statusEl.parentNode.insertBefore(progressEl, statusEl);
+    } else {
+      form.appendChild(progressEl);
+    }
+  }
+
+  function setProgress(pct, label, indeterminate) {
+    ensureProgress();
+    progressEl.style.display = "block";
+    progressEl.classList.toggle("indeterminate", !!indeterminate);
+    var p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    progressFill.style.width = (indeterminate ? 0 : p) + "%";
+    progressLabel.textContent = label || (p + "%");
+  }
+
+  function hideProgress() {
+    if (!progressEl) return;
+    progressEl.style.display = "none";
+    progressEl.classList.remove("indeterminate");
+    if (progressFill) progressFill.style.width = "0%";
+  }
 
   /* ---- handy: click on the URL field shows a hint about drag-drop ---- */
   if (urlInput) {

@@ -3,6 +3,25 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.14.4-alpha] - 2026-05-16
+
+Site widget: switch mini-app endpoint from
+`dandyfeet-cmvideo-mini.hf.space` to the custom domain
+`mini.cmvideo.online`.
+
+### Changed
+
+- **`MINI_API_BASE` -> `https://mini.cmvideo.online`** (was the
+  raw HF Spaces subdomain). The custom domain is a CNAME pointing
+  at `hf.space` provisioned via HF Pro tier. Net effect: cleaner
+  URL in browser network panel, no functional change.
+- **CSP `connect-src` widened to allow both hosts.** The new
+  custom domain is now the active call target; the old
+  `dandyfeet-cmvideo-mini.hf.space` is kept on the allowlist as a
+  safety hatch - if Pro lapses or the custom domain ever breaks,
+  flipping `MINI_API_BASE` back is a one-line change with no CSP
+  redeploy chain.
+
 ## [0.4.14.3-alpha] - 2026-05-16
 
 Site widget: per-URL submit cooldown to stop users accidentally

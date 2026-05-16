@@ -3,6 +3,50 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13.5-alpha] - 2026-05-16
+
+Mini-app: bump MP3 to top quality + per-candidate diagnostic
+logging in the Playwright tier (groundwork for chasing the
+remaining thisvid edge case).
+
+### Changed
+
+- **MP3 bitrate raised from 192 kbps -> 320 kbps.** 320 kbps is
+  the highest standard MP3 bitrate; the file size goes up
+  proportionally (~1.6x at the same duration) but the audio is
+  effectively transparent. Affects the chip label
+  (`MP3 · 320k`), `/api/info` / `/api/limits` payloads, and the
+  caps blurb on the homepage. The standalone HF page picks up
+  the change automatically through its template variable.
+
+### Diagnostics
+
+- **`_log_candidates`**: every captured Playwright candidate is
+  now logged at INFO with its parsed height hint, container, and
+  response size. Two log lines per candidate (one before ranking,
+  the picked one after) so the HF Space logs leave a clear trail
+  for any "still low quality" report. Previously we only logged
+  the winner, which made it impossible to tell whether the
+  scorer was picking wrong or whether Playwright never saw
+  higher-resolution variants in the first place.
+- **HLS variant trail**: when `_resolve_hls_variant` parses a
+  master playlist, it now logs every `(height, bandwidth, url)`
+  triple it saw before announcing the pick. Same purpose - if a
+  thisvid pull gives 360p, the logs now tell us whether the
+  master only listed 360p (Playwright didn't catch the higher
+  variant) vs the parser picked badly.
+
+### Note for the thisvid follow-up
+
+The user reported that pasting thisvid's *embed* URL works while
+the page URL still gives low quality. That's a hint Playwright's
+default page load isn't seeing the same `<video>` source the
+embed iframe does. Next investigation: check whether the embed
+URL surfaces a master HLS that the page URL doesn't, or whether
+mobile UA detection is steering the page toward a low-res
+fallback. The new diagnostic lines should make that question
+trivially answerable from the HF logs.
+
 ## [0.4.13.4-alpha] - 2026-05-16
 
 Mini-app: close the resolution-cap gap on the remaining four

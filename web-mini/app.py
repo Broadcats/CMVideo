@@ -48,7 +48,7 @@ MAX_DOWNLOAD_DURATION_SECONDS = 60 * 60          # URL download only (1 hour)
 MAX_CENSOR_DURATION_SECONDS = 8 * 60             # transcription is slow on free CPU
 MAX_CENSOR_FILESIZE_BYTES = 100 * 1024 * 1024    # cap upload + output
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024             # multipart body size
-AUDIO_BITRATE_KBPS = "192"
+AUDIO_BITRATE_KBPS = "320"  # highest standard MP3 bitrate (LAME -V0 / CBR)
 
 # Quality tiers. "standard" stays the default because the speed wins
 # from 0.4.11 (single-file progressive MP4, no merge step) only apply

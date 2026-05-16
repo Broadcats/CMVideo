@@ -1112,13 +1112,14 @@ def _playwright_download_locked(
     # user's height cap (parsing height hints out of CDN URL paths
     # like `_720p.mp4`, `?quality=1080`, etc). Falls through to
     # legacy size-based tie-breaking when no height can be inferred.
+    _log_candidates("pw[locked] pre-rank", media_urls)
     media_urls = _rank_candidates(media_urls, max_height=target_height)
     best_url = media_urls[0][0]
     log.info(
-        "playwright candidates=%d picked=%s height_hint=%d cap=%d",
-        len(media_urls), best_url[:120],
+        "pw[locked] candidates=%d cap=%d picked_h=%d picked=%s",
+        len(media_urls), target_height,
         _extract_height_hint(best_url, media_urls[0][1]),
-        target_height,
+        best_url[:160],
     )
 
     out_file = dst_dir / f"playwright.{fmt}"
@@ -1381,6 +1382,22 @@ def extract_with_fallbacks(
 # back to the legacy size-based tiebreak so we never regress to "no
 # pick at all".
 
+def _log_candidates(label: str, candidates: list[tuple[str, str, int]]) -> None:
+    """Dump every captured candidate to the log with its parsed height
+    hint, container hint, and response-size hint. Lets us tell from
+    the HF logs whether a "low-quality result" came from the scorer
+    picking the wrong variant or from Playwright never seeing higher
+    variants in the first place. One INFO line per candidate is fine -
+    typical pages produce <20.
+    """
+    for i, (u, ct, sz) in enumerate(candidates):
+        h = _extract_height_hint(u, ct)
+        log.info(
+            "%s cand[%d] h=%d ct=%s sz=%d url=%s",
+            label, i, h, (ct or "")[:40], sz or 0, (u or "")[:160],
+        )
+
+
 # Heights we care about. Anything between 144 and 4320 is plausible.
 _HEIGHT_VALUES = (144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320)
 
@@ -1549,6 +1566,10 @@ def _resolve_hls_variant(
     if not variants:
         return master_url
 
+    # Log every variant we saw so failed pulls leave a complete trail.
+    for h, bw, vu in variants:
+        log.info("hls master variant h=%d bw=%d url=%s", h, bw, (vu or "")[:160])
+
     # Prefer the highest variant that fits the cap. Fall back to the
     # lowest variant ABOVE the cap if everything is over (so a 1440p-
     # only stream still produces something rather than failing).
@@ -1560,7 +1581,7 @@ def _resolve_hls_variant(
         variants.sort(key=lambda v: (v[0], v[1]))
         chosen = variants[0]
     log.info(
-        "hls variant pick: cap=%d, picked=%dx?, bw=%d (out of %d variants)",
+        "hls variant pick: cap=%d picked_h=%d picked_bw=%d (of %d variants)",
         cap, chosen[0], chosen[1], len(variants),
     )
     return chosen[2]
@@ -1694,13 +1715,14 @@ def _playwright_download_from_capture(
     if not capture.media_candidates:
         raise ExtractionError("Playwright saw no media manifests on this page")
 
+    _log_candidates("pw[shared] pre-rank", list(capture.media_candidates))
     media = _rank_candidates(list(capture.media_candidates), max_height=target_height)
     best_url = media[0][0]
     log.info(
-        "playwright candidates=%d picked=%s height_hint=%d cap=%d",
-        len(media), best_url[:120],
+        "pw[shared] candidates=%d cap=%d picked_h=%d picked=%s",
+        len(media), target_height,
         _extract_height_hint(best_url, media[0][1]),
-        target_height,
+        best_url[:160],
     )
 
     candidate_hdrs = getattr(capture, "candidate_headers", {}) or {}

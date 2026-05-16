@@ -117,7 +117,7 @@
     setBusy(true);
 
     try {
-      // FAST PATH: direct-stream pass-through (y2mate-style).
+      // FAST PATH: direct-stream pass-through.
       // Mini server resolves the URL, browser downloads from a
       // one-shot proxy endpoint. No server-side disk, no caps.
       // MP4 only - MP3 always needs ffmpeg post-processing on the

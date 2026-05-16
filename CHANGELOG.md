@@ -20,14 +20,62 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.16.4-alpha] - 2026-05-16
+
+Speed knob tweaks on the streaming fast-path. No protocol or
+behavioural changes - just defaults that let bytes flow faster
+at saturation and let one client run more downloads in parallel.
+
+### Changed
+
+- **`STREAM_CHUNK_BYTES` default 128 KB -> 512 KB.** Fewer
+  Python-level yields per second under StreamingResponse means
+  ~5-10% less per-byte overhead when the upstream pipe is wide.
+  No memory cost (the chunk is allocated, yielded, freed in a
+  tight loop). Env override: `CMVIDEO_STREAM_CHUNK_KB` -
+  set to a smaller value (e.g. `64`) if a flaky upstream
+  benefits from finer-grained stall detection.
+- **`STREAM_MAX_PER_IP` default 3 -> 5.** Lets one client
+  parallelise multiple downloads (e.g. queueing 4 videos in
+  separate tabs) without tripping the 429 concurrency cap.
+  Streams are cheap CPU-wise (byte-shuffling only - no
+  ffmpeg, no disk writes), so the previous 3-concurrent
+  ceiling was needlessly tight. Env override:
+  `CMVIDEO_STREAM_MAX_PER_IP`.
+
+### Why this matters in practice
+
+The fast-path's actual download speed is bounded by:
+1. Source CDN -> HF Space link (varies by site; googlevideo /
+   twimg / fbcdn are typically gigabit; small tube sites can be
+   5-50 Mbps).
+2. HF Space -> user (HF's outbound; usually ample).
+3. User's own ISP.
+4. Residential proxy when active (IPRoyal residential is
+   typically 10-30 Mbps - the dominant bottleneck for IG / FB
+   / TT / X / YT routes that go through it).
+
+The chunk-size bump shaves a tiny slice off (3); (1) and (4)
+dominate. The per-IP cap bump just removes a self-inflicted
+ceiling.
+
+### Slow path is unchanged
+
+`/api/process` (censor / MP3 / HLS / DASH / merge-required)
+still has the 360s download timeout and the per-quality
+filesize cap. Those exist because that path actually buffers
+to `/tmp` and runs ffmpeg, which IS CPU/disk-bound. Removing
+those caps without re-architecting the slow path would just
+let one bad URL melt the box. The fast-path is the escape
+valve for "I just want bytes, no processing".
+
 ## [mini-2026.05.16.3-alpha] - 2026-05-16
 
 Streaming fast-path. Raw URL downloads now skip the server-pull
 + disk-buffer + 360s-cap loop entirely - the mini server
 resolves the source URL, then proxies bytes straight from the
 upstream CDN to the browser. **No filesize cap, no total-time
-timeout, no rate cap on the actual download.** y2mate's trick,
-applied to our stack.
+timeout, no rate cap on the actual download.**
 
 ### Why
 
@@ -41,13 +89,13 @@ zero user-visible progress until the entire pull completed.
 
 The fix isn't to bump the cap - bumping just shifts the cliff.
 The fix is to remove the server from the bandwidth path
-entirely for raw downloads. y2mate / similar services have
-done this for years: the server resolves the URL via yt-dlp,
-mints a one-shot token, then on GET pipes upstream bytes
-through a `StreamingResponse`. The user pays upstream-to-them
-bandwidth, the server pays nothing but a passthrough. There is
-no "download to disk then serve" step - bytes flow continuously,
-the browser's native download UI handles progress.
+entirely for raw downloads: the server resolves the URL via
+yt-dlp, mints a one-shot token, then on GET pipes upstream
+bytes through a `StreamingResponse`. The user pays
+upstream-to-them bandwidth, the server pays nothing but a
+passthrough. There is no "download to disk then serve" step -
+bytes flow continuously, the browser's native download UI
+handles progress.
 
 ### Added
 

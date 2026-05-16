@@ -534,7 +534,7 @@
 
     // Pipeline. Two paths:
     //
-    //   FAST  (y2mate-style stream pass-through):
+    //   FAST  (streaming pass-through):
     //     POST /api/stream-download   -> { stream_url, filename, filesize }
     //     <a href={stream_url} click> -> browser native download
     //   Used for raw URL downloads where yt-dlp can resolve the
@@ -580,7 +580,7 @@
           // Browser-native download via an invisible <a download>
           // click. Cross-origin link, but the mini server sets
           // Content-Disposition: attachment so the browser saves
-          // instead of navigating - same trick y2mate uses.
+          // instead of navigating (standard force-download pattern).
           var streamUrl = MINI_API_BASE + streamInit.stream_url;
           var a = document.createElement("a");
           a.href = streamUrl;

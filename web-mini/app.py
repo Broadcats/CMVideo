@@ -1070,7 +1070,7 @@ def _do_info(url: str) -> dict:
 
 def _resolve_direct_format(url: str, fmt: str, quality: str) -> Optional[dict]:
     """Resolve `url` to a single direct-streamable HTTP format suitable
-    for the y2mate-style fast-path download.
+    for the streaming fast-path download.
 
     Returns a dict with `url`, `headers`, `ext`, `filesize`, `title`,
     `extractor`, `mime_type` if such a format exists, else None
@@ -1327,7 +1327,7 @@ FAILURE_WINDOW_S = int(os.environ.get("CMVIDEO_FAILURE_WINDOW_S", "600"))
 FAILURE_COOLDOWN_S = int(os.environ.get("CMVIDEO_FAILURE_COOLDOWN_S", "300"))
 
 # ---------------------------------------------------------------------------
-# Streaming fast-path knobs. The y2mate-style direct-stream endpoints
+# Streaming fast-path knobs. The direct-stream endpoints
 # (`/api/stream-download` + `/api/stream/{token}`) bypass the server-pull
 # pipeline entirely: yt-dlp resolves the upstream URL, the server opens
 # a streaming HTTP request, and bytes flow straight through to the
@@ -1347,11 +1347,18 @@ STREAM_READ_TIMEOUT_S = int(os.environ.get("CMVIDEO_STREAM_READ_TIMEOUT_S", "60"
 STREAM_CONNECT_TIMEOUT_S = int(os.environ.get("CMVIDEO_STREAM_CONNECT_TIMEOUT_S", "30"))
 # Concurrent streams per IP. Streams are cheap (no CPU - just
 # byte-shuffling) so this can be more generous than JOB_MAX_PER_IP.
-STREAM_MAX_PER_IP = int(os.environ.get("CMVIDEO_STREAM_MAX_PER_IP", "3"))
-# Chunk size for the iter_content / yield loop. 128 KB is a sane
-# trade-off: small enough that the per-chunk timeout catches stalls
-# quickly, large enough that we're not making a syscall per packet.
-STREAM_CHUNK_BYTES = 128 * 1024
+# Bumped from 3 -> 5 in mini-2026.05.16.4-alpha to let one client
+# parallelise multiple downloads.
+STREAM_MAX_PER_IP = int(os.environ.get("CMVIDEO_STREAM_MAX_PER_IP", "5"))
+# Chunk size for the iter_content / yield loop. 512 KB strikes a
+# good balance: fewer Python-level yields per second (lower CPU
+# overhead at saturation), still small enough that the per-chunk
+# read timeout catches stalls quickly. Bumped from 128 KB ->
+# 512 KB in mini-2026.05.16.4-alpha. Env-tunable so the operator
+# can dial up/down without a redeploy if upstream behaviour
+# changes (huge chunks improve raw throughput on fast pipes,
+# small chunks reduce stall-detection latency on flaky ones).
+STREAM_CHUNK_BYTES = int(os.environ.get("CMVIDEO_STREAM_CHUNK_KB", "512")) * 1024
 
 
 @dataclass
@@ -2175,7 +2182,7 @@ async def api_download_compat(request: Request, body: DownloadCompatRequest):
 
 
 # ---------------------------------------------------------------------------
-# Streaming fast-path: y2mate-style server-as-passthrough-proxy.
+# Streaming fast-path: server-as-passthrough-proxy.
 #
 # Why this exists:
 #   The server-pull pipeline (/api/process) downloads the entire

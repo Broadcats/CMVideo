@@ -45,6 +45,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+import proxy_router as _proxy_router  # per-domain residential proxy
+
 log = logging.getLogger(__name__)
 
 
@@ -1068,15 +1070,25 @@ def _playwright_download_locked(
             pass
 
     deadline = time.monotonic() + timeout
+    # Per-domain residential proxy: when the page URL is on the
+    # PROXY_DOMAINS allowlist (instagram, tiktok, tube sites, etc.),
+    # route the entire Playwright session through the residential
+    # proxy. Browser-level so all subresource fetches (manifests,
+    # media segments, cookies, image assets) inherit the IP.
+    pw_proxy = _proxy_router.playwright_proxy_for_url(url)
+    launch_kwargs: dict[str, Any] = {
+        "headless": True,
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",  # crucial inside Docker
+            "--disable-blink-features=AutomationControlled",
+        ],
+    }
+    if pw_proxy:
+        launch_kwargs["proxy"] = pw_proxy
+        log.info("playwright: routing session through residential proxy")
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",  # crucial inside Docker
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
+        browser = p.chromium.launch(**launch_kwargs)
         try:
             ctx = browser.new_context(
                 user_agent=(
@@ -1587,7 +1599,16 @@ def _resolve_hls_variant(
     )
     try:
         req = urllib.request.Request(master_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Per-domain residential proxy: HLS masters on IG / TT / FB
+        # CDNs need the residential IP just as much as the segment
+        # fetches. Falls through to default urlopen for everything
+        # else (cheaper, no proxy hop).
+        proxy_opener = _proxy_router.urllib_opener_for_url(master_url)
+        if proxy_opener is not None:
+            opener = proxy_opener.open(req, timeout=10)
+        else:
+            opener = urllib.request.urlopen(req, timeout=10)
+        with opener as resp:
             body = resp.read(256 * 1024).decode("utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001
         log.info("hls master fetch failed (%s); deferring to ffmpeg", exc)
@@ -1750,9 +1771,17 @@ def _ffmpeg_capture_url(
         "-c", "copy",
         str(out_file),
     ]
+    # Per-domain residential proxy: when media_url is on the
+    # PROXY_DOMAINS allowlist (cdninstagram.com, fbcdn.net, tube
+    # CDNs, etc.), set http_proxy / https_proxy in ffmpeg's env
+    # so it pulls segments through the residential pool. ffmpeg
+    # respects the standard env-var convention. No-op when proxy
+    # isn't configured or media_url isn't on the allowlist.
+    ff_env = _proxy_router.subprocess_env_for_url(media_url)
     try:
         proc = subprocess.run(
             ff_cmd, check=False, capture_output=True, text=True, timeout=timeout,
+            env=ff_env,
         )
     except subprocess.TimeoutExpired:
         return False, "ffmpeg capture timed out"

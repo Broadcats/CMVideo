@@ -3,6 +3,65 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.15-alpha] - 2026-05-16
+
+Mini-app: per-domain residential-proxy routing for sites that
+throttle datacenter IPs (Meta family, TikTok, X, the MindGeek
+tubes, East-Asian video portals).
+
+### Added
+
+- **New `web-mini/proxy_router.py` module.** Decides per-URL
+  whether a given outbound fetch should be routed through a
+  residential proxy. Built-in `PROXY_DOMAINS` allowlist covers
+  Instagram + Facebook + Threads (`cdninstagram.com`, `fbcdn.net`,
+  `instagram.com`, `facebook.com`, `fb.watch`, `threads.net`),
+  TikTok (`tiktok.com`, `tiktokcdn.com`, `muscdn.com`,
+  `tiktokv.com`), X / Twitter (`x.com`, `twitter.com`,
+  `twimg.com`), MindGeek tubes (`pornhub.com`, `redtube.com`,
+  `youporn.com`, `tube8.com`, `phncdn.com`, `ypncdn.com`,
+  `rdtcdn.com`, `tube8cdn.com`), other tube sites (xVideos,
+  xnxx, xHamster, Spankbang) and East-Asian portals (Bilibili,
+  Douyin, iQiyi, Youku, Weibo, Niconico). YouTube / Reddit /
+  Vimeo / Twitch / direct media URLs are deliberately NOT on the
+  allowlist - they work fine on datacenter IPs and proxying them
+  would burn paid GB for no benefit.
+- **`CMVIDEO_RESIDENTIAL_PROXY` env var.** Full HTTP proxy URL
+  with embedded credentials, e.g.
+  `http://USERNAME:PASSWORD@geo.iproyal.com:12321`.
+  Unset = proxy disabled, every fetch goes direct (current
+  behaviour, preserved as the safe default).
+- **`CMVIDEO_PROXY_EXTRA_DOMAINS` env var.** Optional CSV of
+  additional hostname suffixes to route through the proxy on top
+  of the built-in allowlist, for operator-side experimentation.
+- **Wired into all four extraction tiers:** yt-dlp (`proxy` opt),
+  Playwright (`launch(proxy=...)` parsed into the
+  server / username / password format Playwright expects),
+  ffmpeg (`http_proxy` / `https_proxy` env on subprocess), and
+  the HLS master playlist resolver (`urllib.request.ProxyHandler`).
+  All four gate on the same `should_proxy(url)` check, so the
+  routing decision is consistent across the chain.
+- **`/api/limits` -> `hardening.residential_proxy`** with
+  `{active, builtin_domains, extra_domains}`. Active is a
+  boolean, the others are counts. **The proxy URL itself is
+  never exposed** because it contains credentials.
+
+### Hardening notes
+
+- **Per-URL decision uses the destination URL's hostname**, not
+  the original page URL. So when Playwright captures a
+  `cdninstagram.com` media URL on an `instagram.com` page, the
+  ffmpeg fetch of the cdninstagram.com URL is also proxied -
+  which is exactly when proxying matters most (CDN segment
+  fetches are where IG actually rate-limits).
+- **Random IP rotation per request** (configured at the IPRoyal
+  / Webshare side) means a hostile site can't quota-stack our
+  requests onto one residential IP. Each yt-dlp run sees a
+  fresh IP.
+- **Cost discipline:** at hobby scale (~50 downloads/day,
+  ~20% of which hit proxy domains), expected proxy bandwidth
+  is ~5-8 GB/month, comfortably inside IPRoyal's $7 starter pack.
+
 ## [0.4.14.4-alpha] - 2026-05-16
 
 Site widget: switch mini-app endpoint from

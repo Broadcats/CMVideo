@@ -40,6 +40,7 @@ from starlette.background import BackgroundTask
 
 import mini_censor
 import extractors as _extractors  # multi-tool fallback chain (yt-dlp -> gallery-dl -> Cobalt -> streamlink)
+import proxy_router as _proxy_router  # per-domain residential-proxy routing (Meta / TT / X / tube sites)
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +874,16 @@ def _do_download(
         log.info("extractor win: direct fast-path -> %s", direct.name)
         return direct
     opts = _ydl_common_opts(tmpdir, max_duration, max_filesize, progress_hook=progress_hook)
+    # Per-domain residential-proxy routing. yt-dlp's `proxy` opt
+    # routes ALL fetches in this run (page + segments) through the
+    # proxy, which is what we want - the segment downloads are
+    # where IG / TT / etc actually rate-limit hardest. Direct
+    # connection (proxy=None) for everything else so we don't burn
+    # paid GB on YouTube / Reddit / Vimeo etc.
+    proxy_for_this = _proxy_router.proxy_for_url(url)
+    if proxy_for_this:
+        opts["proxy"] = proxy_for_this
+        log.info("yt-dlp: routing %s through residential proxy", _proxy_router._hostname_of(url))
     if fmt == "mp4":
         opts.update({
             "format": _video_format_selector(fps, height=height),
@@ -1936,6 +1947,13 @@ async def api_limits(request: Request):
             # home IP if /api/limits is ever scraped.
             "owner_allowlist_size": len(_OWNER_NETWORKS),
             "owner_bypass_active": _is_owner_ip(caller_ip),
+            # Per-domain residential proxy. The proxy URL itself
+            # (which contains credentials!) is never exposed - we
+            # only surface whether it's configured and how many
+            # domains are on the allowlist, so the operator can
+            # confirm the env var was parsed without leaking
+            # creds into a publicly-readable response.
+            "residential_proxy": _proxy_router.status(),
         },
         "yt_censor_enabled": True,
         "full_app_url": "https://cmvideo.online",

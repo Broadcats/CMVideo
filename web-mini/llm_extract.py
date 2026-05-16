@@ -58,6 +58,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import proxy_router as _proxy_router  # per-domain residential proxy
+
 log = logging.getLogger(__name__)
 
 
@@ -234,15 +236,26 @@ def capture_page(
                 candidate_headers[r_url] = req_hdrs
 
     t0 = time.monotonic()
+    # Per-domain residential proxy: when the page URL is on the
+    # PROXY_DOMAINS allowlist (instagram, tiktok, tube sites, etc.),
+    # the LLM tier's Chromium capture uses the same residential
+    # session as the heuristic Playwright tier. Same rationale -
+    # browser-level proxying so all subresource fetches inherit
+    # the residential IP and IG / TT / X stop datacenter-throttling.
+    pw_proxy = _proxy_router.playwright_proxy_for_url(url)
+    launch_kwargs: dict[str, Any] = {
+        "headless": True,
+        "args": [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ],
+    }
+    if pw_proxy:
+        launch_kwargs["proxy"] = pw_proxy
+        log.info("llm capture: routing session through residential proxy")
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
+        browser = p.chromium.launch(**launch_kwargs)
         try:
             ctx = browser.new_context(
                 user_agent=(

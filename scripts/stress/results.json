@@ -1,0 +1,1213 @@
+{
+  "phase1_probe": [
+    {
+      "name": "TikTok",
+      "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.0919428130146116,
+      "title": "Scramble up ur name & I\u2019ll try to guess it\ud83d\ude0d\u2764\ufe0f #foryoupage #p"
+    },
+    {
+      "name": "PeerTube",
+      "url": "https://framatube.org/videos/watch/9c9de5e8-0a1e-484a-b099-e80766180a6d",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.2514678760198876,
+      "title": "What is PeerTube?"
+    },
+    {
+      "name": "Streamable",
+      "url": "https://streamable.com/dnd1",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.2749206379521638,
+      "title": "Mikel Oiarzabal scores to make it 0-3 for La Real against Es"
+    },
+    {
+      "name": "Dailymotion",
+      "url": "http://www.dailymotion.com/video/x5kesuj",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.5914623599965125,
+      "title": "Office Christmas Party Review \u2013  Jason Bateman, Olivia Munn,"
+    },
+    {
+      "name": "Twitch-VOD",
+      "url": "http://www.twitch.tv/riotgames/v/6528877",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.6904544159770012,
+      "title": "LCK Summer Split - Week 6 Day 1"
+    },
+    {
+      "name": "FoxNews",
+      "url": "https://video.foxnews.com/v/6320653836112",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.2824586860369891,
+      "title": "Tucker Carlson joins 'Gutfeld!' to discuss his new documenta"
+    },
+    {
+      "name": "BitChute",
+      "url": "https://www.bitchute.com/video/UGlrF9o9b-Q/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.9541261350968853,
+      "title": "This is the first video on #BitChute !"
+    },
+    {
+      "name": "Vimeo",
+      "url": "https://vimeo.com/76979871",
+      "phase": "probe",
+      "ok": true,
+      "dt": 2.0119854310760275,
+      "title": "The New Vimeo Player (You Know, For Videos)"
+    },
+    {
+      "name": "CBSNews",
+      "url": "http://www.cbsnews.com/news/artificial-intelligence-positioned-to-be-a-game-changer/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.2643176100682467,
+      "err": "ERROR: [cbsnews:embed] vVhtU%2BM4Ev4rKVdNPhyYyO92tlJ7gYRZahmgGGa3rgjlkm050eG3s%2BwEhsl%2Fv27ZjhNmhtnb27uCwlKrJbXUj7qf5kWhdZUXCX1WxjFNBDtWuDjLk4QWggcJ20kjtuYhdKEhHmGGcqysecRyZfyi8IqlQhnfvyjVc4E66zyCcR5",
+      "fallback_eligible": false
+    },
+    {
+      "name": "NBCNews",
+      "url": "http://www.nbcnews.com/watch/nbcnews-com/how-twitter-reacted-to-the-snowden-interview-269389891880",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.41497391497250646,
+      "title": "How Twitter Reacted To The Snowden Interview"
+    },
+    {
+      "name": "CNN",
+      "url": "https://www.cnn.com/2024/05/31/sport/video/jadon-sancho-borussia-dortmund-champions-league-exclusive-spt-intl",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.1920770049327984,
+      "title": "Borussia Dortmund star Jadon Sancho seeks Wembley redemption"
+    },
+    {
+      "name": "AlJazeera",
+      "url": "https://balkans.aljazeera.net/videos/2021/11/6/pojedini-domovi-u-sarajevu-jos-pod-vodom-mjestanima-se-dostavlja-hrana",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.5003955480642617,
+      "title": "Pojedini domovi u Sarajevu jo\u0161 pod vodom, mje\u0161tanima se dost"
+    },
+    {
+      "name": "BBC",
+      "url": "http://www.bbc.com/news/world-europe-32668511",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.8784902000334114,
+      "title": "Russia stages massive WW2 parade despite Western boycott"
+    },
+    {
+      "name": "Niconico",
+      "url": "https://www.nicovideo.jp/watch/1173108780",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.763749185949564,
+      "title": "\u65b0\u30fb\u8c6a\u8840\u5bfa\u4e00\u65cf -\u7169\u60a9\u89e3\u653e - \u30ec\u30c3\u30c4\u30b4\u30fc\uff01\u9670\u967d\u5e2b"
+    },
+    {
+      "name": "SoundCloud",
+      "url": "http://soundcloud.com/ethmusic/lostin-powers-she-so-heavy",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.42375417600851506,
+      "title": "Lostin Powers - She so Heavy (SneakPreview) Adrian Ackers Bl"
+    },
+    {
+      "name": "Naver",
+      "url": "http://tv.naver.com/v/81652",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.6436031920602545,
+      "title": "[9\uc6d4 \ubaa8\uc758\uace0\uc0ac \ud574\uc124\uac15\uc758][\uc218\ud559_\uae40\uc0c1\ud76c] \uc218\ud559 A\ud615 16~20\ubc88"
+    },
+    {
+      "name": "Imgur",
+      "url": "https://imgur.com/A61SaA1",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.20590996101964265,
+      "err": "ERROR: [Imgur] A61SaA1: Unable to download JSON metadata: HTTP Error 403: Unknown Error (caused by <HTTPError 403: Unknown Error>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Mixcloud",
+      "url": "http://www.mixcloud.com/dholbach/cryptkeeper/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.6278432339895517,
+      "title": "Cryptkeeper"
+    },
+    {
+      "name": "Bandcamp",
+      "url": "http://youtube-dl.bandcamp.com/track/youtube-dl-test-song",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.6087341890670359,
+      "title": "youtube-dl \"'/\\\u00e4\u21ad - youtube-dl \"'/\\\u00e4\u21ad - youtube-dl test song"
+    },
+    {
+      "name": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/videos/2021-09-14/apple-unveils-the-new-iphone-13-stock-doesn-t-move-much-video",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.18522204994224012,
+      "err": "ERROR: [Bloomberg] apple-unveils-the-new-iphone-13-stock-doesn-t-move-much-video: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "TED",
+      "url": "https://www.ted.com/talks/candace_parker_how_to_break_down_barriers_and_not_accept_limits",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.22974981891457,
+      "title": "How to break down barriers and not accept limits"
+    },
+    {
+      "name": "Disney",
+      "url": "http://video.disney.com/watch/moana-trailer-545ed1857afee5a0ec239977",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.7924738719593734,
+      "title": "Moana - Trailer"
+    },
+    {
+      "name": "Instagram",
+      "url": "https://instagram.com/p/aye83DjauH/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.7928947419859469,
+      "title": "Video by naomipq"
+    },
+    {
+      "name": "BiliBili",
+      "url": "https://www.bilibili.com/video/BV13x41117TL",
+      "phase": "probe",
+      "ok": true,
+      "dt": 3.7363696170505136,
+      "title": "\u963f\u6ef4\u82f1\u6587\uff5c\u82f1\u6587\u6b4c\u5206\u4eab#6 \"Closer"
+    },
+    {
+      "name": "ESPN",
+      "url": "http://espn.go.com/video/clip?id=10365079",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.44418654195033014,
+      "err": "ERROR: [ESPN] 10365079: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Reuters",
+      "url": "http://www.reuters.com/video/2016/05/20/san-francisco-police-chief-resigns?videoId=368575562",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.3432251310441643,
+      "err": "ERROR: [Reuters] 368575562: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "TXXX",
+      "url": "https://txxx.com/videos/16574965/digital-desire-malena-morgan/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.28261487605050206,
+      "title": "Digital Desire - Malena Morgan"
+    },
+    {
+      "name": "Reddit",
+      "url": "https://www.reddit.com/r/videos/comments/6rrwyj/that_small_heart_attack/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.1691361470147967,
+      "title": "That small heart attack."
+    },
+    {
+      "name": "ThisVid",
+      "url": "https://thisvid.com/videos/sitting-on-ball-tight-jeans/",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.6434364069718868,
+      "title": "Sitting on ball tight jeans"
+    },
+    {
+      "name": "NBA",
+      "url": "https://www.nba.com/bulls/video/teams/bulls/2020/12/04/3478774/1607105587854-20201204schedulereleasefinaldrupal-3478774",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.994484972092323,
+      "err": "ERROR: [nba] teams/bulls/2020/12/04/3478774/1607105587854-20201204schedulereleasefinaldrupal-3478774: Unable to extract video id; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Empflix",
+      "url": "http://www.empflix.com/amateur-porn/Amateur-Finger-Fuck/video33051",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.45305746397934854,
+      "title": "Amateur Finger Fuck"
+    },
+    {
+      "name": "NFL",
+      "url": "https://www.nfl.com/videos/baker-mayfield-s-game-changing-plays-from-3-td-game-week-14",
+      "phase": "probe",
+      "ok": true,
+      "dt": 2.1437065419740975,
+      "title": "Baker Mayfield's game-changing plays from 3-TD game Week 14"
+    },
+    {
+      "name": "Pornhub",
+      "url": "http://www.pornhub.com/view_video.php?viewkey=648719015",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.22418865002691746,
+      "err": "ERROR: [PornHub] 648719015: Unable to download webpage: HTTP Error 410: Gone (caused by <HTTPError 410: Gone>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Nuvid",
+      "url": "https://www.nuvid.com/video/6513023/italian-babe",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.8576758520212024,
+      "title": "italian babe"
+    },
+    {
+      "name": "Drtuber",
+      "url": "http://www.drtuber.com/video/1740434/hot-perky-blonde-naked-golf",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6668617819668725,
+      "err": "list indices must be integers or slices, not str",
+      "fallback_eligible": false
+    },
+    {
+      "name": "PBS",
+      "url": "http://www.pbs.org/tpt/constitution-usa-peter-sagal/watch/a-more-perfect-union/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 1.5802234450820833,
+      "err": "ERROR: [pbs] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Slutload",
+      "url": "http://www.slutload.com/video/virginie-baisee-en-cam/TD73btpBqSxc/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6026640509953722,
+      "err": "ERROR: [Slutload] TD73btpBqSxc: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "RedTube",
+      "url": "https://www.redtube.com/38864951",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.3993660199921578,
+      "err": "ERROR: [RedTube] 38864951: Unable to extract video URL; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the lat",
+      "fallback_eligible": false
+    },
+    {
+      "name": "YouPorn",
+      "url": "http://www.youporn.com/watch/505835/sex-ed-is-it-safe-to-masturbate-daily/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.5311717530712485,
+      "err": "ERROR: [YouPorn] 505835: YouPorn says: Login",
+      "fallback_eligible": false
+    },
+    {
+      "name": "XHamster",
+      "url": "https://xhamster.com/videos/femaleagent-shy-beauty-takes-the-bait-1509445",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.613930550054647,
+      "err": "ERROR: [XHamster] 1509445: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest ",
+      "fallback_eligible": true
+    },
+    {
+      "name": "SpankBang",
+      "url": "https://spankbang.com/56b3d/video/the+slut+maker+hmv",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.4849798559444025,
+      "err": "ERROR: [SpankBang] 56b3d: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Eporner",
+      "url": "http://www.eporner.com/hd-porn/95008/Infamous-Tiffany-Teen-Strip-Tease-Video/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.2530030310153961,
+      "err": "ERROR: [Eporner] 95008: Unable to extract hash; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest vers",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Tube8",
+      "url": "http://www.tube8.com/teen/kasia-music-video/229795/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.708090292988345,
+      "err": "ERROR: [Tube8] 229795: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest vers",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Motherless",
+      "url": "http://motherless.com/EE97006",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6107064749812707,
+      "err": "ERROR: [Motherless] EE97006: Video EE97006 does not exist",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Beeg",
+      "url": "https://beeg.com/-0983946056129650",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.37291254301089793,
+      "err": "ERROR: [Beeg] 0983946056129650: Unable to download JSON metadata: HTTP Error 500: Internal Server Error (caused by <HTTPError 500: Internal Server Error>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "4Tube",
+      "url": "http://www.4tube.com/videos/209733/hot-babe-holly-michaels-gets-her-ass-stuffed-by-black",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.3858793471008539,
+      "err": "ERROR: [4tube] 209733: Unable to extract player JS; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest ",
+      "fallback_eligible": false
+    },
+    {
+      "name": "ManyVids",
+      "url": "https://www.manyvids.com/Video/530341/mv-tips-tricks",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.37743511295411736,
+      "err": "ERROR: [ManyVids] 530341: Unable to download JSON metadata: HTTP Error 410: Gone (caused by <HTTPError 410: Gone>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "YouJizz",
+      "url": "http://www.youjizz.com/videos/zeichentrick-1-2189178.html",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.5855275240028277,
+      "title": "Zeichentrick 1"
+    },
+    {
+      "name": "XNXX",
+      "url": "http://www.xnxx.com/video-55awb78/skyrim_test_video",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.7686970930080861,
+      "title": "Skyrim Test Video"
+    },
+    {
+      "name": "XVideos",
+      "url": "http://xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.325180695974268,
+      "title": "A Beautiful Red-Haired Stranger Was Refused, But Still Came "
+    },
+    {
+      "name": "Rumble",
+      "url": "https://rumble.com/vdmum1-moose-the-dog-helps-girls-dig-a-snow-fort.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.20475800207350403,
+      "err": "ERROR: [Rumble] vdmum1-moose-the-dog-helps-girls-dig-a-snow-fort.html: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Twitter",
+      "url": "https://twitter.com/freethenipple/status/643211948184596480",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.5763876989949495,
+      "err": "ERROR: [twitter] 643211948184596480: No video could be found in this tweet",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Veoh",
+      "url": "https://www.veoh.com/watch/v141509908ZZQzAaSk",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.2932003039168194,
+      "err": "ERROR: [generic] Unable to download webpage: HTTPSConnection(host='www.veoh.com', port=443): Failed to resolve 'www.veoh.com' ([Errno -2] Name or service not known) (caused by TransportError(\"HTTPSCon",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Kick",
+      "url": "https://kick.com/xqc/videos/5c697a87-afce-4256-b01f-3c8fe71ef5cb",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.38514784700237215,
+      "err": "ERROR: [kick:vod] 5c697a87-afce-4256-b01f-3c8fe71ef5cb: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "PornTube",
+      "url": "https://www.porntube.com/videos/teen-couple-doing-anal_7089759",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7125275660073385,
+      "err": "ERROR: [PornTube] 7089759: Unable to extract data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest v",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Facebook",
+      "url": "https://www.facebook.com/radiokicksfm/videos/3676516585958356/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7472485969774425,
+      "err": "ERROR: [facebook] 3676516585958356: Cannot parse data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the late",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Tumblr",
+      "url": "http://tatianamaslanydaily.tumblr.com/post/54196191430/orphan-black-dvd-extra-behind-the-scenes",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.8386620320379734,
+      "err": "ERROR: [Tumblr] 54196191430: Unable to download webpage: HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Metacafe",
+      "url": "http://www.metacafe.com/watch/yt-_aUehQsCQtM/the_electric_company_short_circus_episode_2/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.703234362998046,
+      "err": "ERROR: [generic] Unable to download webpage: HTTPConnection(host='www.metacafe.com', port=80): Failed to resolve 'www.metacafe.com' ([Errno -2] Name or service not known) (caused by TransportError(\"HT",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Snapchat",
+      "url": "https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYakjSaWYfsFGgEeXCWAEAAAA",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.32772057107649744,
+      "err": "ERROR: [SnapchatSpotlight] W7_EDlXWTBiXAEEniNoMPwAAYakjSaWYfsFGgEeXCWAEAAAA: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "ImgFlip",
+      "url": "https://imgflip.com/i/8u33d9",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.16493828303646296,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "LinkedIn",
+      "url": "https://www.linkedin.com/posts/microsoft_make-2024-the-year-of-impact-with-cisco-activity-7150061116115369984-WGUu",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.3250940559664741,
+      "err": "ERROR: [LinkedIn] 7150061116115369984: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Newgrounds",
+      "url": "https://www.newgrounds.com/portal/view/717094",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.48979600705206394,
+      "err": "ERROR: [Newgrounds] 717094: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Liveleak",
+      "url": "https://www.liveleak.com/view?t=YkEnT_1572036176",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.45452726806979626,
+      "err": "ERROR: [generic] Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000) (caused by CertificateVerifyError('[SSL: C",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Douyin",
+      "url": "https://www.douyin.com/video/7128955894875655936",
+      "phase": "probe",
+      "ok": false,
+      "dt": 1.2354449429549277,
+      "err": "ERROR: [Douyin] 7128955894875655936: Fresh cookies (not necessarily logged in) are needed",
+      "fallback_eligible": false
+    },
+    {
+      "name": "WorldStarHipHop",
+      "url": "https://www.worldstarhiphop.com/videos/video.php?v=wshhWmRVytx10n6JwUBl",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6591689300257713,
+      "err": "ERROR: [WorldStarHipHop] wshhWmRVytx10n6JwUBl: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "9GAG",
+      "url": "https://9gag.com/gag/aWb2WGd",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.367261381004937,
+      "err": "ERROR: [9gag] aWb2WGd: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "iqiyi",
+      "url": "https://www.iqiyi.com/v_19rqv2zhz4.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 1.4573772680014372,
+      "err": "ERROR: [iqiyi] Can't find any video; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  ",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Channel4",
+      "url": "http://www.channel4.com/programmes/24-hours-in-police-custody/on-demand/61012-001",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.031353681930340827,
+      "err": "ERROR: [DRM] The requested site is known to use DRM protection. It will NOT be supported.\n       Please DO NOT open an issue, unless you have evidence that the video is not DRM protected",
+      "fallback_eligible": false
+    },
+    {
+      "name": "TF1",
+      "url": "https://www.tf1.fr/tf1/petits-plats-en-equilibre/videos/wraps-courgette-jambon-aubergine-mozzarella-tomate-cerise.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.2451699039665982,
+      "err": "'NoneType' object is not subscriptable",
+      "fallback_eligible": false
+    },
+    {
+      "name": "ARTE",
+      "url": "https://www.arte.tv/en/videos/108100-018-A/eco-india/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.2449500219663605,
+      "err": "ERROR: [ArteTV] 108100-018-A: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "RTBF",
+      "url": "https://www.rtbf.be/auvio/detail_les-couleurs-d-aki-a-pris-une-couleur-anti-flash?id=2914687",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.45812490198295563,
+      "err": "ERROR: [RTBF] 2914687: Could not find media data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest ve",
+      "fallback_eligible": false
+    },
+    {
+      "name": "ITV",
+      "url": "http://www.itv.com/hub/dragons-den/2a4660a0029",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.33380388701334596,
+      "err": "ERROR: [ITV] 2a4660a0029: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Globe-Mail",
+      "url": "https://www.theglobeandmail.com/canada/video-watch-tornado-touch-down-in-rural-alberta/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.27415972494054586,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Stern",
+      "url": "https://www.stern.de/panorama/wetter/wirbelsturm-in-myanmar--zyklon-mocha-hat-katastrophale-zerstoerung-angerichtet-33444010.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.24619691900443286,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "NHK",
+      "url": "https://www3.nhk.or.jp/nhkworld/en/ondemand/video/2007062/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.8307542270049453,
+      "err": "ERROR: [NhkVod] 2007062: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "SBS",
+      "url": "https://www.sbs.com.au/ondemand/program/insight",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7307033990509808,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "LeMonde",
+      "url": "https://www.lemonde.fr/videos/video/2018/04/24/le-jt-international-en-quatre-minutes_5290181_3210.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.8027663830434904,
+      "err": "ERROR: Unsupported URL: https://www.lemonde.fr/cinema/article/2018/04/25/marion-melancolie-de-l-homme-nu-moderne_5290181_3476.html",
+      "fallback_eligible": true
+    },
+    {
+      "name": "ZDF",
+      "url": "https://www.zdf.de/nachrichten/heute-journal/heute-journal-vom-30-april-2023-100.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.48335489502642304,
+      "err": "ERROR: [zdf] heute-journal-vom-30-april-2023-100: Failed to download fallback metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Vine",
+      "url": "https://archive.org/details/vines_archive_videos",
+      "phase": "probe",
+      "ok": false,
+      "dt": 3.079188144998625,
+      "err": "ERROR: [archive.org] vines_archive_videos: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "SVT",
+      "url": "https://www.svtplay.se/video/jUKwYVl/aktuellt",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.5461794669972733,
+      "err": "ERROR: [svt:play] jUKwYVl: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Heise",
+      "url": "https://www.heise.de/tp/news/Wolkenklimakatastrophe-3340574.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 1.0168241449864581,
+      "err": "ERROR: [Heise] 3340574: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Aparat",
+      "url": "https://www.aparat.com/v/UGjGT",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.1612680449616164,
+      "err": "expected string or bytes-like object, got 'bool'",
+      "fallback_eligible": false
+    },
+    {
+      "name": "RTL",
+      "url": "https://www.rtl.de/cms/zwei-millionen-deutsche-arbeiten-in-mehr-als-einem-job-4889060.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.24250775401014835,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "DRTV",
+      "url": "https://www.dr.dk/drtv/se/dr-nyheder_-tema_244170",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6178185890894383,
+      "err": "ERROR: [drtv] dr-nyheder_-tema_244170: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "EuroNews",
+      "url": "https://www.euronews.com/2023/05/26/turkish-election-runoff-this-weekend",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.15765189204830676,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "NOS",
+      "url": "https://nos.nl/video/2316547-meerderheid-tweede-kamer-tegen-uitstel-vaccinatieplicht",
+      "phase": "probe",
+      "ok": true,
+      "dt": 0.628581180004403,
+      "title": "Organisatie vreugdevuur Scheveningen houdt fakkeltocht"
+    },
+    {
+      "name": "Weibo",
+      "url": "https://video.weibo.com/show?fid=1034:4842138775945235",
+      "phase": "probe",
+      "ok": false,
+      "dt": 3.2430979900527745,
+      "err": "'NoneType' object is not subscriptable",
+      "fallback_eligible": false
+    },
+    {
+      "name": "EuropaPress",
+      "url": "https://www.europapress.es/sociedad/sucesos-00649/video-impactante-momento-camion-cae-precipicio-eeuu-20240115141143.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.32583714195061475,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "TV5",
+      "url": "http://www.tv5.com.ph/programs/news-public-affairs/2014/4/30/onia-balita-mukhang-may-spike-sa-presyo",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.26184037199709564,
+      "err": "ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again with  --extractor-args \"generic:impersonate\"",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Bandsintown",
+      "url": "https://www.bandsintown.com/e/103354030",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.1808688339078799,
+      "err": "ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again with  --extractor-args \"generic:impersonate\"",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Youku",
+      "url": "https://v.youku.com/v_show/id_XNDgxMjY3NTc2.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 3.657610408961773,
+      "err": "ERROR: [youku] XNDgxMjY3NTc2: Youku server reported error -1002: \u8be5\u89c6\u9891\u5df2\u88ab\u5c4f\u853d\uff0c\u60a8\u53ef\u4ee5\u5c1d\u8bd5\u641c\u7d22\u64cd\u4f5c\u3002; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue templat",
+      "fallback_eligible": false
+    },
+    {
+      "name": "DW",
+      "url": "https://www.dw.com/en/germany-eu-gives-go-ahead-to-state-aid-for-tsmc-chip-plant/a-66533921",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.24498397205024958,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "LBC",
+      "url": "https://www.lbc.co.uk/news/i-could-cry-i-cant-believe-it-mum-tells-james-obrien-incredibly-emot/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.5529396940255538,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "TVPlay",
+      "url": "https://tvplay.skaties.lv/parraides/atklatie-jaunumi/",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7601739839883521,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Crunchyroll",
+      "url": "https://www.crunchyroll.com/watch/GMKUKVJEM/im-back-from-another-world-but-i-want-an-isekai-vacation",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.04834262398071587,
+      "err": "ERROR: [DRM] The requested site is known to use DRM protection. It will NOT be supported.\n       Please DO NOT open an issue, unless you have evidence that the video is not DRM protected",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Polskie-Radio",
+      "url": "https://www.polskieradio.pl/9/305/Artykul/3083521,uzbekistan-w-rewizji-konstytucji-zaufanie-do-stabilnosci-prawnej-zmieni-sie-na-stale",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.6284753819927573,
+      "err": "'NoneType' object is not subscriptable",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Hotstar",
+      "url": "https://www.hotstar.com/in/sports/cricket/india-vs-england-2nd-test-day-1/1260123890/video/highlights/watch",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.12766832893248647,
+      "err": "ERROR: [hotstar] 1260123890: This video is only available for registered users. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Stitcher",
+      "url": "https://www.stitcher.com/podcast/the-podcast-blogger",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.4084346799645573,
+      "err": "ERROR: [StitcherShow] the-podcast-blogger: the-podcast-blogger: Failed to parse JSON (caused by JSONDecodeError(\"Expecting value in '': line 1 column 1 (char 0)\")); please report this issue on  https:",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Twitch-Live",
+      "url": "https://www.twitch.tv/asmongold",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.5281934019876644,
+      "err": "ERROR: [twitch:stream] asmongold: The channel is not currently live",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Vidio",
+      "url": "https://www.vidio.com/watch/2495773-trailer-aladdin-2019-akhirnya-dirilis",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.9399737550411373,
+      "err": "ERROR: [Vidio] 2495773: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Funimation",
+      "url": "https://www.funimation.com/v/dr-stone/dr-stone",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7696268659783527,
+      "err": "ERROR: [generic] Got HTTP Error 403 caused by Cloudflare anti-bot challenge; try again with  --extractor-args \"generic:impersonate\"",
+      "fallback_eligible": true
+    },
+    {
+      "name": "Bilibili-Live",
+      "url": "https://live.bilibili.com/21452505",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.9040083959698677,
+      "err": "ERROR: [BiliLive] 21452505: Streamer is not live",
+      "fallback_eligible": false
+    },
+    {
+      "name": "Slacker",
+      "url": "https://www.slacker.com/u/fpsmwkGJ?lid=8094",
+      "phase": "probe",
+      "ok": false,
+      "dt": 1.6811361080035567,
+      "err": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+      "fallback_eligible": true
+    },
+    {
+      "name": "SoundClick",
+      "url": "https://www.soundclick.com/bands/page_songInfo.cfm?bandID=1289615&songID=14123116",
+      "phase": "probe",
+      "ok": true,
+      "dt": 1.3347024410031736,
+      "title": "Drake-Inspired Alternative Hip Hop Track | PARADOX by Craig "
+    },
+    {
+      "name": "Kick-Live",
+      "url": "https://kick.com/xqc",
+      "phase": "probe",
+      "ok": false,
+      "dt": 0.7628840029938146,
+      "err": "ERROR: [kick:live] xqc: The channel is not currently live",
+      "fallback_eligible": false
+    },
+    {
+      "name": "RTL-Now",
+      "url": "https://www.rtl.tv/cms/jeder-trailer-fuer-die-neue-trash-show-eheblitzkrieg-2024-5050842.html",
+      "phase": "probe",
+      "ok": false,
+      "dt": 3.2682816750602797,
+      "err": "ERROR: Unsupported URL: https://www.rtl.de/",
+      "fallback_eligible": true
+    },
+    {
+      "name": "ToggleSG",
+      "url": "http://video.toggle.sg/en/series/the-dream-makers-2/trailers/the-dream-makers-2/cMHnDMWGgbY",
+      "phase": "probe",
+      "ok": false,
+      "dt": 4.13230781792663,
+      "err": "ERROR: Unsupported URL: https://www.mewatch.sg/series",
+      "fallback_eligible": true
+    }
+  ],
+  "phase2_chain": [
+    {
+      "name": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/videos/2021-09-14/apple-unveils-the-new-iphone-13-stock-doesn-t-move-much-video",
+      "phase": "chain",
+      "ok": false,
+      "dt": 11.86569543404039,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [Bloomberg] apple-unveils-the-new-iphone-13-stock-doesn-t-move-much-video: Unable to download webpage: HTTP Error, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Imgur",
+      "url": "https://imgur.com/A61SaA1",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.098975366912782,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [Imgur] A61SaA1: Unable to download JSON metadata: HTTP Error 403: Unknown Error (caused by <HTTPError 403: Unkno, gallery-dl: [imgur][error] HttpError: '403 Unknown Error' for 'https://api.imgur"
+    },
+    {
+      "name": "Reuters",
+      "url": "http://www.reuters.com/video/2016/05/20/san-francisco-police-chief-resigns?videoId=368575562",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.164421151042916,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [Reuters] 368575562: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>), playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "NBA",
+      "url": "https://www.nba.com/bulls/video/teams/bulls/2020/12/04/3478774/1607105587854-20201204schedulereleasefinaldrupal-3478774",
+      "phase": "chain",
+      "ok": false,
+      "dt": 1.8110018600709736,
+      "err": "All extractors failed. Last error: ERROR: [nba] teams/bulls/2020/12/04/3478774/1607105587854-20201204schedulereleasefinaldrupal-3478774: Unable to extract video id; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are o"
+    },
+    {
+      "name": "ESPN",
+      "url": "http://espn.go.com/video/clip?id=10365079",
+      "phase": "chain",
+      "ok": false,
+      "dt": 15.080604318995029,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [ESPN] 10365079: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Pornhub",
+      "url": "http://www.pornhub.com/view_video.php?viewkey=648719015",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.192054233979434,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [PornHub] 648719015: Unable to download webpage: HTTP Error 410: Gone (caused by <HTTPError 410: Gone>), playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "PBS",
+      "url": "http://www.pbs.org/tpt/constitution-usa-peter-sagal/watch/a-more-perfect-union/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 13.19851269107312,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [pbs] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>), playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Slutload",
+      "url": "http://www.slutload.com/video/virginie-baisee-en-cam/TD73btpBqSxc/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.723116092965938,
+      "err": "All extractors failed. Last error: ffmpeg refused the captured manifest: te.TI26.TE20.TS5ogteventcreate.TI24.TE20.TS5ogteventcreate.TI20.TE19.TS5ogteventcreate.TI18.TE19.TS5ccdautoredact.TI17.TE19.TS5ccdgalast.TI15.TE19~gtm.js.S0.V0.TS5gct.TI7.TE0~gtm.dom.S0.V0.E13~gtm.load.S0.V0.E12~*.S0.V0~GA2387."
+    },
+    {
+      "name": "RedTube",
+      "url": "https://www.redtube.com/38864951",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.139983356930315,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [RedTube] 38864951: Unable to extract video URL; please report this issue on  https://github.com/yt-dlp/yt-dlp/is, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "YouPorn",
+      "url": "http://www.youporn.com/watch/505835/sex-ed-is-it-safe-to-masturbate-daily/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.62304456892889,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [YouPorn] 505835: YouPorn says: Login, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "XHamster",
+      "url": "https://xhamster.com/videos/femaleagent-shy-beauty-takes-the-bait-1509445",
+      "phase": "chain",
+      "ok": false,
+      "dt": 13.182941169012338,
+      "err": "All extractors failed. Last error: ffmpeg refused the captured manifest: [in#0 @ 0x5dda5e930e40] Error opening input: Invalid data found when processing input\nError opening input file https://lcdn.tsyndicate.com/sdk/v1/master.spot.js.\nError opening input files: Invalid data found when processing inp"
+    },
+    {
+      "name": "SpankBang",
+      "url": "https://spankbang.com/56b3d/video/the+slut+maker+hmv",
+      "phase": "chain",
+      "ok": true,
+      "dt": 13.240197189035825,
+      "extractor": "playwright",
+      "size_mb": 0.92,
+      "attempts": [
+        "yt-dlp: ERROR: [SpankBang] 56b3d: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+        "playwright: ok"
+      ]
+    },
+    {
+      "name": "Drtuber",
+      "url": "http://www.drtuber.com/video/1740434/hot-perky-blonde-naked-golf",
+      "phase": "chain",
+      "ok": true,
+      "dt": 97.54727737104986,
+      "extractor": "playwright",
+      "size_mb": 3.47,
+      "attempts": [
+        "yt-dlp: list indices must be integers or slices, not str",
+        "playwright: ok"
+      ]
+    },
+    {
+      "name": "Eporner",
+      "url": "http://www.eporner.com/hd-porn/95008/Infamous-Tiffany-Teen-Strip-Tease-Video/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.64722061296925,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [Eporner] 95008: Unable to extract hash; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Motherless",
+      "url": "http://motherless.com/EE97006",
+      "phase": "chain",
+      "ok": false,
+      "dt": 0.49201615899801254,
+      "err": "ERROR: [Motherless] EE97006: Video EE97006 does not exist (tried: yt-dlp: ERROR: [Motherless] EE97006: Video EE97006 does not exist)"
+    },
+    {
+      "name": "CBSNews",
+      "url": "http://www.cbsnews.com/news/artificial-intelligence-positioned-to-be-a-game-changer/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 132.05542629898991,
+      "err": "All extractors failed. Last error: Playwright + ffmpeg capture timed out (tried: yt-dlp: ERROR: [cbsnews:embed] vVhtU%2BM4Ev4rKVdNPhyYyO92tlJ7gYRZahmgGGa3rgjlkm050eG3s%2BwEhsl%2Fv27ZjhNmhtnb27uCwlKrJbXUj7qf5kW, playwright: Playwright + ffmpeg capture timed out)"
+    },
+    {
+      "name": "Tube8",
+      "url": "http://www.tube8.com/teen/kasia-music-video/229795/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.66334568709135,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [Tube8] 229795: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "4Tube",
+      "url": "http://www.4tube.com/videos/209733/hot-babe-holly-michaels-gets-her-ass-stuffed-by-black",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.290185004007071,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [4tube] 209733: Unable to extract player JS; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Beeg",
+      "url": "https://beeg.com/-0983946056129650",
+      "phase": "chain",
+      "ok": true,
+      "dt": 20.99206981610041,
+      "extractor": "playwright",
+      "size_mb": 49.67,
+      "attempts": [
+        "yt-dlp: ERROR: [Beeg] 0983946056129650: Unable to download JSON metadata: HTTP Error 500: Internal Server Error (caused by <HTTP",
+        "playwright: ok"
+      ]
+    },
+    {
+      "name": "ManyVids",
+      "url": "https://www.manyvids.com/Video/530341/mv-tips-tricks",
+      "phase": "chain",
+      "ok": false,
+      "dt": 14.048916767002083,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [ManyVids] 530341: Unable to download JSON metadata: HTTP Error 410: Gone (caused by <HTTPError 410: Gone>), playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Veoh",
+      "url": "https://www.veoh.com/watch/v141509908ZZQzAaSk",
+      "phase": "chain",
+      "ok": false,
+      "dt": 2.676183313014917,
+      "err": "All extractors failed. Last error: ERROR: [generic] Unable to download webpage: HTTPSConnection(host='www.veoh.com', port=443): Failed to resolve 'www.veoh.com' ([Errno -2] Name or service not known) (caused by TransportError(\"HTTPSConnection(host='www.veoh.com', port=443): Failed to resolve 'www.ve"
+    },
+    {
+      "name": "Twitter",
+      "url": "https://twitter.com/freethenipple/status/643211948184596480",
+      "phase": "chain",
+      "ok": false,
+      "dt": 13.468072363059036,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [twitter] 643211948184596480: No video could be found in this tweet, gallery-dl: [twitter][error] 'Unavailable', playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Rumble",
+      "url": "https://rumble.com/vdmum1-moose-the-dog-helps-girls-dig-a-snow-fort.html",
+      "phase": "chain",
+      "ok": true,
+      "dt": 18.676574431010522,
+      "extractor": "playwright",
+      "size_mb": 9.11,
+      "attempts": [
+        "yt-dlp: ERROR: [Rumble] vdmum1-moose-the-dog-helps-girls-dig-a-snow-fort.html: Unable to download webpage: HTTP Error 403: Forbi",
+        "playwright: ok"
+      ]
+    },
+    {
+      "name": "Kick",
+      "url": "https://kick.com/xqc/videos/5c697a87-afce-4256-b01f-3c8fe71ef5cb",
+      "phase": "chain",
+      "ok": false,
+      "dt": 12.421615903032944,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [kick:vod] 5c697a87-afce-4256-b01f-3c8fe71ef5cb: Unable to download JSON metadata: HTTP Error 404: Not Found (cau, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Tumblr",
+      "url": "http://tatianamaslanydaily.tumblr.com/post/54196191430/orphan-black-dvd-extra-behind-the-scenes",
+      "phase": "chain",
+      "ok": true,
+      "dt": 5.1917475869413465,
+      "extractor": "gallery-dl",
+      "size_mb": 47.36,
+      "attempts": [
+        "yt-dlp: ERROR: [Tumblr] 54196191430: Unable to download webpage: HTTP Error 429: Too Many Requests (caused by <HTTPError 429: To",
+        "gallery-dl: ok"
+      ]
+    },
+    {
+      "name": "Metacafe",
+      "url": "http://www.metacafe.com/watch/yt-_aUehQsCQtM/the_electric_company_short_circus_episode_2/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 1.5423568569822237,
+      "err": "All extractors failed. Last error: ERROR: [generic] Unable to download webpage: HTTPConnection(host='www.metacafe.com', port=80): Failed to resolve 'www.metacafe.com' ([Errno -2] Name or service not known) (caused by TransportError(\"HTTPConnection(host='www.metacafe.com', port=80): Failed to resolve"
+    },
+    {
+      "name": "Facebook",
+      "url": "https://www.facebook.com/radiokicksfm/videos/3676516585958356/",
+      "phase": "chain",
+      "ok": false,
+      "dt": 13.122122201952152,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [facebook] 3676516585958356: Cannot parse data; please report this issue on  https://github.com/yt-dlp/yt-dlp/iss, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "PornTube",
+      "url": "https://www.porntube.com/videos/teen-couple-doing-anal_7089759",
+      "phase": "chain",
+      "ok": false,
+      "dt": 13.300340767018497,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [PornTube] 7089759: Unable to extract data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?, playwright: Playwright saw no media manifests on this page)"
+    },
+    {
+      "name": "Snapchat",
+      "url": "https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYakjSaWYfsFGgEeXCWAEAAAA",
+      "phase": "chain",
+      "ok": true,
+      "dt": 13.308839324046858,
+      "extractor": "playwright",
+      "size_mb": 1.73,
+      "attempts": [
+        "yt-dlp: ERROR: [SnapchatSpotlight] W7_EDlXWTBiXAEEniNoMPwAAYakjSaWYfsFGgEeXCWAEAAAA: Unable to download webpage: HTTP Error 404:",
+        "playwright: ok"
+      ]
+    },
+    {
+      "name": "ImgFlip",
+      "url": "https://imgflip.com/i/8u33d9",
+      "phase": "chain",
+      "ok": false,
+      "dt": 11.784617953933775,
+      "err": "All extractors failed. Last error: Playwright saw no media manifests on this page (tried: yt-dlp: ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>), playwright: Playwright saw no media manifests on this page)"
+    }
+  ],
+  "summary": {
+    "total": 107,
+    "probe_ok": 32,
+    "chain_recovered": 6,
+    "dead": 69
+  }
+}

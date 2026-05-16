@@ -81,7 +81,7 @@ except Exception:  # noqa: BLE001
 APP_TITLE = "CMVideo"           # window / taskbar title (short)
 APP_BRAND = "Clean My Video"    # full wordmark shown inside the UI
 APP_TAGLINE = "Automatic profanity removal for video and audio"
-COPYRIGHT = f"\u00a9 Dandyfeet 2026 \u00b7 v{APP_VERSION}"
+COPYRIGHT = f"\u00a9 Daniel Brown 2026 \u00b7 v{APP_VERSION}"
 
 SUPPORTED_FILETYPES = [
     (
@@ -183,23 +183,9 @@ def _parse_drop_data(data: str) -> list[str]:
     return paths
 
 
-# Cache the system font roster. `tkfont.families()` is a Tcl call
-# that on Linux/X11 walks every installed font (50-200 ms per call).
-# We pick 9+ fonts at startup; without this cache that's a half-second
-# to two-second startup hit for no benefit.
-_FONT_FAMILIES_CACHE: set[str] | None = None
-
-
-def _font_families() -> set[str]:
-    global _FONT_FAMILIES_CACHE
-    if _FONT_FAMILIES_CACHE is None:
-        _FONT_FAMILIES_CACHE = set(tkfont.families())
-    return _FONT_FAMILIES_CACHE
-
-
 def _pick_font(families: list[str], size: int, weight: str = "normal") -> tkfont.Font:
     """Return a tkinter Font using the first family that's installed."""
-    available = _font_families()
+    available = set(tkfont.families())
     for fam in families:
         if fam in available:
             return tkfont.Font(family=fam, size=size, weight=weight)
@@ -207,29 +193,11 @@ def _pick_font(families: list[str], size: int, weight: str = "normal") -> tkfont
 
 
 class CensorApp:
-    # WM_CLASS we identify as on X11/Wayland. Must match the
-    # `StartupWMClass=` line in our .desktop file so GNOME's dash can
-    # associate the running window with the launcher entry. Tk lowercases
-    # this for the instance name (`cmvideo`) and uses it verbatim for the
-    # res_class (`CMVideo`); GNOME matches against res_class.
-    WM_CLASS_NAME = "CMVideo"
-
     def __init__(self) -> None:
         if _DND_AVAILABLE:
-            try:
-                self.root: tk.Tk = TkinterDnD.Tk(className=self.WM_CLASS_NAME)  # type: ignore[assignment]
-            except TypeError:
-                # Older tkinterdnd2 builds don't forward kwargs; fall back.
-                self.root = TkinterDnD.Tk()  # type: ignore[assignment]
+            self.root: tk.Tk = TkinterDnD.Tk()  # type: ignore[assignment]
         else:
-            self.root = tk.Tk(className=self.WM_CLASS_NAME)
-        # Belt-and-suspenders: some Tk builds ignore the constructor kwarg
-        # on Wayland-via-XWayland; re-set the class explicitly. Harmless
-        # if already correct.
-        try:
-            self.root.tk.call("wm", "class", ".", self.WM_CLASS_NAME)
-        except tk.TclError:
-            pass
+            self.root = tk.Tk()
 
         self.root.title(f"{APP_TITLE} {APP_VERSION}")
         self.root.geometry("560x720")
@@ -247,15 +215,6 @@ class CensorApp:
         # after-id for the event drain, kept so a starting worker can
         # bump the next tick forward to _ACTIVE_DRAIN_MS.
         self._drain_after_id: str | None = None
-        # Debounce ids + paint-cache for the gradient strip / resize
-        # handlers. Tk fires <Configure> continuously during window
-        # drags; coalescing keeps the UI thread responsive.
-        self._grad_redraw_after_id: str | None = None
-        self._resize_after_id: str | None = None
-        self._grad_last_w: int = -1
-        self._grad_last_h: int = -1
-        self._grad_image: tk.PhotoImage | None = None
-        self._resize_last_width: int = -1
 
         self.remove_swears = tk.BooleanVar(value=True)
         self.remove_slurs = tk.BooleanVar(value=True)
@@ -271,11 +230,6 @@ class CensorApp:
         self._last_video_quality = "Best"
         self._last_audio_quality = "192 kbps"
         self._quality_kind = "video"  # "video" / "audio" / "wav"
-
-        # FPS picker for the censor / download output. "Source" =
-        # passthrough (no video re-encode). The string values mirror
-        # the labels and are mapped to CensorOptions.fps as lowercase.
-        self.fps_var: tk.StringVar = tk.StringVar(value="Source")
 
         # Output folder. None = auto (Downloads for URL jobs, the input
         # file's folder for local jobs).
@@ -319,6 +273,15 @@ class CensorApp:
         self._restore_cookies_from_config()
         self._fit_minsize()
 
+        # Pre-warm the Whisper model in a daemon thread so the first
+        # censor job doesn't pay the 1-2 second model-load cost on
+        # the user's wall clock. Failures are silently ignored - we
+        # fall back to lazy loading on the first real job. Started
+        # AFTER the UI is fully constructed so the prewarm doesn't
+        # contend with widget creation for the disk / CPU.
+        self._url_debounce_after: str | None = None
+        self.root.after(200, self._kick_off_prewarm)
+
         # Event drain. Adaptive interval (see _drain_events): fast while
         # a worker runs, slow when idle.
         self._drain_after_id = self.root.after(
@@ -331,6 +294,31 @@ class CensorApp:
     # Event-drain interval (ms) when nothing is happening. ~1 wakeup/sec
     # is plenty since there's no work queued.
     _IDLE_DRAIN_MS = 1000
+
+    def _kick_off_prewarm(self) -> None:
+        """Background-load the Whisper model so the first censor job
+        is instant. Runs in a daemon thread because faster-whisper's
+        init does ~1.5s of disk + ctranslate2 work that would
+        otherwise block the Tk event loop. Failures are non-fatal:
+        if pre-warm fails the first job will pay the load cost
+        normally."""
+        try:
+            from censor import transcribe  # type: ignore[import-not-found]
+        except Exception:  # noqa: BLE001
+            return
+        # Match the default model size used by the pipeline. If the
+        # user has overridden this in config we read it back here so
+        # we pre-warm the right one.
+        try:
+            cfg_model = (self._config or {}).get("whisper_model_size") or "small"
+        except Exception:  # noqa: BLE001
+            cfg_model = "small"
+        threading.Thread(
+            target=transcribe.prewarm,
+            kwargs={"model_size": cfg_model, "device": "cpu", "compute_type": "int8"},
+            name="whisper-prewarm",
+            daemon=True,
+        ).start()
 
     def _fit_minsize(self) -> None:
         """Set the window minsize to the natural required size of the UI,
@@ -359,16 +347,6 @@ class CensorApp:
                 self.root.iconphoto(True, *self._icons)
             except tk.TclError:
                 pass
-        # Windows: iconphoto-from-PNG gets stretched/blurred by the OS for
-        # taskbar use. The proper path is iconbitmap with a real .ico file
-        # so Windows can pick the right size from the multi-res resource.
-        if sys.platform == "win32":
-            ico = HERE / "icon.ico"
-            if ico.exists():
-                try:
-                    self.root.iconbitmap(default=str(ico))
-                except tk.TclError:
-                    pass
 
     # ---------- Fonts & styles ----------
 
@@ -598,7 +576,7 @@ class CensorApp:
             bd=0,
         )
         self.accent_strip.pack(side="top", fill="x", pady=(0, 12))
-        self.accent_strip.bind("<Configure>", self._on_accent_configure)
+        self.accent_strip.bind("<Configure>", self._redraw_accent_strip)
 
     # Obfuscation key for the bundled resource. Just enough to break
     # `file` / `strings` recognition - the bundle isn't a secret, the
@@ -797,25 +775,6 @@ class CensorApp:
         # When the user picks a new quality, remember it against the
         # current quality_kind so a Format swap doesn't lose it.
         self.quality_combo.bind("<<ComboboxSelected>>", self._on_quality_selected)
-
-        # FPS picker. "Source" preserves the input's frame rate
-        # (zero re-encode cost on local files, no yt-dlp filter on
-        # downloads). Any other choice forces a video re-encode at
-        # the chosen rate during the censor pass and asks yt-dlp to
-        # prefer a matching source format during download.
-        self.fps_label = tk.Label(
-            row, text="FPS", bg=Theme.BG, fg=Theme.TEXT_MUTED, font=self.font_drop_sub
-        )
-        self.fps_label.pack(side="left", padx=(8, 4))
-        self.fps_combo = ttk.Combobox(
-            row,
-            textvariable=self.fps_var,
-            values=["Source", "24", "30", "48", "60"],
-            state="readonly",
-            width=8,
-            style="Dark.TCombobox",
-        )
-        self.fps_combo.pack(side="left")
 
         # Cookies status strip. Hidden until the user picks a cookies
         # file (right-click on the URL entry -> "Use cookies file...").
@@ -1218,13 +1177,37 @@ class CensorApp:
         self._refresh_action_label()
         self._refresh_replace_section()
 
+    # Debounce delay for the URL entry (ms). A user pasting a 100-char
+    # URL fires 100 trace events; without this we'd run 6 UI-refresh
+    # methods per character. 80ms is short enough to feel instant on
+    # paste-and-pause workflows, long enough to coalesce typing bursts.
+    _URL_DEBOUNCE_MS = 80
+
     def _on_url_changed(self) -> None:
-        """Fired whenever the URL entry text changes."""
+        """Fired whenever the URL entry text changes. Coalesces fast
+        bursts (typing / pasting) into a single UI refresh after the
+        burst settles, then runs the actual work in
+        `_apply_url_change`."""
+        # Maintain the queue invariant immediately so callers that
+        # peek at `self._input_paths` between trace events see the
+        # right state. The visible UI refresh, which is the expensive
+        # part, is what we defer.
         text = self.url_var.get().strip()
         if text:
-            # URL and local-file queues are mutually exclusive sources.
-            # Pasting a URL drops the queue.
             self._input_paths = []
+        if getattr(self, "_url_debounce_after", None) is not None:
+            try:
+                self.root.after_cancel(self._url_debounce_after)
+            except tk.TclError:
+                pass
+        self._url_debounce_after = self.root.after(
+            self._URL_DEBOUNCE_MS, self._apply_url_change
+        )
+
+    def _apply_url_change(self) -> None:
+        """The expensive half of `_on_url_changed`, run once per
+        debounce interval."""
+        self._url_debounce_after = None
         self._refresh_drop_display()
         self._refresh_action_label()
         self._refresh_action_enabled()
@@ -1361,18 +1344,6 @@ class CensorApp:
             )
         except tk.TclError:
             pass
-        # The FPS combo is video-only; disable it when the user has
-        # picked an audio-only download container. It stays usable
-        # for local-file jobs regardless of URL state since the value
-        # is also wired into the censor render path.
-        if hasattr(self, "fps_combo"):
-            fps_usable = self._quality_kind == "video"
-            try:
-                self.fps_combo.configure(
-                    state="readonly" if fps_usable else "disabled"
-                )
-            except tk.TclError:
-                pass
 
     def _on_quality_selected(self, _event=None) -> None:  # type: ignore[no-untyped-def]
         """Remember the user's pick against the active quality kind."""
@@ -1837,33 +1808,9 @@ class CensorApp:
     # ---------- Resize handling ----------
 
     def _on_resize(self, event) -> None:  # type: ignore[no-untyped-def]
-        # Only the root window's Configure events are meaningful for
-        # the wrap-length adjustment; child-widget Configure events
-        # fire constantly and we don't care about them here.
         if event.widget is not self.root:
             return
-        # Skip the work entirely if the width is the same as last
-        # time. Window drags fire Configure events for size *and*
-        # position changes; without this guard, moving the window
-        # would relayout three labels per event for no reason.
-        if event.width == self._resize_last_width:
-            return
-        self._resize_last_width = event.width
-        # Coalesce: during a drag this fires many times per second.
-        # We only need the final width to update wraplength once.
-        if self._resize_after_id is not None:
-            try:
-                self.root.after_cancel(self._resize_after_id)
-            except tk.TclError:
-                pass
-        width = event.width
-        self._resize_after_id = self.root.after(
-            60, lambda: self._apply_resize(width)
-        )
-
-    def _apply_resize(self, width: int) -> None:
-        self._resize_after_id = None
-        wrap = max(180, width - 60)
+        wrap = max(180, event.width - 60)
         try:
             self.status_label.config(wraplength=wrap)
             self.drop_sub.config(wraplength=wrap - 40)
@@ -1883,29 +1830,11 @@ class CensorApp:
         b = round(b1 + (b2 - b1) * t)
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def _on_accent_configure(self, _event=None) -> None:
-        """Debounce <Configure> from the accent strip canvas. Tk fires
-        these continuously during a drag-resize; coalescing them down to
-        one repaint per burst is the single biggest win for UI latency."""
-        if self._grad_redraw_after_id is not None:
-            try:
-                self.root.after_cancel(self._grad_redraw_after_id)
-            except tk.TclError:
-                pass
-        self._grad_redraw_after_id = self.root.after(
-            60, self._redraw_accent_strip
-        )
-
     def _redraw_accent_strip(self, _event=None) -> None:
         """Paint a horizontal indigo -> violet -> cyan gradient onto the
-        accent strip canvas. Optimised to one Tk PhotoImage.put call
-        instead of one create_line per pixel - went from ~560 Tcl
-        roundtrips per repaint to 1.
-
-        Skipped entirely if the canvas size hasn't actually changed,
-        because Tk fires spurious <Configure> events for no-op moves.
+        accent strip canvas. Called on every <Configure> so the gradient
+        rescales with the window width.
         """
-        self._grad_redraw_after_id = None
         c = getattr(self, "accent_strip", None)
         if c is None:
             return
@@ -1916,36 +1845,14 @@ class CensorApp:
             return
         if w < 2 or h < 1:
             return
-        if w == self._grad_last_w and h == self._grad_last_h:
-            return
-        self._grad_last_w, self._grad_last_h = w, h
-
+        c.delete("grad")
         stops = (Theme.ACCENT_LO, Theme.ACCENT_GLOW, Theme.COOL)
         n = len(stops) - 1
-
-        # All the per-pixel maths stays in pure Python (~1 ms for a
-        # 560-wide window). The expensive part used to be the Tcl
-        # bridge, not the arithmetic.
-        cols = []
-        denom = max(1, w - 1)
         for x in range(w):
-            t = x / denom * n
+            t = x / max(1, w - 1) * n
             seg = min(int(t), n - 1)
-            cols.append(self._lerp_hex(stops[seg], stops[seg + 1], t - seg))
-
-        # Tk PhotoImage.put accepts "{row1} {row2} ..." where each row
-        # is space-separated colours. One call here paints the whole
-        # canvas - the old code did `w` separate create_line calls.
-        img = tk.PhotoImage(width=w, height=h)
-        row = " ".join(cols)
-        img.put("{" + "} {".join([row] * h) + "}")
-
-        c.delete("grad")
-        c.create_image(0, 0, image=img, anchor="nw", tags="grad")
-        # Tk doesn't keep a strong ref to images held only by canvas
-        # items, so we have to anchor it on `self` or it'll be GC'd
-        # and the gradient will silently disappear.
-        self._grad_image = img
+            col = self._lerp_hex(stops[seg], stops[seg + 1], t - seg)
+            c.create_line(x, 0, x, h, fill=col, tags="grad")
 
     def _set_drop_hover(self, hover: bool) -> None:
         if self._worker and self._worker.is_alive():
@@ -2206,10 +2113,6 @@ class CensorApp:
             # Only meaningful in URL mode; pipeline ignores it for
             # local-file jobs since `download.download` isn't called.
             cookies_file=self._cookies_file,
-            # "Source" -> "source", "24" -> "24", ... pipeline lower-cases
-            # again defensively, but normalising here keeps the contract
-            # crisp on the boundary.
-            fps=self.fps_var.get().lower(),
         )
 
         # Snapshot the work list. URL mode is always a single-item job;
@@ -2488,141 +2391,7 @@ class CensorApp:
         self.root.mainloop()
 
 
-def _resolve_shortcut_target() -> str:
-    """Decide what to put in the .desktop file's Exec= line. Three
-    realistic cases:
-
-      1. AppImage run: AppRun has set $APPIMAGE to the absolute path
-         of the .AppImage file. Use it as-is.
-      2. PyInstaller-frozen binary (e.g. unpacked cmvideo onedir):
-         sys.frozen is True and sys.executable is our cmvideo binary.
-      3. Source run (`python3 app.py`): use the `run.sh` wrapper that
-         ships next to app.py if present, otherwise build a quoted
-         `<python> <app.py>` command. Bare `sys.executable` would be
-         just the interpreter, which would drop us into an interactive
-         REPL on launch."""
-    import os as _os
-    appimage = _os.environ.get("APPIMAGE")
-    if appimage:
-        return _desktop_quote(appimage)
-    if getattr(sys, "frozen", False):
-        return _desktop_quote(sys.executable)
-    # Source layout: prefer run.sh because it activates the venv etc.
-    here = Path(__file__).resolve().parent
-    runner = here / "run.sh"
-    if runner.exists():
-        return _desktop_quote(str(runner))
-    return f"{_desktop_quote(sys.executable)} {_desktop_quote(str(here / 'app.py'))}"
-
-
-def _desktop_quote(path: str) -> str:
-    """Quote a path for use in a .desktop Exec= field.
-
-    The freedesktop spec wants double-quotes around any argument that
-    contains whitespace, and the backslash-escape of ", `, $, \\
-    inside those quotes. Bare paths with no specials are returned
-    unchanged so the common case stays readable."""
-    if not any(c in path for c in (" ", "\t", '"', "'", "`", "$", "\\")):
-        return path
-    escaped = path.replace("\\", r"\\\\").replace('"', r'\\"')
-    escaped = escaped.replace("`", r"\\`").replace("$", r"\\$")
-    return f'"{escaped}"'
-
-
-def _install_linux_shortcut() -> int:
-    """One-shot integration helper: copy a .desktop file and the icon
-    into ~/.local/share so the AppImage shows up in the dash/menu with
-    the right icon. Idempotent - safe to run multiple times."""
-    import os as _os
-    import shutil as _shutil
-
-    exec_field = _resolve_shortcut_target()
-
-    home = Path(_os.environ.get("HOME") or Path.home())
-    apps_dir = home / ".local" / "share" / "applications"
-    icons_dir = home / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps"
-    apps_dir.mkdir(parents=True, exist_ok=True)
-    icons_dir.mkdir(parents=True, exist_ok=True)
-
-    # Find the highest-res icon we shipped.
-    icon_src = None
-    for cand in ("icon-128.png", "icon.png", "icon-64.png", "icon-32.png"):
-        p = HERE / cand
-        if p.exists():
-            icon_src = p
-            break
-    if icon_src is None:
-        print("ERROR: no icon file found inside the bundle", file=sys.stderr)
-        return 2
-
-    icon_dst = icons_dir / "cmvideo.png"
-    _shutil.copy(icon_src, icon_dst)
-
-    desktop_path = apps_dir / "cmvideo.desktop"
-    desktop_path.write_text(
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=CMVideo\n"
-        "GenericName=Video Censor\n"
-        "Comment=Remove swears and slurs from video or audio\n"
-        f"Exec={exec_field} %F\n"
-        "Icon=cmvideo\n"
-        "Terminal=false\n"
-        "Categories=AudioVideo;\n"
-        "StartupNotify=true\n"
-        "StartupWMClass=CMVideo\n"
-    )
-    # Mark executable so GNOME treats it as a launcher rather than text.
-    try:
-        desktop_path.chmod(0o755)
-    except OSError:
-        pass
-
-    # Refresh the desktop entry cache if the tool is available; not fatal
-    # if it isn't (most distros pick up new .desktop files within a few
-    # seconds anyway).
-    try:
-        import subprocess as _sp
-        _sp.run(
-            ["update-desktop-database", str(apps_dir)],
-            check=False, capture_output=True, timeout=10,
-        )
-    except (FileNotFoundError, OSError):
-        pass
-
-    print(f"Installed launcher: {desktop_path}")
-    print(f"Installed icon:     {icon_dst}")
-    print(f"Exec target:        {exec_field}")
-    print()
-    print("You may need to log out and back in, or run:")
-    print("    killall -SIGHUP gnome-shell  # X11 only")
-    print("for the dash to pick up the new launcher.")
-    return 0
-
-
-def _set_windows_app_id() -> None:
-    """Tell Windows we're our own app, not a generic Python launcher.
-
-    Without this the taskbar can group our window under the host Python
-    interpreter's icon and lose the .ico we embedded into the .exe.
-    Must be called *before* the first window is created."""
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "Broadcats.CMVideo"
-        )
-    except Exception:
-        # Non-fatal - worst case we just don't get the perfect taskbar
-        # grouping; the icon still resolves from the embedded .ico.
-        pass
-
-
 def main() -> None:
-    if "--install-shortcut" in sys.argv[1:]:
-        sys.exit(_install_linux_shortcut())
-    _set_windows_app_id()
     CensorApp().run()
 
 

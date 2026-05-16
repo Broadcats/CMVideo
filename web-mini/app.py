@@ -900,6 +900,21 @@ async def api_yt_censor(request: Request, body: YTCensorRequest):
     })
 
 
+def _llm_status_safe():
+    """Return llm_extract.llm_status() if the optional Tier-8 module
+    is importable, else a minimal placeholder. The mini ships fine
+    without llm_extract.py if the operator chose not to wire up an
+    LLM provider."""
+    try:
+        import llm_extract  # type: ignore[import-not-found]
+    except ImportError:
+        return {"enabled": False, "reason": "module not installed"}
+    try:
+        return llm_extract.llm_status()
+    except Exception as exc:  # noqa: BLE001
+        return {"enabled": False, "error": str(exc)[:200]}
+
+
 @app.get("/api/limits", include_in_schema=False)
 async def api_limits():
     return {
@@ -919,4 +934,5 @@ async def api_limits():
         "extractors": _extractors.available_tools(),
         "extractor_versions": _extractors.tool_versions(),
         "memory": _extractors.memory_status(),
+        "llm": _llm_status_safe(),
     }

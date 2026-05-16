@@ -3,11 +3,58 @@
 from __future__ import annotations
 
 import gc
+import threading
 from typing import Callable
 
 
 # (word, start_seconds, end_seconds)
 Word = tuple[str, float, float]
+
+
+# ---------------------------------------------------------------------------
+# Process-local model cache.
+#
+# Loading a faster-whisper model takes 1-2s for `small`, more for `medium`
+# (model weights mmap'd from disk + ctranslate2 init). Re-creating it on
+# every call wastes that cost on every job in a batch. We keep one
+# per (model_size, device, compute_type) tuple in process memory.
+# ---------------------------------------------------------------------------
+_MODEL_CACHE: dict[tuple[str, str, str], object] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def _get_or_create_model(model_size: str, device: str, compute_type: str, *, WhisperModel):
+    """Return a cached `WhisperModel` for the given config, building one
+    if necessary. Thread-safe: two callers asking for the same key
+    concurrently will share the single instance."""
+    key = (model_size, device, compute_type)
+    with _MODEL_CACHE_LOCK:
+        cached = _MODEL_CACHE.get(key)
+        if cached is not None:
+            return cached
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        _MODEL_CACHE[key] = model
+        return model
+
+
+def prewarm(model_size: str = "small", device: str = "cpu", compute_type: str = "int8") -> None:
+    """Force the model to load now, so the first transcription job
+    doesn't pay the load tax on the user's wall clock. Called from a
+    daemon thread on app start. Failures are swallowed - if we can't
+    pre-warm we'll just pay the cost lazily on the first real job."""
+    try:
+        from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+        _get_or_create_model(model_size, device, compute_type, WhisperModel=WhisperModel)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def clear_model_cache() -> None:
+    """Drop all cached models. Forces a reload on the next transcribe.
+    Called when the user changes model size in settings."""
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE.clear()
+    gc.collect()
 
 
 def transcribe(
@@ -71,7 +118,10 @@ def _run_once(
     progress_cb: Callable[[float], None] | None,
     WhisperModel,
 ) -> list[Word]:
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    # Reuse the cached model when one already exists for this config.
+    # Building the model (the slow part - ctranslate2 init + weight
+    # mmap) happens lazily inside _get_or_create_model.
+    model = _get_or_create_model(model_size, device, compute_type, WhisperModel=WhisperModel)
     try:
         segments_iter, info = model.transcribe(
             wav_path,

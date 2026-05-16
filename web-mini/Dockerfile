@@ -59,7 +59,7 @@ WhisperModel("tiny.en", device="cpu", compute_type="int8")
 print("whisper tiny.en cached")
 PY
 
-COPY app.py mini_censor.py extractors.py /app/
+COPY app.py mini_censor.py extractors.py llm_extract.py /app/
 COPY wordlists /app/wordlists
 COPY templates /app/templates
 COPY static /app/static

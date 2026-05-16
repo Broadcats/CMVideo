@@ -912,6 +912,7 @@ def extract_with_fallbacks(
     enabled: Iterable[str] = (
         "yt-dlp", "gallery-dl", "cobalt",
         "lux", "you-get", "streamlink", "playwright",
+        "llm",  # Tier 8: LLM-assisted, only fires if env-configured
     ),
     on_attempt: Callable[[str, str], None] | None = None,
 ) -> ExtractionResult:
@@ -1008,6 +1009,13 @@ def extract_with_fallbacks(
     # cheaper tool has failed AND the URL clearly points at a public
     # http(s) page. Live-stream URLs already routed to streamlink at
     # the top of this function.
+    # Shared Playwright capture: when the heuristic Playwright tier
+    # fires, it already pays the cost of opening Chromium and
+    # collecting the network log. Tier 8 (LLM) needs the same data
+    # to reason over, so we hand the capture down rather than
+    # re-opening Chromium a second time.
+    shared_capture = None
+
     if (
         "playwright" in enabled_set
         and playwright_available()
@@ -1015,17 +1023,109 @@ def extract_with_fallbacks(
         and not is_live  # streamlink already handled this case
     ):
         try:
-            r = playwright_download(url, dst_dir, fmt=fmt)
+            _llm = _import_llm_extract()
+            _playwright_memory_check()
+            shared_capture = _llm.capture_page(url)
+            r = _playwright_download_from_capture(shared_capture, dst_dir, fmt=fmt)
             r.attempts = attempts + ["playwright: ok"]
             return r
         except ExtractionError as exc:
             _emit("playwright", exc.message)
             last_error = exc
+        except Exception as exc:  # noqa: BLE001
+            # Capture itself blew up (Chromium crash, OOM, etc.) -
+            # surface as a recoverable failure so Tier 8 can still
+            # try its own capture if it wants.
+            _emit("playwright", f"capture failed: {exc}")
+            shared_capture = None
+
+    # Tier 8: LLM-assisted extraction. Only fires when the env vars
+    # are set AND every cheaper tool above has failed. Re-uses the
+    # Playwright capture from the previous tier whenever possible.
+    if (
+        "llm" in enabled_set
+        and url.lower().startswith(("http://", "https://"))
+        and not is_live
+    ):
+        try:
+            _llm = _import_llm_extract()
+            if not _llm.llm_available():
+                raise ExtractionError(
+                    "LLM tier disabled (no CMVIDEO_LLM_BASE_URL / _API_KEY set)",
+                    terminal=True,
+                )
+            _playwright_memory_check()
+            cap = shared_capture or _llm.capture_page(url)
+            out_path, decision = _llm.llm_extract(url, dst_dir, fmt=fmt, capture=cap)
+            return ExtractionResult(
+                path=out_path,
+                title=cap.page_title or _domain_of(url),
+                duration=None,
+                extractor="llm",
+                site=_domain_of(url),
+                attempts=attempts + [f"llm: ok (conf={decision.confidence:.2f})"],
+            )
+        except (ExtractionError, RuntimeError) as exc:
+            _emit("llm", str(exc))
+            last_error = ExtractionError(str(exc))
 
     msg = "All extractors failed."
     if last_error is not None:
         msg = f"{msg} Last error: {last_error.message}"
     raise ExtractionError(msg, attempts=attempts)
+
+
+def _playwright_download_from_capture(
+    capture, dst_dir: Path, *, fmt: str
+) -> ExtractionResult:
+    """Pick the best media URL from an already-captured page and run
+    ffmpeg against it. Used by both the regular Playwright tier and
+    the shared-capture path when Tier 8 follows. Refactored out of
+    `playwright_download` so both call sites share scoring logic."""
+    if not capture.media_candidates:
+        raise ExtractionError("Playwright saw no media manifests on this page")
+
+    def _score(item):
+        u, ct, sz = item
+        u_l = u.lower()
+        return (
+            ".m3u8" in u_l or "mpegurl" in ct,
+            ".mpd" in u_l or "dash" in ct,
+            ".mp4" in u_l or "video/mp4" in ct,
+            sz,
+        )
+
+    media = sorted(capture.media_candidates, key=_score, reverse=True)
+    best_url = media[0][0]
+    log.info("playwright candidates=%d, picked=%s", len(media), best_url[:120])
+
+    out_file = dst_dir / f"playwright.{fmt}"
+    ff_cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-headers", "User-Agent: Mozilla/5.0\\r\\n",
+        "-i", best_url,
+        "-t", str(max(60, PLAYWRIGHT_MAX_WALL_S - 30)),
+        "-c", "copy",
+        str(out_file),
+    ]
+    try:
+        proc = subprocess.run(
+            ff_cmd, check=False, capture_output=True, text=True,
+            timeout=PLAYWRIGHT_MAX_WALL_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ExtractionError("Playwright + ffmpeg capture timed out") from exc
+    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
+        err = (proc.stderr or proc.stdout or "").strip()[-300:]
+        raise ExtractionError(f"ffmpeg refused the captured manifest: {err}")
+
+    return ExtractionResult(
+        path=out_file,
+        title=capture.page_title or f"Captured ({_domain_of(capture.page_url)})",
+        duration=None,
+        extractor="playwright",
+        site=_domain_of(capture.page_url),
+    )
 
 
 def _ends_with_any(host: str, suffixes: Iterable[str]) -> bool:
@@ -1053,10 +1153,16 @@ def available_tools() -> dict[str, bool]:
         "you-get": you_get_available(),
         "streamlink": streamlink_available(),
         "playwright": playwright_available(),
+        "llm": False,
     }
     try:
         import yt_dlp  # noqa: F401
         out["yt-dlp"] = True
+    except ImportError:
+        pass
+    try:
+        _llm = _import_llm_extract()
+        out["llm"] = _llm.llm_available()
     except ImportError:
         pass
     return out
@@ -1083,4 +1189,25 @@ def tool_versions() -> dict[str, str]:
         versions["cobalt"] = COBALT_API_BASE
     else:
         versions["cobalt"] = "not configured (set COBALT_API_BASE)"
+    try:
+        _llm = _import_llm_extract()
+        if _llm.llm_available():
+            versions["llm"] = f"{_llm.LLM_MODEL} @ {_llm.LLM_BASE_URL}"
+        else:
+            versions["llm"] = "not configured (set CMVIDEO_LLM_BASE_URL + _API_KEY)"
+    except ImportError:
+        versions["llm"] = "module missing"
     return versions
+
+
+def _import_llm_extract():
+    """Import the llm_extract module under both layouts:
+       desktop: `censor/llm_extract.py` (package import)
+       mini:    `web-mini/llm_extract.py` (top-level module)
+    """
+    try:
+        from . import llm_extract as _llm  # package layout (desktop)
+        return _llm
+    except ImportError:
+        import llm_extract as _llm  # flat layout (mini)
+        return _llm

@@ -113,14 +113,42 @@ def main() -> int:
     except HfHubHTTPError as exc:
         sys.exit(f"[deploy-mini] Could not create/access Space: {exc}")
 
-    # 2. Upload the whole directory.
-    api.upload_folder(
-        folder_path=str(WEB_MINI),
-        repo_id=repo_id,
-        repo_type="space",
-        commit_message="Deploy CMVideo Mini",
-        ignore_patterns=[f"{p}/**" for p in IGNORE_PATTERNS] + list(IGNORE_PATTERNS),
-    )
+    # 2. Upload the whole directory, with retry-with-backoff on
+    #    transient HF backend errors. HF's commit endpoint
+    #    intermittently 500s, especially right after a Space has
+    #    been (re)created, while their backend storage catches
+    #    up. We retry up to 4 times with exponential backoff
+    #    (15s, 30s, 60s, 120s) before giving up.
+    import time
+    import random
+    last_exc = None
+    backoffs = [15, 30, 60, 120]
+    for attempt in range(len(backoffs) + 1):
+        try:
+            api.upload_folder(
+                folder_path=str(WEB_MINI),
+                repo_id=repo_id,
+                repo_type="space",
+                commit_message="Deploy CMVideo Mini",
+                ignore_patterns=[f"{p}/**" for p in IGNORE_PATTERNS] + list(IGNORE_PATTERNS),
+            )
+            break
+        except HfHubHTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+            transient = 500 <= int(status) < 600 or status in (408, 409, 429)
+            if not transient or attempt >= len(backoffs):
+                raise
+            delay = backoffs[attempt] + random.uniform(0, 5)
+            print(
+                f"[deploy-mini] HF returned HTTP {status} on commit "
+                f"(attempt {attempt + 1}/{len(backoffs) + 1}). "
+                f"Retrying in {delay:.0f}s..."
+            )
+            time.sleep(delay)
+            last_exc = exc
+    else:  # pragma: no cover - reachable only if loop exits via break
+        if last_exc is not None:
+            raise last_exc
 
     # 3. Squash git history when the Space's storage is getting close
     #    to the free-tier 1 GB cap. Free Spaces accumulate git history

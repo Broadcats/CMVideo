@@ -3,6 +3,35 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.8-alpha] - 2026-05-16
+
+UI hotfix on top of 0.4.7. The wordmark has full breathing room,
+text is readable from across a desk, and the three power-user
+actions (API key, cookies, plugins) are now both buttons AND a
+right-click-anywhere menu.
+
+### Added
+
+- **Right-click anywhere** in the window opens a tools menu: set /
+  clear ElevenLabs API key, pick / clear cookies file, get the
+  cookies browser extension, open the plugins folder, paywall help,
+  and Paste URL. Bound globally so it works no matter what you
+  click on. The URL entry and drop-zone keep their own more-
+  specific menus (cut / copy / paste / clear queue).
+- **Toolbar row** above the Censor button with three explicit
+  buttons: "ElevenLabs API key" (accent), "Cookies extension",
+  and "Plugins". They mirror the right-click menu's headline
+  actions for users who don't think to right-click.
+
+### Changed
+
+- Body / section / status / drop-sub fonts each bumped another pt
+  (now 13 / 12 / 12 / 12) so labels read clearly on 1080p displays
+  from a normal viewing distance.
+- Wordmark generator now leaves ~45 % cap-height of clean pixels
+  above the camera silhouette and the header packs ``pady=(8, 10)``
+  so the camera silhouette never kisses the title bar on any WM.
+
 ## [0.4.7-alpha] - 2026-05-16
 
 UX + perf hotfix on top of 0.4.6. Cancel button, lighter UI, and

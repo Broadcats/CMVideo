@@ -668,17 +668,18 @@ class CensorApp:
     def _init_fonts(self) -> None:
         sans = ["Inter", "SF Pro Display", "Segoe UI", "Ubuntu", "Cantarell", "DejaVu Sans", "Helvetica"]
         self.font_title = _pick_font(sans, 22, "bold")
-        self.font_tagline = _pick_font(sans, 12)
-        # Body / section / status / drop-sub all bumped a touch so the
-        # CTk widgets (taller than the old ttk widgets) don't dwarf the
-        # text inside them.
-        self.font_body = _pick_font(sans, 12)
-        self.font_section = _pick_font(sans, 11, "bold")
-        self.font_button = _pick_font(sans, 14, "bold")
-        self.font_status = _pick_font(sans, 11)
-        self.font_footer = _pick_font(sans, 10)
-        self.font_drop = _pick_font(sans, 14, "bold")
-        self.font_drop_sub = _pick_font(sans, 11)
+        self.font_tagline = _pick_font(sans, 13)
+        # Body / section / status / drop-sub bumped to 13/12/12/12 so
+        # the labels read clearly inside the taller CTk widgets and on
+        # 1080p displays from a normal viewing distance.
+        self.font_body = _pick_font(sans, 13)
+        self.font_section = _pick_font(sans, 12, "bold")
+        self.font_button = _pick_font(sans, 15, "bold")
+        self.font_status = _pick_font(sans, 12)
+        self.font_footer = _pick_font(sans, 11)
+        self.font_drop = _pick_font(sans, 15, "bold")
+        self.font_drop_sub = _pick_font(sans, 12)
+        self.font_tool = _pick_font(sans, 12, "bold")
 
     def _init_styles(self) -> None:
         style = ttk.Style()
@@ -855,13 +856,16 @@ class CensorApp:
         self._build_url_row(outer)
         self._build_save_dir_row(outer)
         self._build_options(outer)
+        self._build_toolbar(outer)
 
         self._install_context_menus()
         self.root.bind("<Configure>", self._on_resize)
 
     def _build_header(self, parent: tk.Frame) -> None:
         header = tk.Frame(parent, bg=Theme.BG)
-        header.pack(side="top", fill="x", pady=(0, 8))
+        # 8 px above the wordmark so the camera silhouette has clean
+        # air between it and the title bar on every WM theme.
+        header.pack(side="top", fill="x", pady=(8, 10))
 
         # Invisible top-right click target. 69 hits reveals an image.
         self._egg_clicks = 0
@@ -1381,6 +1385,54 @@ class CensorApp:
         )
         self.downsize_combo.pack(side="left")
 
+    # ---------- Toolbar ----------
+
+    def _build_toolbar(self, parent: tk.Frame) -> None:
+        """Visible "tools" row for the three power-user actions that
+        used to be hidden behind a right-click menu: setting the
+        ElevenLabs API key, picking a cookies file, and opening the
+        plugins folder. The right-click menu still works (and now
+        works ANYWHERE in the window via :meth:`_show_global_menu`),
+        these buttons are the discoverable surface."""
+        bar = tk.Frame(parent, bg=Theme.BG)
+        bar.pack(side="top", fill="x", pady=(0, 8))
+
+        def _btn(text: str, cmd, accent: bool = False) -> tk.Widget:  # type: ignore[no-untyped-def]
+            if _CTK_AVAILABLE:
+                return ctk.CTkButton(  # type: ignore[union-attr]
+                    bar,
+                    text=text,
+                    command=cmd,
+                    height=34,
+                    corner_radius=10,
+                    fg_color=Theme.ACCENT if accent else Theme.SURFACE,
+                    hover_color=Theme.ACCENT_LO if accent else Theme.SURFACE_HI,
+                    border_width=0 if accent else 1,
+                    border_color=Theme.BORDER,
+                    text_color="white" if accent else Theme.TEXT,
+                    font=_ctk_font(self.font_tool),
+                )
+            return tk.Button(
+                bar, text=text, command=cmd,
+                bg=Theme.ACCENT if accent else Theme.SURFACE,
+                fg="white" if accent else Theme.TEXT,
+                activebackground=Theme.ACCENT_LO if accent else Theme.SURFACE_HI,
+                activeforeground="white",
+                relief="flat", bd=0, cursor="hand2",
+                font=self.font_tool, padx=14, pady=6,
+            )
+
+        # Order: API key (most desirable), cookies, plugins. Equal-
+        # weight grid so they stretch evenly across the row.
+        for col, (text, cmd, accent) in enumerate((
+            ("ElevenLabs API key", self._set_elevenlabs_api_key, True),
+            ("Cookies extension", self._show_cookies_help, False),
+            ("Plugins", self._open_plugins_folder, False),
+        )):
+            b = _btn(text, cmd, accent=accent)
+            b.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 6, 0))
+            bar.grid_columnconfigure(col, weight=1, uniform="tools")
+
     # ---------- Context menus / right-click ----------
 
     def _install_context_menus(self) -> None:
@@ -1490,12 +1542,57 @@ class CensorApp:
         ):
             w.bind("<ButtonRelease-3>", self._show_drop_menu)
 
+        # Global "tools" menu: right-clicking ANYWHERE in the window
+        # that isn't already covered by a more specific context menu
+        # (URL entry / drop zone) opens this. Mirrors the toolbar
+        # buttons, plus a couple of extra power-user actions.
+        self._global_menu = tk.Menu(self.root, **menu_kwargs)
+        self._global_menu.add_command(
+            label="Set ElevenLabs API key...",
+            command=self._set_elevenlabs_api_key,
+        )
+        self._global_menu.add_command(
+            label="Clear ElevenLabs API key",
+            command=self._clear_elevenlabs_api_key,
+            state="disabled",
+        )
+        self._global_menu.add_separator()
+        self._global_menu.add_command(
+            label="Use cookies file...", command=self._choose_cookies_file
+        )
+        self._global_menu.add_command(
+            label="Clear cookies file",
+            command=self._clear_cookies_file,
+            state="disabled",
+        )
+        self._global_menu.add_command(
+            label="Get cookies extension...", command=self._show_cookies_help
+        )
+        self._global_menu.add_separator()
+        self._global_menu.add_command(
+            label="Open plugins folder...", command=self._open_plugins_folder
+        )
+        self._global_menu.add_command(
+            label="About paywall sites...", command=self._show_paywall_help
+        )
+        self._global_menu.add_separator()
+        self._global_menu.add_command(label="Paste URL", command=self._paste_url_replace)
+        # Bind globally. bind_all reaches every widget, including ones
+        # built later. The URL entry and drop-zone widgets register
+        # their own handler on ButtonRelease-3 first; Tk's event flow
+        # means their handler runs before this all-encompassing one,
+        # but our show-functions don't `break`, so right-clicks inside
+        # those widgets pop the more specific menu and we suppress the
+        # global one via the `_local_menu_just_shown` latch.
+        self.root.bind_all("<ButtonRelease-3>", self._show_global_menu)
+
         # Global Ctrl+V: if focus is in a text entry let Tk handle it
         # normally, otherwise treat it as 'paste URL'.
         self.root.bind_all("<Control-v>", self._on_global_paste)
         self.root.bind_all("<Control-V>", self._on_global_paste)
 
     def _show_url_menu(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._local_menu_just_shown = True
         # Live-toggle 'Clear cookies file' so it only lights up when
         # there's actually a cookies file loaded.
         try:
@@ -1514,6 +1611,7 @@ class CensorApp:
         self._url_menu.tk_popup(event.x_root, event.y_root)
 
     def _show_drop_menu(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._local_menu_just_shown = True
         # Live-toggle 'Clear queue' so it's only clickable when there's
         # actually something to clear.
         try:
@@ -1522,6 +1620,32 @@ class CensorApp:
         except tk.TclError:
             pass
         self._drop_menu.tk_popup(event.x_root, event.y_root)
+
+    def _show_global_menu(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Right-click ANYWHERE in the window pops the tools menu.
+
+        Bound via ``bind_all`` so even widgets we don't own (CTk
+        internals, etc.) trigger it. The URL entry and drop zone
+        register a more specific menu on the same event; their
+        handler runs first and sets ``_local_menu_just_shown`` so we
+        skip showing the global menu on top of it.
+        """
+        if getattr(self, "_local_menu_just_shown", False):
+            self._local_menu_just_shown = False
+            return
+        # Live-toggle the conditional entries based on the current
+        # session state (key set / cookies loaded / queue empty).
+        try:
+            ek_state = "normal" if self._elevenlabs_api_key else "disabled"
+            self._global_menu.entryconfig("Clear ElevenLabs API key", state=ek_state)
+        except tk.TclError:
+            pass
+        try:
+            cf_state = "normal" if self._cookies_file is not None else "disabled"
+            self._global_menu.entryconfig("Clear cookies file", state=cf_state)
+        except tk.TclError:
+            pass
+        self._global_menu.tk_popup(event.x_root, event.y_root)
 
     def _url_select_all(self) -> None:
         self.url_entry.select_range(0, "end")

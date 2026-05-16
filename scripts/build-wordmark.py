@@ -203,11 +203,12 @@ def render_wordmark(width: int) -> Image.Image:
 
     # Total composition width. Vertical padding has to be generous
     # enough that the camera silhouette never kisses the top edge of
-    # the bitmap (the Tk header that hosts this PNG can shave a few
-    # pixels in some themes), so we use ~22% of cap height instead of
-    # the originally tighter 10%.
+    # the bitmap. Some Tk themes shave a few pixels of the top of any
+    # widget hosting an image, so we err on the side of way too much
+    # top air (45 % of cap height) - the bitmap fits in the same
+    # header height because the header just centres it vertically.
     pad_x = max(8, int(text_h * 0.10))
-    pad_y_top = max(14, int(text_h * 0.22))
+    pad_y_top = max(22, int(text_h * 0.45))
     pad_y_bottom = max(8, int(text_h * 0.12))
     total_w = (
         left_white.width

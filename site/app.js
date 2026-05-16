@@ -443,12 +443,20 @@
               lastPct = state.pct;
             }
             var label = state.stage_label || state.stage || "Working\u2026";
-            // The transcribing stage is the slowest, so explicitly
-            // call out which step we're on so users don't think the
-            // bar is just stuck.
-            if (state.stage === "fetching") label = "Pulling source\u2026 " + state.pct + "%";
-            else if (state.stage === "transcribing") label = "Transcribing audio\u2026 " + state.pct + "%";
-            else if (state.stage === "rendering") label = "Rendering output\u2026 " + state.pct + "%";
+            var pctTxt = state.pct + "%";
+            // Add a "2.4 MB/s · 14s left" detail strip during the
+            // fetch stage so users actually see the bar moving and
+            // can see the network is busy. Falls back to plain pct
+            // when the backend hasn't reported telemetry yet.
+            var detail = "";
+            if (state.stage === "fetching") {
+                detail = formatRate(state.speed_bps) + formatEta(state.eta_s) + formatBytes(state.bytes_done, state.bytes_total);
+                label = "Pulling source\u2026 " + pctTxt + (detail ? "  \u00B7  " + detail : "");
+            } else if (state.stage === "transcribing") {
+                label = "Transcribing audio\u2026 " + pctTxt + " (this is the slow step)";
+            } else if (state.stage === "rendering") {
+                label = "Rendering output\u2026 " + pctTxt;
+            }
             setProgress(state.pct, label, false);
 
             if (state.ready) { resolve(jobId); return; }
@@ -462,6 +470,35 @@
       }
       step();
     });
+  }
+
+  /* ---- progress detail formatters ---- */
+
+  function formatRate(bps) {
+    if (!bps || bps < 1) return "";
+    var units = ["B/s", "KB/s", "MB/s", "GB/s"];
+    var i = 0; var v = bps;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + " " + units[i];
+  }
+
+  function formatEta(s) {
+    if (!s || s <= 0) return "";
+    if (s < 60)   return "  \u00B7  " + Math.round(s) + "s left";
+    var m = Math.floor(s / 60); var r = Math.round(s - m * 60);
+    return "  \u00B7  " + m + "m" + (r ? " " + r + "s" : "") + " left";
+  }
+
+  function formatBytes(done, total) {
+    if (!done) return "";
+    function fmt(b) {
+      if (b < 1024) return b + " B";
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+      if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB";
+      return (b / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+    }
+    if (total && total > 0) return "  \u00B7  " + fmt(done) + " / " + fmt(total);
+    return "  \u00B7  " + fmt(done);
   }
 
   /* ---- progress bar UI (created lazily, lives above the status line) ---- */

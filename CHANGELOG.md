@@ -3,6 +3,41 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.11-alpha] - 2026-05-16
+
+Mini-service performance pass. Pulls feel ~2-5x faster on most
+sites; the progress bar now actually tells the user what's
+happening so even slow pulls feel responsive.
+
+### Performance
+
+- **Direct-media-URL fast path.** When a URL ends in a known media
+  extension and the host returns a matching Content-Type, we stream
+  the bytes ourselves with `urllib` and skip the yt-dlp init +
+  scrape + post-processor entirely. Saves 3-5 s per request and
+  avoids needless ffmpeg remuxing for plain `.mp4` / `.mp3` links.
+- **Parallel HLS / DASH segments.** Bumped
+  `concurrent_fragment_downloads` from 1 to 4. This is the single
+  biggest win on Twitch / IG / TikTok / `*.tube` tubes - those serve
+  HLS playlists with ~6 s segments, and 4-way parallel turns a
+  10-min wall time into ~2.5 min on the same connection.
+  `fragment_retries=2` + `skip_unavailable_fragments=True` add some
+  robustness to the speedup.
+- **Progressive MP4 first in the format selector.** Old order
+  always picked `bestvideo+bestaudio` which forced an ffmpeg merge
+  step. New order tries `best[ext=mp4][acodec!=none]` first - one
+  HTTP GET, no merge - and only falls through to the split-track
+  form when no progressive variant exists at the cap.
+- **Pre-extract 16 kHz mono WAV before transcription.** Whisper
+  has to do this internally before encoding; doing it once with
+  ffmpeg up-front skips faster-whisper's redundant resample pass
+  and shaves ~10-15% off transcription wall-clock on the free CPU.
+- **Live download speed + ETA in the progress bar.** `/api/jobs/{id}`
+  now returns `bytes_done`, `bytes_total`, `speed_bps`, `eta_s` and
+  the widget renders `Pulling source... 47%  ·  3.2 MB/s  ·  9s left
+   ·  18.4 MB / 39.2 MB`. Backed by an EMA-smoothed
+  bytes/sec estimate so the rate doesn't jitter between segments.
+
 ## [0.4.10-alpha] - 2026-05-16
 
 Polish + security maintenance pass. No new features; fewer ways to

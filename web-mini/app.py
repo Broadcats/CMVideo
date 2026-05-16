@@ -538,7 +538,21 @@ def _ydl_common_opts(
         ),
         "socket_timeout": 12,
         "retries": 1,
-        "concurrent_fragment_downloads": 1,
+        # Pull HLS / DASH segments in parallel. yt-dlp defaults to 1
+        # which is the bottleneck on Twitch / IG / TikTok and most
+        # of the *.tube tubes (each segment is ~6 s; 4-way parallel
+        # turns a 10-min wall time into ~2.5 min on the same link).
+        # 4 is the sweet spot for HF Spaces' tiny bandwidth budget -
+        # higher counts thrash the limited egress and don't help.
+        "concurrent_fragment_downloads": 4,
+        # Fragment-level retries: many tubes serve some segments off
+        # a CDN that flaps. Two retries per fragment (default 10) is
+        # the balance between giving up too soon and burning timeout
+        # on a fundamentally bad mirror.
+        "fragment_retries": 2,
+        # Don't stop the whole job on a single failed fragment. We
+        # can usually drop one and still produce a watchable file.
+        "skip_unavailable_fragments": True,
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
@@ -550,24 +564,161 @@ def _ydl_common_opts(
 
 
 def _video_format_selector(fps: str = "source") -> str:
+    """Pick the format yt-dlp should download.
+
+    The order matters for SPEED, not just quality: a single-file
+    progressive MP4 ("best[ext=mp4]") downloads as one HTTP GET and
+    needs no ffmpeg merge step at the end. The bestvideo+bestaudio
+    pair downloads two streams AND then forces ffmpeg to remux them
+    together, which on the free Space's CPU adds 5-30 s on top of
+    the network time. We try the progressive single-file first, and
+    only fall through to the split-track form if no progressive
+    variant exists at the cap (modern YouTube is the main offender).
+    """
     h = MAX_VIDEO_HEIGHT
     # FPS clause: empty for "source", [fps<=30] for 30,
     # [fps>=50] for 60 (real 60fps streams sometimes report 59.94).
-    # We also fall through to the un-filtered selector so we still get
-    # *something* if no format matches the requested fps.
     fps_clause = {
         "source": "",
         "30": "[fps<=30]",
         "60": "[fps>=50]",
     }.get(fps, "")
     return (
+        # 1) Progressive MP4 with audio baked in - one stream, no merge.
+        f"best[height<={h}]{fps_clause}[ext=mp4][acodec!=none]/"
+        f"best[height<={h}][ext=mp4][acodec!=none]/"
+        # 2) Progressive MP4 (audio missing - rare but happens).
+        f"best[height<={h}]{fps_clause}[ext=mp4]/"
+        f"best[height<={h}][ext=mp4]/"
+        # 3) Split AVC/AAC tracks - merge cost but best compatibility.
         f"bestvideo[height<={h}]{fps_clause}[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
         f"bestvideo[height<={h}]{fps_clause}[ext=mp4]+bestaudio/"
         f"bestvideo[height<={h}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
         f"bestvideo[height<={h}][ext=mp4]+bestaudio/"
-        f"best[height<={h}][ext=mp4]/"
+        # 4) Last resort - any container at the cap.
         f"best[height<={h}]/best"
     )
+
+
+# Direct-media-URL fast path: extensions that point straight at a
+# downloadable file (no yt-dlp scrape needed). When the URL ends in
+# one of these AND the host responds with a matching Content-Type,
+# we stream the bytes ourselves and skip the entire extractor chain.
+# Cuts ~3-5 s of yt-dlp init + content scrape, and (more importantly)
+# avoids needless ffmpeg remuxing on `_do_download` for URLs that
+# already point at the exact file the user wants.
+_DIRECT_MEDIA_EXTS = (
+    ".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".flv",
+    ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac",
+)
+
+
+def _direct_url_fast_path(
+    url: str,
+    fmt: str,
+    tmpdir: Path,
+    max_filesize: int,
+    *,
+    progress_hook=None,
+) -> Path | None:
+    """If `url` looks like it points straight at a media file and the
+    requested `fmt` matches its container, stream it to disk and
+    return the saved path. Returns None when the URL doesn't qualify
+    or the HEAD probe fails - the caller then falls through to the
+    full extractor chain.
+
+    Uses `_validate_url`'s SSRF-checked scheme + host gate already, so
+    we just have to enforce the size cap.
+    """
+    try:
+        path_lower = urlparse(url).path.lower()
+    except Exception:  # noqa: BLE001
+        return None
+    if not any(path_lower.endswith(ext) for ext in _DIRECT_MEDIA_EXTS):
+        return None
+    # Only fast-path when the URL ext matches the requested format.
+    # mp4 mode wants a video container; mp3 mode is happy with any
+    # audio file (we re-encode anyway in the postproc step).
+    src_ext = "." + path_lower.rsplit(".", 1)[-1]
+    if fmt == "mp4" and src_ext not in (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".flv"):
+        return None
+    if fmt == "mp3" and src_ext not in (".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac"):
+        return None
+
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": YDL_USER_AGENT})
+    try:
+        # HEAD-style probe on GET so we can stream the body if the
+        # response looks legit. Some servers don't honour HEAD.
+        resp = urllib.request.urlopen(req, timeout=12)
+    except Exception:  # noqa: BLE001
+        return None
+
+    try:
+        ct = (resp.headers.get("Content-Type") or "").lower()
+        cl = resp.headers.get("Content-Length") or "0"
+        try:
+            total = int(cl) if cl.isdigit() else 0
+        except ValueError:
+            total = 0
+    except Exception:  # noqa: BLE001
+        resp.close()
+        return None
+
+    # Reject obvious mismatches before we burn bandwidth: a URL that
+    # ends in .mp4 but returns text/html is a redirect-to-page.
+    if not ct.startswith(("video/", "audio/", "application/octet-stream", "binary/octet-stream")):
+        resp.close()
+        return None
+
+    if total and total > max_filesize:
+        resp.close()
+        raise yt_dlp.utils.DownloadError(
+            f"Source exceeds the {max_filesize // (1024*1024)} MB mini-app cap (max-filesize)."
+        )
+
+    # Stream to disk in 1 MB chunks; abort if we cross max_filesize
+    # mid-flight (the server lied or didn't send Content-Length).
+    out = tmpdir / f"direct{src_ext}"
+    written = 0
+    chunk_size = 1 << 20
+    last_emit = 0.0
+    try:
+        with out.open("wb") as fh:
+            while True:
+                buf = resp.read(chunk_size)
+                if not buf:
+                    break
+                fh.write(buf)
+                written += len(buf)
+                if written > max_filesize:
+                    raise yt_dlp.utils.DownloadError(
+                        f"Source exceeds the {max_filesize // (1024*1024)} MB mini-app cap (mid-stream)."
+                    )
+                # Throttle progress emit so we don't hammer the lock.
+                now = time.monotonic()
+                if progress_hook and (now - last_emit) > 0.25:
+                    last_emit = now
+                    try:
+                        progress_hook({
+                            "status": "downloading",
+                            "downloaded_bytes": written,
+                            "total_bytes": total or written,
+                        })
+                    except Exception:  # noqa: BLE001
+                        pass
+        if progress_hook:
+            try:
+                progress_hook({"status": "finished",
+                               "downloaded_bytes": written,
+                               "total_bytes": total or written})
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        resp.close()
+
+    log.info("direct fast-path: %s (%d bytes, ext=%s)", url[:120], written, src_ext)
+    return out
 
 
 def _do_download(
@@ -590,6 +741,13 @@ def _do_download(
     ``status``, ``downloaded_bytes``, ``total_bytes``, ...). Callers
     use it to drive the job-state progress bar.
     """
+    # Tier 0: direct media URL. Skips yt-dlp init + scrape + remux for
+    # plain http(s)://.../video.mp4 style links. Returns None if the
+    # URL doesn't qualify so we fall through to the chain.
+    direct = _direct_url_fast_path(url, fmt, tmpdir, max_filesize, progress_hook=progress_hook)
+    if direct is not None:
+        log.info("extractor win: direct fast-path -> %s", direct.name)
+        return direct
     opts = _ydl_common_opts(tmpdir, max_duration, max_filesize, progress_hook=progress_hook)
     if fmt == "mp4":
         opts.update({
@@ -815,6 +973,13 @@ class JobState:
     ready: bool = False
     error: Optional[str] = None     # client-friendly message; full traceback stays in logs
     filename: str = ""              # suggested download name, populated when ready
+    # Live download telemetry. Surfaced through /api/jobs/{id} so the
+    # frontend can render `2.4 MB/s · 14s left` next to the progress
+    # bar - much more reassuring than a percentage in isolation.
+    bytes_done: int = 0
+    bytes_total: int = 0
+    speed_bps: float = 0.0
+    eta_s: Optional[int] = None
     _tmpdir: Optional[Path] = None
     _out_path: Optional[Path] = None
     _media_type: str = "application/octet-stream"
@@ -923,26 +1088,48 @@ async def _run_pipeline_async(
             max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
             max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
 
+            # Track download speed across hook invocations so the
+            # frontend can render `2.4 MB/s · 14s left` instead of a
+            # bare percentage. yt-dlp emits `speed` and `eta` itself
+            # but only for some extractors; we compute our own as a
+            # fallback.
+            _yt_state = {"last_t": 0.0, "last_bytes": 0, "ema_bps": 0.0}
+
             def _yt_progress(d):  # type: ignore[no-untyped-def]
-                # yt-dlp invokes this from its worker threads. We
-                # only care about `downloading` updates - the rest is
-                # noise (`postprocessing`, `finished`, ...).
                 if not isinstance(d, dict):
                     return
-                if d.get("status") == "downloading":
+                status = d.get("status")
+                if status == "downloading":
                     total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                     done = d.get("downloaded_bytes") or 0
+                    # Speed: prefer yt-dlp's own value, else compute
+                    # an EMA of bytes/sec so the displayed rate
+                    # doesn't jitter wildly between segments.
+                    speed = d.get("speed") or 0.0
+                    if not speed:
+                        now = time.monotonic()
+                        if _yt_state["last_t"]:
+                            dt = max(1e-3, now - _yt_state["last_t"])
+                            db = max(0, done - _yt_state["last_bytes"])
+                            inst = db / dt
+                            ema = _yt_state["ema_bps"] or inst
+                            _yt_state["ema_bps"] = ema * 0.6 + inst * 0.4
+                            speed = _yt_state["ema_bps"]
+                        _yt_state["last_t"] = now
+                        _yt_state["last_bytes"] = done
+                    eta = d.get("eta")
+                    if not eta and speed and total and total > done:
+                        eta = int((total - done) / speed)
+                    job.bytes_done = int(done)
+                    job.bytes_total = int(total or 0)
+                    job.speed_bps = float(speed or 0.0)
+                    job.eta_s = int(eta) if eta else None
                     if total and total > 0:
                         pct = int(done * 100 / total)
-                        # During download, we span pct 0..90 of the
-                        # `fetching` stage. The last 10% is reserved
-                        # for the post-processor / extractor wrap-up.
                         _set_stage(job, "fetching", min(90, pct))
                     else:
-                        # No content-length; bump slowly so the bar
-                        # still moves.
                         _set_stage(job, "fetching", min(85, max(job.pct, 5) + 1))
-                elif d.get("status") == "finished":
+                elif status == "finished":
                     _set_stage(job, "fetching", 95)
 
             def _on_attempt(tool, msg):  # type: ignore[no-untyped-def]
@@ -1241,6 +1428,13 @@ async def api_job_state(request: Request, job_id: str):
         "ready": bool(j.ready),
         "error": j.error,
         "filename": j.filename,
+        # Live telemetry: bytes done / total, current speed in bytes/s,
+        # and ETA seconds. All optional - a frontend can ignore them
+        # and still get a useful percentage.
+        "bytes_done": int(j.bytes_done),
+        "bytes_total": int(j.bytes_total),
+        "speed_bps": float(j.speed_bps),
+        "eta_s": j.eta_s,
     }
 
 

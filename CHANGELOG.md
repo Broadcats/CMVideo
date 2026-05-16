@@ -3,6 +3,34 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13.1-alpha] - 2026-05-16
+
+Mini-widget UX hotfix on top of v0.4.13-alpha.
+
+### Fixed
+
+- **Removed duplicate "720p" label.** The format chip was reading
+  `MP4 · 720p` while the new quality chip below it also read `720p`.
+  Resolution is now controlled in exactly one place; the format chip
+  is now just `MP4`.
+- **Quality row promoted to the top.** The 720p / 1080p chips now
+  sit inline with the format chips at the top of the form,
+  separated from MP3 by a vertical divider, so the quality choice
+  is visible at a glance instead of buried below the fps row.
+- **Quality order reversed.** `1080p · larger · slower` first,
+  `720p · fastest` second, so the upgrade is the leftmost option in
+  its group. Default selection is still `720p` to preserve the fast
+  pull path.
+
+### Layout
+
+- New `.shot-fmtquality-row` flex wrapper holds both groups.
+  `.shot-divider` renders the vertical bar; on very narrow phones
+  (<= 380 px) the divider collapses into a horizontal hairline so
+  the chips can stack cleanly.
+- The divider auto-hides when MP3 is selected (it'd otherwise dangle
+  next to a lonely format chip).
+
 ## [0.4.13-alpha] - 2026-05-16
 
 Mini-app: optional **1080p HD** download tier. 720p stays the default

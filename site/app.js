@@ -169,9 +169,10 @@
   }
 
   /* ---- pill highlight + button-label sync ---- */
-  var fpsRow      = document.getElementById("mini-fps-row");
-  var qualityRow  = document.getElementById("mini-quality-row");
-  var qualityNote = document.getElementById("mini-quality-note");
+  var fpsRow         = document.getElementById("mini-fps-row");
+  var qualityRow     = document.getElementById("mini-quality-row");
+  var qualityNote    = document.getElementById("mini-quality-note");
+  var fmtQualityDiv  = document.getElementById("mini-fmtquality-divider");
 
   function syncFpsRow() {
     if (!fpsRow) return;
@@ -217,10 +218,15 @@
   }
 
   function syncQualityRow() {
-    if (qualityRow) qualityRow.classList.toggle("hidden", getFormat() === "mp3");
+    var isAudio = getFormat() === "mp3";
+    // Quality is video-only: hide both the chips AND the vertical
+    // divider when MP3 is picked, otherwise the divider would dangle
+    // next to the format pills with nothing on its right side.
+    if (qualityRow)    qualityRow.classList.toggle("hidden", isAudio);
+    if (fmtQualityDiv) fmtQualityDiv.classList.toggle("hidden", isAudio);
     if (qualityNote) {
-      if (getQuality() === "hd" && getFormat() !== "mp3") qualityNote.removeAttribute("hidden");
-      else                                                qualityNote.setAttribute("hidden", "");
+      if (getQuality() === "hd" && !isAudio) qualityNote.removeAttribute("hidden");
+      else                                   qualityNote.setAttribute("hidden", "");
     }
   }
 

@@ -606,15 +606,48 @@ h1 {
 .shot-fmt-row,
 .shot-mode-row,
 .shot-fps-row,
-.shot-quality-row {
+.shot-fmtquality-row {
   margin-bottom: 8px;
 }
-.shot-fps-row.hidden,
-.shot-quality-row.hidden { display: none; }
+.shot-fps-row.hidden { display: none; }
+.shot-quality-group.hidden { display: none; }
+
+/* Combined "format | quality" row: format chips on the left, vertical
+ * divider, quality chips on the right. Wraps to two lines on narrow
+ * viewports so we never get a horizontal scroll on phones. */
+.shot-fmtquality-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.shot-fmt-group,
+.shot-quality-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.shot-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 24px;
+  margin: 0 4px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(148, 163, 184, 0.45) 20%,
+    rgba(148, 163, 184, 0.45) 80%,
+    transparent
+  );
+  flex: 0 0 1px;
+}
+.shot-divider.hidden { display: none; }
+
 .shot-fmt-row .pill,
 .shot-mode-row .pill,
 .shot-fps-row .pill,
-.shot-quality-row .pill {
+.shot-fmt-group .pill,
+.shot-quality-group .pill {
   position: relative;
   cursor: pointer;
   user-select: none;
@@ -630,7 +663,8 @@ h1 {
 .shot-fmt-row .pill input[type="radio"],
 .shot-mode-row .pill input[type="radio"],
 .shot-fps-row .pill input[type="radio"],
-.shot-quality-row .pill input[type="radio"] {
+.shot-fmt-group .pill input[type="radio"],
+.shot-quality-group .pill input[type="radio"] {
   position: absolute;
   opacity: 0;
   inset: 0;
@@ -1141,13 +1175,34 @@ h1 {
   .shot-hint { font-size: 12px; margin: 2px 4px 12px; }
 
   /* ---- format / mode / fps / quality pills: bigger tap targets ----- */
-  .shot-fmt-row, .shot-mode-row, .shot-fps-row, .shot-quality-row { gap: 6px; margin-bottom: 10px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill, .shot-quality-row .pill {
+  .shot-fmt-row, .shot-mode-row, .shot-fps-row, .shot-fmtquality-row,
+  .shot-fmt-group, .shot-quality-group { gap: 6px; margin-bottom: 10px; }
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill,
+  .shot-fmt-group .pill, .shot-quality-group .pill {
     padding: 9px 14px;
     font-size: 13px;
     min-height: 36px;
     display: inline-flex;
     align-items: center;
+  }
+  /* On very narrow viewports the divider would float at row break,
+   * so collapse it into a horizontal hairline between the two groups. */
+  @media (max-width: 380px) {
+    .shot-divider {
+      width: 100%;
+      height: 1px;
+      min-height: 0;
+      align-self: auto;
+      margin: 4px 0;
+      background: linear-gradient(
+        to right,
+        transparent,
+        rgba(148, 163, 184, 0.45) 20%,
+        rgba(148, 163, 184, 0.45) 80%,
+        transparent
+      );
+      flex: 0 0 100%;
+    }
   }
   .shot-btn { padding: 14px; font-size: 15px; min-height: 48px; }
   .shot-status { font-size: 13px; }
@@ -1235,7 +1290,8 @@ h1 {
   .mini-tag { font-size: 0.5em; padding: 2px 6px; }
 
   .shot-row { gap: 6px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill, .shot-quality-row .pill {
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill,
+  .shot-fmt-group .pill, .shot-quality-group .pill {
     padding: 8px 12px;
     font-size: 12px;
   }

@@ -30,15 +30,6 @@ the residential proxy now that 0.4.15 made that available.
   the residential proxy when `CMVIDEO_RESIDENTIAL_PROXY` is
   configured, just like the existing IG / TT / FB entries.
 
-### Cost notes
-
-- YT clips are bandwidth-heavier than the average IG reel (a
-  3-minute YT clip at 720p is ~30-50 MB vs ~10 MB for an IG
-  reel of the same length). At hobby scale this is fine - even
-  with YT in the mix the IPRoyal $7 starter pack still covers
-  ~100 mixed downloads. If your traffic skews YouTube-heavy
-  the per-month estimate climbs proportionally.
-
 ## [0.4.15.2-alpha] - 2026-05-16
 
 Site: fix the recurring "version reverted to 0.4.7" bug + automate

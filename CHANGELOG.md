@@ -3,6 +3,50 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.5-alpha] - 2026-05-16
+
+Brand polish, a new **FUN** section in the desktop app, and two new
+post-process effects: ten selectable Fun-mode voices and a "Retro
+audio" colour you can layer on top of any output.
+
+### Added
+
+- **FUN section** in the options panel, separate from REMOVE / REPLACE
+  WITH / EXTRAS / OUTPUT. Houses the new voice picker and the Retro
+  audio toggle.
+- **Ten Fun-mode voices.** When Fun mode is selected the new "Fun voice"
+  combo offers Classic / Bright / Deep / Alt Klatt plus six regional
+  English variants (US, UK, Scotland, RP, Lancashire, West Midlands).
+  Choice is remembered per-machine in `config.json` (`fun_voice`).
+- **Retro audio** toggle. Adds a lo-fi bit-reduction colour to the audio
+  track of any output - downloads, censored renders, transcripts. Works
+  on every video and audio container CMVideo writes. State is persisted.
+- **Smaller-file presets.** New "File size" picker in OUTPUT with four
+  choices: Original / Small / Medium / Large. Re-encodes video with
+  libx264 (or libvpx-vp9 for WebM) and the matching audio bitrate;
+  audio-only outputs use a sensible bitrate ladder. Lossless containers
+  (`wav` / `flac`) ignore the picker for downsize but still accept the
+  Retro audio colour.
+- **Logo in the header.** The app now shows the bundled CMVideo icon
+  next to the "Clean My Video" wordmark, matching the website brand.
+
+### Changed
+
+- `whisper_model_size` from `config.json` is now whitelisted before it
+  reaches `WhisperModel(...)` so a hand-edited config can't point the
+  loader at an arbitrary path. Unknown values fall back to `small`.
+- Pipeline progress bar gets a dedicated `post` slice for the optional
+  finalize pass; bar no longer jumps from "rendering" to "done" when a
+  retro / downsize pass is queued.
+- Fun-mode TTS now resolves the espeak `-v` voice from
+  `CensorOptions.fun_voice`, with a graceful fallback to the default
+  Klatt voice when an unknown id is stored.
+
+### Fixed
+
+- Header brand fall-back: when no icon ships with the bundle, the
+  wordmark text renders on its own instead of leaving a blank header.
+
 ## [0.4.4-alpha] - 2026-05-16
 
 Adds a multi-tool extractor fallback chain so URLs that yt-dlp

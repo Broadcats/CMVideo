@@ -91,6 +91,27 @@ _DOWNSIZE_CHOICES: tuple[tuple[str, str], ...] = (
     ("Large", "large"),
 )
 
+# Whitelist of recognised faster-whisper model sizes. Defence in depth:
+# a hand-edited `whisper_model_size` in config.json could otherwise be
+# fed straight to `WhisperModel(...)` which also accepts arbitrary local
+# paths. We accept only known-good named sizes; anything else falls
+# back to "small".
+_VALID_WHISPER_SIZES: frozenset[str] = frozenset({
+    "tiny", "tiny.en",
+    "base", "base.en",
+    "small", "small.en",
+    "medium", "medium.en",
+    "large", "large-v1", "large-v2", "large-v3",
+    "distil-small.en", "distil-medium.en",
+    "distil-large-v2", "distil-large-v3",
+})
+
+
+def _safe_whisper_model_size(value: object) -> str:
+    if isinstance(value, str) and value in _VALID_WHISPER_SIZES:
+        return value
+    return "small"
+
 SUPPORTED_FILETYPES = [
     (
         "All supported",
@@ -333,7 +354,9 @@ class CensorApp:
         # user has overridden this in config we read it back here so
         # we pre-warm the right one.
         try:
-            cfg_model = (self._config or {}).get("whisper_model_size") or "small"
+            cfg_model = _safe_whisper_model_size(
+                (self._config or {}).get("whisper_model_size")
+            )
         except Exception:  # noqa: BLE001
             cfg_model = "small"
         threading.Thread(
@@ -584,24 +607,32 @@ class CensorApp:
 
         title_holder = tk.Frame(header, bg=Theme.BG)
         title_holder.pack(side="left", fill="x", expand=True)
+
         brand_row = tk.Frame(title_holder, bg=Theme.BG)
         brand_row.pack(anchor="w", fill="x")
         self._brand_image: tk.PhotoImage | None = None
-        _logo = HERE / "icon-64.png"
-        if _logo.is_file():
-            try:
-                self._brand_image = tk.PhotoImage(file=str(_logo))
-                tk.Label(
-                    brand_row,
-                    image=self._brand_image,
-                    bg=Theme.BG,
-                ).pack(side="left", padx=(0, 12))
-            except tk.TclError:
-                self._brand_image = None
-        if self._brand_image is None:
-            ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
-                side="left", anchor="w"
-            )
+        # Prefer the largest crisp icon we ship; fall back to smaller
+        # ones if the bundle layout differs.
+        for _name in ("icon-64.png", "icon-128.png", "icon.png"):
+            _logo = HERE / _name
+            if _logo.is_file():
+                try:
+                    self._brand_image = tk.PhotoImage(file=str(_logo))
+                    if _name == "icon.png":
+                        # 256px is too tall in the header; scale down.
+                        self._brand_image = self._brand_image.subsample(4, 4)
+                    elif _name == "icon-128.png":
+                        self._brand_image = self._brand_image.subsample(2, 2)
+                    break
+                except tk.TclError:
+                    self._brand_image = None
+        if self._brand_image is not None:
+            tk.Label(
+                brand_row, image=self._brand_image, bg=Theme.BG
+            ).pack(side="left", padx=(0, 12))
+        ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
+            side="left", anchor="w"
+        )
         ttk.Label(title_holder, text=APP_TAGLINE, style="Tagline.TLabel").pack(
             anchor="w", pady=(2, 0)
         )
@@ -974,10 +1005,15 @@ class CensorApp:
             value="fun",
             style="Dark.TRadiobutton",
         )
-        self.fun_radio.pack(anchor="w", pady=(2, 0))
+        self.fun_radio.pack(anchor="w", pady=(2, 12))
+
+        self.fun_section_label = ttk.Label(
+            opts_inner, text="FUN", style="Section.TLabel"
+        )
+        self.fun_section_label.pack(anchor="w")
 
         fv_row = tk.Frame(opts_inner, bg=Theme.SURFACE)
-        fv_row.pack(anchor="w", fill="x", pady=(0, 12))
+        fv_row.pack(anchor="w", fill="x", pady=(6, 0))
         self.fun_voice_label = ttk.Label(
             fv_row, text="Fun voice", style="OptionLabel.TLabel"
         )
@@ -999,6 +1035,14 @@ class CensorApp:
         except tk.TclError:
             pass
 
+        self.retro_audio_check = ttk.Checkbutton(
+            opts_inner,
+            text="Retro audio (lo-fi crunch on the audio track)",
+            variable=self.retro_audio_var,
+            style="Dark.TCheckbutton",
+        )
+        self.retro_audio_check.pack(anchor="w", pady=(6, 12))
+
         ttk.Label(opts_inner, text="EXTRAS", style="Section.TLabel").pack(anchor="w")
         ttk.Checkbutton(
             opts_inner,
@@ -1016,9 +1060,10 @@ class CensorApp:
         ttk.Label(opts_inner, text="OUTPUT", style="Section.TLabel").pack(anchor="w")
         ds_row = tk.Frame(opts_inner, bg=Theme.SURFACE)
         ds_row.pack(anchor="w", fill="x", pady=(6, 0))
-        ttk.Label(ds_row, text="File size", style="OptionLabel.TLabel").pack(
-            side="left", padx=(0, 8)
+        self.downsize_label = ttk.Label(
+            ds_row, text="File size", style="OptionLabel.TLabel"
         )
+        self.downsize_label.pack(side="left", padx=(0, 8))
         self.downsize_combo = ttk.Combobox(
             ds_row,
             width=14,
@@ -1027,12 +1072,6 @@ class CensorApp:
             state="readonly",
         )
         self.downsize_combo.pack(side="left")
-        ttk.Checkbutton(
-            opts_inner,
-            text="Retro audio",
-            variable=self.retro_audio_var,
-            style="Dark.TCheckbutton",
-        ).pack(anchor="w", pady=(8, 0))
 
     # ---------- Context menus / right-click ----------
 
@@ -1376,7 +1415,11 @@ class CensorApp:
         return "none"
 
     def _refresh_fun_voice_row(self) -> None:
-        """Enable the Fun voice picker only when Fun mode can run."""
+        """Enable the Fun voice picker only when Fun mode can run.
+
+        Retro audio stays enabled regardless because it's also useful
+        on plain download / silence / beep jobs.
+        """
         if not hasattr(self, "fun_voice_combo"):
             return
         censoring = self.remove_swears.get() or self.remove_slurs.get()
@@ -2231,7 +2274,9 @@ class CensorApp:
             fun_voice=self._fun_voice_id,
             downsize_preset=self._downsize_key(),
             retro_audio=self.retro_audio_var.get(),
-            model_size=str(self._config.get("whisper_model_size") or "small"),
+            model_size=_safe_whisper_model_size(
+                self._config.get("whisper_model_size")
+            ),
         )
 
         # Snapshot the work list. URL mode is always a single-item job;

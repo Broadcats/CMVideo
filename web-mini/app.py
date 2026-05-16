@@ -960,8 +960,23 @@ import time
 from dataclasses import dataclass, field
 
 JOB_TTL_SECONDS = 30 * 60   # 30 min - longest a finished job sits unfetched
-JOB_MAX_INFLIGHT = 8        # cap concurrent in-flight jobs to bound memory
-JOB_MAX_PER_IP = 3          # per-IP inflight cap so one client can't squat all 8
+# Concurrency tuned to the HF Spaces free tier (~2 shared vCPUs). 8
+# concurrent ffmpeg encodes thrash the CPU; 3 is the steady-state max
+# the box can sustain while keeping each pull responsive. Override
+# via env when running on bigger boxes.
+JOB_MAX_INFLIGHT = int(os.environ.get("CMVIDEO_JOB_MAX_INFLIGHT", "3"))
+# One job per IP at a time. They still get RATE_LIMIT_PER_HOUR worth
+# of submissions per hour, just sequentially - which is fairer when
+# the box is hot AND prevents one client from monopolising the queue.
+JOB_MAX_PER_IP = int(os.environ.get("CMVIDEO_JOB_MAX_PER_IP", "1"))
+
+# Per-IP failure window: if an IP racks up this many failed (errored)
+# jobs inside FAILURE_WINDOW_S we put the IP in a soft cooldown. Stops
+# a client (botnet or otherwise) from burning job slots with attempts
+# that 4xx-out instantly. Tunable for ops, but the defaults are sane.
+FAILURE_THRESHOLD = int(os.environ.get("CMVIDEO_FAILURE_THRESHOLD", "5"))
+FAILURE_WINDOW_S = int(os.environ.get("CMVIDEO_FAILURE_WINDOW_S", "600"))
+FAILURE_COOLDOWN_S = int(os.environ.get("CMVIDEO_FAILURE_COOLDOWN_S", "300"))
 
 
 @dataclass
@@ -1223,17 +1238,178 @@ async def _run_pipeline_async(
         log.exception("background job failed: %s", job.job_id)
         job.error = "Mini app hit an internal error. Try again or use the desktop app."
         job.stage = "error"
+    finally:
+        # Whatever happened, if we ended in `error` count a failure
+        # against the creator IP. Stops a client from quietly burning
+        # job slots with attempts that 4xx-out.
+        if job.stage == "error":
+            _record_failure(job._client_ip)
+
+
+# ---------------------------------------------------------------------------
+# Overload protection
+#
+# Threats we actually face on HF Spaces:
+#   * Application-layer floods: bots starting many cheap jobs to
+#     thrash ffmpeg / Playwright / Chromium.
+#   * "Smart" abusers cycling IPs to evade /hour limits.
+#   * Repeated previews of the same URL (e.g. when a thread links the
+#     widget) hammering yt-dlp scrapes for one source.
+#   * Operator-side overload (the box catches fire for any reason and
+#     we need to flip a kill switch fast).
+#
+# What we DON'T try to defend against here:
+#   * Volumetric L3/L4 DDoS - HF / Cloudflare's edge handles it.
+#   * Determined bot operators with rotating IPv6 /64s - that needs
+#     a CDN-level WAF (Cloudflare, AWS Shield, etc.), out of scope
+#     for a free Hugging Face Space.
+#
+# The defenses below are designed to be cheap, in-process, and safe
+# to keep on permanently. They should never block a legitimate user
+# in normal traffic.
+# ---------------------------------------------------------------------------
+
+# Kill-switch: when CMVIDEO_MINI_DISABLED is set to anything truthy,
+# all submission endpoints return 503 immediately. /healthz and
+# /api/limits stay alive so the operator can confirm the gate is up.
+def _killswitch_active() -> bool:
+    val = (os.environ.get("CMVIDEO_MINI_DISABLED") or "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
+_KILL_DETAIL = (
+    "Mini service is paused right now under heavy load. The desktop app "
+    "at cmvideo.online has no caps and runs locally - grab it instead."
+)
+
+
+def _enforce_killswitch() -> None:
+    if _killswitch_active():
+        raise HTTPException(status_code=503, detail=_KILL_DETAIL,
+                            headers={"Retry-After": "300"})
+
+
+# User-Agent gate: drop submissions from clients that don't even bother
+# to pretend to be a browser or a script. Real curl / wget / Python
+# clients always send something; the empty-UA case is exclusively
+# bottom-tier scraper / botnet traffic.
+_BAD_UA_SUBSTRINGS = (
+    "ahrefs", "semrush", "mj12bot", "petalbot", "dotbot", "bytespider",
+    "amazonbot", "scrapy", "censys", "shodan",
+)
+
+
+def _enforce_ua(request: Request) -> None:
+    ua = (request.headers.get("user-agent") or "").strip().lower()
+    if not ua:
+        raise HTTPException(status_code=400, detail="Set a User-Agent.")
+    for bad in _BAD_UA_SUBSTRINGS:
+        if bad in ua:
+            raise HTTPException(status_code=403, detail="Crawlers aren't welcome here.")
+
+
+# Sliding-window failure tracker. Every time a submission is rejected
+# (4xx) or a job goes to `error` stage, we drop a timestamp in the
+# IP's deque. If the IP racks up FAILURE_THRESHOLD failures inside
+# FAILURE_WINDOW_S, every new submission is refused for
+# FAILURE_COOLDOWN_S with a 429 + Retry-After.
+import collections
+
+_failures: dict[str, collections.deque] = {}
+_failures_lock = threading.Lock()
+
+
+def _record_failure(ip: str) -> None:
+    if not ip:
+        return
+    now = time.monotonic()
+    with _failures_lock:
+        dq = _failures.setdefault(ip, collections.deque(maxlen=FAILURE_THRESHOLD * 4))
+        dq.append(now)
+        # Compact: drop entries older than the window so the deque
+        # stays small even for chronic offenders.
+        cutoff = now - FAILURE_WINDOW_S
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+
+
+def _check_cooldown(ip: str) -> None:
+    if not ip:
+        return
+    now = time.monotonic()
+    with _failures_lock:
+        dq = _failures.get(ip)
+        if not dq:
+            return
+        cutoff = now - FAILURE_WINDOW_S
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        recent = len(dq)
+    if recent >= FAILURE_THRESHOLD:
+        # Cooldown lasts FAILURE_COOLDOWN_S past the most recent
+        # failure. The Retry-After header tells well-behaved clients
+        # exactly how long to wait.
+        last = dq[-1] if recent else now
+        retry_after = max(1, int(last + FAILURE_COOLDOWN_S - now))
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Too many failed submissions from your IP - cooling down for "
+                f"{retry_after}s. The desktop app at cmvideo.online has no caps."
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+# /api/info cache. Same-URL preview bursts (e.g. the widget gets
+# embedded in a popular Reddit thread) shouldn't re-scrape yt-dlp
+# every time. Tiny TTL because video metadata can shift (live
+# streams etc.) and we don't want stale duration caps.
+_INFO_CACHE_TTL_S = 5 * 60
+_INFO_CACHE_MAX = 256
+_info_cache: "collections.OrderedDict[str, tuple[float, dict]]" = collections.OrderedDict()
+_info_cache_lock = threading.Lock()
+
+
+def _info_cache_get(url: str) -> dict | None:
+    now = time.monotonic()
+    with _info_cache_lock:
+        item = _info_cache.get(url)
+        if item is None:
+            return None
+        ts, data = item
+        if (now - ts) > _INFO_CACHE_TTL_S:
+            _info_cache.pop(url, None)
+            return None
+        # Move to end (LRU): recently-accessed URLs survive evictions.
+        _info_cache.move_to_end(url)
+        return data
+
+
+def _info_cache_put(url: str, data: dict) -> None:
+    with _info_cache_lock:
+        _info_cache[url] = (time.monotonic(), data)
+        _info_cache.move_to_end(url)
+        while len(_info_cache) > _INFO_CACHE_MAX:
+            _info_cache.popitem(last=False)
 
 
 @app.post("/api/info")
-@limiter.limit("120/hour")
+@limiter.limit("120/hour;10/minute")
 async def api_info(request: Request, body: InfoRequest):
+    _enforce_killswitch()
+    _enforce_ua(request)
     url = _validate_url(body.url)
+    cached = _info_cache_get(url)
+    if cached is not None:
+        return JSONResponse(cached)
     try:
         info = await asyncio.wait_for(asyncio.to_thread(_do_info, url), timeout=25)
     except asyncio.TimeoutError:
+        _record_failure(_client_ip(request))
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
     except yt_dlp.utils.DownloadError as e:
+        _record_failure(_client_ip(request))
         raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
     except HTTPException:
         raise
@@ -1241,12 +1417,14 @@ async def api_info(request: Request, body: InfoRequest):
         # Don't leak the raw exception string - it can include paths
         # or internal state. Server logs keep the full traceback.
         log.exception("info failed")
+        _record_failure(_client_ip(request))
         raise HTTPException(status_code=400, detail="Couldn't read that URL.")
+    _info_cache_put(url, info)
     return JSONResponse(info)
 
 
 @app.post("/api/process")
-@limiter.limit(RATE_LIMIT_PER_HOUR)
+@limiter.limit(f"{RATE_LIMIT_PER_HOUR};2/minute")
 async def api_process(
     request: Request,
     format: str = Form(...),
@@ -1255,6 +1433,13 @@ async def api_process(
     file: Optional[UploadFile] = File(None),
     fps: str = Form("source"),
 ):
+    # Hardening gates run BEFORE we touch any of the request body, so
+    # an attacker can't make us allocate tmpdirs / stream uploads
+    # while they're already on the cooldown list.
+    _enforce_killswitch()
+    _enforce_ua(request)
+    _check_cooldown(_client_ip(request))
+
     fmt = (format or "").lower().strip()
     md = (mode or "").lower().strip()
     fps_choice = (fps or "source").lower().strip()
@@ -1320,10 +1505,12 @@ async def api_process(
             return JSONResponse({"job_id": job.job_id})
         except HTTPException:
             shutil.rmtree(tmpdir, ignore_errors=True)
+            _record_failure(_client_ip(request))
             raise
         except Exception:
             shutil.rmtree(tmpdir, ignore_errors=True)
             log.exception("async dispatch failed")
+            _record_failure(_client_ip(request))
             raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="cmvm_"))
@@ -1382,12 +1569,14 @@ async def api_process(
         )
     except HTTPException:
         shutil.rmtree(tmpdir, ignore_errors=True)
+        _record_failure(_client_ip(request))
         raise
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
         # Server logs keep the real traceback; client gets a stable
         # message that doesn't leak paths or library internals.
         log.exception("process failed")
+        _record_failure(_client_ip(request))
         raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
 
 
@@ -1531,6 +1720,10 @@ def _llm_status_safe():
 
 @app.get("/api/limits", include_in_schema=False)
 async def api_limits():
+    with _jobs_lock:
+        live_jobs = sum(1 for j in _jobs.values() if not j.ready and j.error is None)
+    with _failures_lock:
+        cooled_ips = sum(1 for dq in _failures.values() if len(dq) >= FAILURE_THRESHOLD)
     return {
         "max_download_duration_seconds": MAX_DOWNLOAD_DURATION_SECONDS,
         "max_download_filesize_bytes": MAX_DOWNLOAD_FILESIZE_BYTES,
@@ -1543,6 +1736,18 @@ async def api_limits():
         "modes": sorted(ALLOWED_MODES),
         "formats": sorted(ALLOWED_FORMATS),
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
+        "hardening": {
+            "killswitch_active": _killswitch_active(),
+            "job_max_inflight": JOB_MAX_INFLIGHT,
+            "job_max_per_ip": JOB_MAX_PER_IP,
+            "live_jobs_now": live_jobs,
+            "failure_threshold": FAILURE_THRESHOLD,
+            "failure_window_s": FAILURE_WINDOW_S,
+            "failure_cooldown_s": FAILURE_COOLDOWN_S,
+            "ips_in_cooldown_now": cooled_ips,
+            "info_cache_size": len(_info_cache),
+            "info_cache_ttl_s": _INFO_CACHE_TTL_S,
+        },
         "yt_censor_enabled": True,
         "full_app_url": "https://cmvideo.online",
         "extractors": _extractors.available_tools(),

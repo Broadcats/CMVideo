@@ -3,6 +3,51 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.12-alpha] - 2026-05-16
+
+Mini-service hardening pass for "what happens when this blows up
+on Reddit." All defenses are in-process, cost ~zero CPU, and tunable
+via env vars so ops can dial them up under live load without a
+redeploy.
+
+### Hardening
+
+- **Concurrency right-sized for the box.** `JOB_MAX_INFLIGHT`
+  dropped from 8 to 3 (a 2-vCPU shared CPU box can't actually run 8
+  concurrent ffmpeg passes without thrashing) and `JOB_MAX_PER_IP`
+  from 3 to 1 (one user gets one job at a time so a single client
+  can't monopolise the queue). Both env-overridable.
+- **Burst limit on top of the hourly cap.** `/api/process` is now
+  `5/hour AND 2/minute`; `/api/info` is `120/hour AND 10/minute`.
+  Stops cheap rapid-fire submissions from eating slots.
+- **LRU cache on `/api/info` (5-min TTL, 256 entries).** When the
+  widget gets linked from a popular thread and N users all preview
+  the same URL, only the first one hits yt-dlp - the rest get the
+  same metadata back instantly with zero load on the scraper.
+- **Per-IP failure cooldown.** Sliding window: `FAILURE_THRESHOLD`
+  (default 5) failed submissions inside `FAILURE_WINDOW_S` (default
+  600 s) puts the IP in a `FAILURE_COOLDOWN_S` (default 300 s)
+  cooldown with a `Retry-After` header. Stops botnets from burning
+  job slots on guaranteed-to-fail attempts.
+- **Operator kill-switch.** `CMVIDEO_MINI_DISABLED=1` flips the
+  service into "overload mode": all submission endpoints return 503
+  with `Retry-After: 300` and a friendly nudge to the desktop app.
+  `/healthz` and `/api/limits` stay alive so the operator can
+  confirm the gate is up.
+- **User-Agent gate.** Empty UAs get a 400; known-bad scraper UAs
+  (Ahrefs, SemRush, MJ12, ByteSpider, Petalbot, Scrapy, ...) get a
+  403. Real browsers / curl / wget / Python clients are unaffected.
+- **`/api/limits` exposes hardening telemetry** so ops can confirm
+  the gate state (`killswitch_active`, `live_jobs_now`,
+  `ips_in_cooldown_now`, `info_cache_size`) without reading code.
+
+### What this does NOT defend against
+
+Volumetric L3/L4 floods are HF Spaces' edge to handle. Determined
+botnets with rotating IPv6 /64s need a CDN-level WAF; if traffic
+ever justifies it, put Cloudflare in front of `cmvideo-mini.hf.space`
+and the existing per-IP defenses chain on top.
+
 ## [0.4.11-alpha] - 2026-05-16
 
 Mini-service performance pass. Pulls feel ~2-5x faster on most

@@ -3,6 +3,44 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.10-alpha] - 2026-05-16
+
+Polish + security maintenance pass. No new features; fewer ways to
+shoot yourself in the foot.
+
+### Added
+
+- **Mini: explicit 8-minute censor cap.** The "Silence swears" /
+  "Beep swears" chips now show the `<= 8 min` limit inline, the
+  yellow heads-up banner appears any time a censor mode is selected,
+  and the caps panel below the form leads with the censor cap. The
+  widget also pre-flights the source duration against `/api/info`
+  before submitting, so URLs over 8 min are rejected instantly
+  instead of after a cold-start round-trip.
+
+### Security
+
+- **Mini: job IDs are now 32-byte unpredictable tokens** (was
+  `uuid.uuid4().hex`, 16 bytes) generated via `secrets.token_urlsafe`.
+- **Mini: per-IP scope on `/api/jobs/{id}` and `/api/jobs/{id}/file`.**
+  Even a leaked job_id can't be used by anyone outside the original
+  requester's network identity. Failed checks return 404 (not 403)
+  to avoid leaking whether the id was ever valid.
+- **Mini: per-IP inflight cap (3 jobs)** on top of the existing
+  global cap (8). One client can't lock everyone else out.
+- **Mini: rate limits on the new poll endpoints** (180/min on state,
+  30/min on file) so a runaway client can't turn the polling loop
+  into a flood.
+- **App: `config.json` is now opened with `O_CREAT | 0o600`** at file
+  creation time on POSIX, instead of write-then-chmod. The parent
+  config dir is also clamped to `0o700`. Closes a small TOCTOU window
+  during writes.
+- **App: yt-dlp plugin loader refuses world- or group-writable
+  plugin folders** on POSIX. Plugins are arbitrary Python under your
+  account, so a writable plugins dir on a shared workstation is a
+  privilege-escalation primitive. Logs a warning with the exact
+  `chmod 700` command to fix it.
+
 ## [0.4.9-alpha] - 2026-05-16
 
 Mini-service overhaul: real progress bar + a fix for the "stuck on

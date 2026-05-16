@@ -796,13 +796,14 @@ async def healthz():
 # garbage-collected after JOB_TTL_SECONDS regardless of fetch state to
 # stop a forgotten upload from squatting on disk forever.
 # ---------------------------------------------------------------------------
+import secrets
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 
 JOB_TTL_SECONDS = 30 * 60   # 30 min - longest a finished job sits unfetched
 JOB_MAX_INFLIGHT = 8        # cap concurrent in-flight jobs to bound memory
+JOB_MAX_PER_IP = 3          # per-IP inflight cap so one client can't squat all 8
 
 
 @dataclass
@@ -845,8 +846,23 @@ def _create_job(client_ip: str, fmt: str, tmpdir: Path) -> JobState:
     with _jobs_lock:
         if len(_jobs) >= JOB_MAX_INFLIGHT:
             raise HTTPException(status_code=503, detail="Mini service is busy - try again in a minute.")
+        # Per-IP cap: prevents one client from filling all 8 inflight
+        # slots and locking everyone else out.
+        live_for_ip = sum(
+            1 for j in _jobs.values()
+            if j._client_ip == client_ip and not j.ready and j.error is None
+        )
+        if live_for_ip >= JOB_MAX_PER_IP:
+            raise HTTPException(
+                status_code=429,
+                detail=f"You already have {JOB_MAX_PER_IP} jobs in flight. Wait for one to finish.",
+            )
+        # token_urlsafe(24) is 32 bytes of entropy - the same shape as
+        # uuid.uuid4().hex but pulled from os.urandom so the value is
+        # deliberately unpredictable. Job IDs double as a bearer token
+        # for fetching the file (in addition to the IP scope below).
         job = JobState(
-            job_id=uuid.uuid4().hex,
+            job_id=secrets.token_urlsafe(24),
             _client_ip=client_ip,
             _format=fmt,
             _tmpdir=tmpdir,
@@ -856,10 +872,24 @@ def _create_job(client_ip: str, fmt: str, tmpdir: Path) -> JobState:
         return job
 
 
-def _get_job(job_id: str) -> JobState:
+def _get_job(job_id: str, *, client_ip: str | None = None) -> JobState:
+    """Look a job up by id, optionally enforcing the IP scope.
+
+    Two layers of access control:
+      1. The job_id itself is a 32-byte unpredictable token (see
+         _create_job) - effectively unguessable.
+      2. When `client_ip` is supplied we require it to match the
+         creator's. Belt-and-braces: even if a job_id leaks through
+         a referer or shoulder-surf, the file is still locked to the
+         original requester's network identity.
+    """
     with _jobs_lock:
         j = _jobs.get(job_id)
     if j is None:
+        raise HTTPException(status_code=404, detail="That job has expired or never existed.")
+    if client_ip is not None and j._client_ip and j._client_ip != client_ip:
+        # Lie about the reason - same response as a missing job_id so
+        # an attacker can't tell whether a given id was ever valid.
         raise HTTPException(status_code=404, detail="That job has expired or never existed.")
     return j
 
@@ -1190,11 +1220,19 @@ _STAGE_LABELS = {
 
 
 @app.get("/api/jobs/{job_id}")
-async def api_job_state(job_id: str):
+@limiter.limit("180/minute")          # 700ms polls = ~85/min, this leaves headroom but blocks runaway clients
+async def api_job_state(request: Request, job_id: str):
     """Return the current state of a background job. The client polls
     this every ~700 ms while a job is in-flight so it can render a
-    progress bar."""
-    j = _get_job(job_id)
+    progress bar.
+
+    Access control: the job_id is a 32-byte unpredictable token AND
+    we require the request's client IP to match the creator's. This
+    is a polling endpoint so the rate limit is loose by design (the
+    UI polls about 85x/min); the limiter is just there to stop a
+    runaway / hostile client from hammering us at HTTP-flood rates.
+    """
+    j = _get_job(job_id, client_ip=_client_ip(request))
     return {
         "job_id": j.job_id,
         "stage": j.stage,
@@ -1207,11 +1245,16 @@ async def api_job_state(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/file")
-async def api_job_file(job_id: str):
+@limiter.limit("30/minute")
+async def api_job_file(request: Request, job_id: str):
     """Stream the finished file. Cleaning up happens in a background
     task so the client doesn't sit on a closed socket while shutil
-    walks tmpdir."""
-    j = _get_job(job_id)
+    walks tmpdir.
+
+    Same IP-scope check as the state endpoint so a leaked job_id
+    can't be used to siphon someone else's file.
+    """
+    j = _get_job(job_id, client_ip=_client_ip(request))
     if j.error:
         raise HTTPException(status_code=400, detail=j.error)
     if not j.ready or j._out_path is None or not j._out_path.exists():

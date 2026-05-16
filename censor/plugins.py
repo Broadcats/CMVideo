@@ -87,15 +87,65 @@ def ensure_user_plugin_dir() -> Path:
     return p
 
 
+def _is_safely_owned(p: Path) -> bool:
+    """POSIX-only: refuse to load plugins from a folder that any other
+    local user can write to. Catches the "shared workstation" case
+    where someone could drop a malicious extractor into your config
+    dir before you launched the app.
+
+    Always returns True on Windows - NTFS uses ACLs we can't reason
+    about cheaply, and the typical Windows user-profile install path
+    is already user-scoped.
+    """
+    import os
+    import sys
+    if sys.platform.startswith("win"):
+        return True
+    try:
+        st = p.stat()
+    except OSError:
+        return False
+    # Owner must be us. Bail out if we can't determine our uid.
+    try:
+        if st.st_uid != os.getuid():
+            return False
+    except AttributeError:  # extremely-stripped POSIX
+        return True
+    # World- or group-writable? Reject. We allow group-writable only
+    # if the group is the user's primary group AND the directory has
+    # the sticky bit set, but in practice the simpler test below is
+    # enough for desktop installs.
+    mode = st.st_mode
+    if mode & 0o002:           # world-writable
+        return False
+    if mode & 0o020:           # group-writable
+        return False
+    return True
+
+
 def register_with_yt_dlp() -> bool:
     """Add the plugin folder to yt-dlp's search path and load plugins.
 
     Idempotent. Returns True if registration ran (folder + yt-dlp both
     available); False if yt-dlp isn't importable. A True return doesn't
     imply any plugins were loaded - that only happens if files exist.
+
+    Refuses to load plugins from a folder that's writable by other
+    local users (POSIX). Plugins run as arbitrary Python under our
+    account, so a world-writable plugin dir is a privilege-escalation
+    primitive: any local user could drop a file into it and have it
+    execute the next time the app starts.
     """
     p = ensure_user_plugin_dir()
     if not p.is_dir():
+        return False
+    if not _is_safely_owned(p):
+        import logging
+        logging.getLogger(__name__).warning(
+            "Refusing to load plugins from %s - directory is writable by "
+            "other users. Run `chmod 700 %s` to enable plugin loading.",
+            p, p,
+        )
         return False
     try:
         from yt_dlp.globals import plugin_dirs  # type: ignore[import-not-found]

@@ -20,12 +20,49 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.16.2-alpha] - 2026-05-16
+
+Hotfix on top of `mini-2026.05.16.1-alpha`. The `.1` deploy
+crashed on container boot with `ModuleNotFoundError: No module
+named 'version'` because the Dockerfile's explicit `COPY`
+allowlist for app sources didn't include the new
+`web-mini/version.py` file. The deploy script uploaded the
+file to the Space repo (visible in the file listing on HF),
+but it was never copied into `/app/` inside the running
+container, so `from version import MINI_VERSION` at
+`app.py:44` failed and the whole app booted into "Runtime
+error".
+
+### Fixed
+
+- **`web-mini/Dockerfile`** - `version.py` added to the app-source
+  `COPY` line. The Dockerfile uses an explicit per-file allowlist
+  (rather than `COPY . /app/`) deliberately to keep the Docker
+  layer cache tight and avoid baking in build artefacts; the cost
+  is having to remember to extend the allowlist when adding a new
+  Python source file. Adding a one-shot lint to catch this in
+  future is tracked but not done in this hotfix.
+
+### Notes
+
+- Bumping past `.1` rather than amending it: `.1` was uploaded
+  and attempted to boot, even though it never served traffic.
+  CalVer's daily counter should reflect "deploy attempts", not
+  "successful deploys", so future debugging can distinguish
+  "the .1 build" (which crashed) from "the .2 build" (which
+  fixed it). Same reason we don't `git commit --amend` over a
+  push.
+
 ## [mini-2026.05.16.1-alpha] - 2026-05-16
 
 Mini and desktop versions split. Mini moves to CalVer; desktop
 stays SemVer. From here on the website eyebrow shows both
 explicitly so a mini-only deploy doesn't make desktop users
 think they need to re-download.
+
+**Note:** This deploy crashed at boot due to a missing
+`COPY version.py` in the Dockerfile. Fixed in
+`mini-2026.05.16.2-alpha`.
 
 ### Changed
 

@@ -3,6 +3,51 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.16.1-alpha] - 2026-05-16
+
+Hotfix on top of v0.4.16-alpha. The XFF parsing fix that
+v0.4.16 introduced as the **headline HIGH-severity item** had
+an off-by-one that left the original spoofing vulnerability
+in place under a slightly different shape. v0.4.16-alpha
+should be treated as **not actually fixing** the
+`X-Forwarded-For` issue; v0.4.16.1-alpha is the working fix.
+
+### Fixed
+
+- **`_client_ip` correctly picks the
+  `_TRUSTED_PROXY_HOPS`-th-from-rightmost XFF entry now**, not
+  the (n+1)th. Working example with `hops=1` (HF Spaces edge):
+  attacker sends `X-Forwarded-For: <victim>`. HF Spaces appends
+  the attacker's real IP. Backend sees the chain
+  `<victim>, attacker_ip`. The fixed code returns
+  `chain[-1] = attacker_ip` (the real client). v0.4.16's broken
+  code did `len-1-hops = 0` and returned `chain[0] = <victim>`
+  (the spoofed value) - i.e. the exact bug the v0.4.16 entry
+  claimed to close.
+- Verified against a 7-case attack matrix:
+  * Legitimate single-hop (`real_client`) -> `real_client`.
+  * 1 forged entry (`victim, attacker`) -> `attacker`.
+  * 3 forged entries (`a, b, c, attacker`) -> `attacker`.
+  * Empty XFF -> socket peer fallback.
+  * Cloudflare + HF (`real, cf`) -> `real`.
+  * Cloudflare + HF with 1 forged -> `attacker` (not `victim`).
+  * Cloudflare + HF with 5 forged -> `attacker`.
+- Documentation now spells out the worked example so any future
+  refactor has the test cases inline as code comments, not
+  just in this changelog entry.
+
+### Notes
+
+- `CMVIDEO_TRUSTED_PROXY_HOPS` minimum is now clamped at 1
+  (was 0). Setting it to 0 would mean "no trusted proxies in
+  front" which on a public HF Space is wrong by definition,
+  and would silently re-introduce the leftmost-trust pattern
+  this entire fix was designed to remove.
+- Recommend redeploying the mini-app immediately so the
+  v0.4.16-alpha image (which has the broken formula) is
+  replaced. Owner-IP allowlist users on v0.4.16 should treat
+  their bypass as effectively bypassable until that's done.
+
 ## [0.4.16-alpha] - 2026-05-16
 
 Security maintenance pass across the mini-app, desktop config

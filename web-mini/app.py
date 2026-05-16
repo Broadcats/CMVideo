@@ -94,66 +94,73 @@ log = logging.getLogger("cmvideo-mini")
 # ---------------------------------------------------------------------------
 # App boilerplate
 # ---------------------------------------------------------------------------
-# Trusted-proxy depth. `X-Forwarded-For` looks like
-#     client, proxy1, proxy2, ..., last-trusted-proxy
-# and entries are appended *left to right* as the request passes
-# through hops. The number of TRUSTED hops on the right (added by
-# infrastructure we control: the HF Spaces edge, plus optionally
-# Cloudflare or another front) determines which entry is the real
-# client. Picking the leftmost entry is wrong on the public
-# internet because anyone can prepend a forged `X-Forwarded-For:
-# 1.2.3.4` header and impersonate that IP - bypassing the
-# owner-IP allowlist (unlimited jobs!), per-IP rate limits, and
-# the per-IP failure cooldown. Take the (n+1)th-from-the-right
-# entry when there are at least that many; fall back to the
-# leftmost entry (best-effort) when the chain is shorter than
-# expected (i.e. the request came in directly).
+# Trusted-proxy depth. `X-Forwarded-For` is the running history of
+# every reverse proxy a request has passed through, with each
+# proxy *appending* its immediate peer's IP to the right end. So
+# for a request that took the path:
+#     client -> Cloudflare -> HF Spaces -> our backend
+# the backend sees `X-Forwarded-For: client_ip, cloudflare_ip`
+# (Cloudflare appended the real client; HF appended Cloudflare).
+# The TCP peer at the backend is HF's edge.
 #
-# Default = 1 (HF Spaces edge alone). If you ever front this
-# Space with another trusted proxy (Cloudflare, your own L7),
-# bump to 2.
-_TRUSTED_PROXY_HOPS = max(0, int(os.environ.get("CMVIDEO_TRUSTED_PROXY_HOPS", "1") or "1"))
+# `_TRUSTED_PROXY_HOPS` = how many trusted proxies sit in front
+# of the FastAPI process. The real client IP is the
+# `_TRUSTED_PROXY_HOPS`-th entry from the RIGHT of the chain
+# (1-indexed). For HF Spaces alone (default 1) that's the
+# rightmost entry. For Cloudflare + HF (=2) it's the second-from-
+# right. Taking the leftmost is wrong on the public internet:
+# anyone can send `X-Forwarded-For: <anything>` and that string
+# becomes chain[0]. Combined with the owner-IP allowlist (which
+# grants unlimited jobs to listed IPs), trusting chain[0] turns
+# a header into an unauthenticated "skip all rate limits" key.
+_TRUSTED_PROXY_HOPS = max(1, int(os.environ.get("CMVIDEO_TRUSTED_PROXY_HOPS", "1") or "1"))
 
 
 def _client_ip(request: Request) -> str:
     """Resolve the real client IP behind HF Spaces' reverse proxy
-    in a way that resists spoofing.
+    in a way that resists header forgery.
 
     `slowapi.util.get_remote_address` reads `request.client.host`,
     which on HF Spaces is always the platform's edge proxy - so
-    every visitor on Earth shared the same rate-limit bucket. The
-    proxy populates `X-Forwarded-For` with the chain
-    `client, proxy1, proxy2, ...`. We trust the rightmost
-    `_TRUSTED_PROXY_HOPS` entries as added by our infrastructure
-    and pick the entry just before them. If the chain is shorter
-    than expected (no proxy in front, or fewer hops than
-    configured), we fall back to the leftmost entry as a
-    best-effort signal.
+    every visitor on Earth shared the same rate-limit bucket. We
+    parse `X-Forwarded-For` and pick the
+    `_TRUSTED_PROXY_HOPS`-th-from-rightmost entry (the immediate
+    peer of our outermost trusted proxy). Anything an attacker
+    pre-pends on the left is ignored.
 
     Why this matters: the previous "always pick leftmost"
     behaviour let any caller forge an `X-Forwarded-For: <victim>`
-    header and inherit `<victim>`'s rate-limit bucket. Combined
-    with the owner-IP allowlist (which grants unlimited jobs to
-    listed IPs), that turned a header into an unauthenticated
-    "skip all rate limits" key. The fix makes header forgery
-    impossible at the edge HF controls."""
+    header and inherit `<victim>`'s rate-limit bucket - and, if
+    `<victim>` was on the owner allowlist, get unlimited jobs.
+    The fix makes header forgery impossible at the edge HF
+    controls.
+
+    Worked example with `_TRUSTED_PROXY_HOPS=1` (HF only):
+    * Legitimate: chain `[client_ip]` (HF appended) -> chain[-1]
+      = `client_ip`. Right answer.
+    * Forged: attacker sends `X-Forwarded-For: <victim>`.
+      HF appends attacker_ip. Chain `[<victim>, attacker_ip]`
+      -> chain[-1] = `attacker_ip` (the real client). Forgery
+      ignored.
+    * Forged with padding: `[a, b, c, attacker_ip]` -> chain[-1]
+      = `attacker_ip`. Still right.
+    """
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
-        # Split, strip empties, and pick the (n+1)th-from-rightmost
-        # so an adversary that prepends entries on the left is
-        # ignored. With CMVIDEO_TRUSTED_PROXY_HOPS=1 (default,
-        # HF-Spaces-only): chain `attacker_forgery, real_client,
-        # hf_edge` -> rightmost-1 -> `real_client`. Forgery
-        # pre-pended further left simply gets dropped.
         chain = [c.strip() for c in xff.split(",")]
         chain = [c for c in chain if c]
         if chain:
-            # Index from the right. e.g. hops=1, len=3 -> chain[1]
-            # = "real_client". hops=1, len=1 -> fall through to the
-            # leftmost (chain[0]) so a request that arrived
-            # without a proxy still buckets on something.
-            idx = len(chain) - 1 - _TRUSTED_PROXY_HOPS
-            candidate = chain[idx] if idx >= 0 else chain[0]
+            # Take the Nth-from-rightmost entry. For hops=1 that's
+            # chain[-1]; for hops=2 it's chain[-2]; etc. If the
+            # chain is shorter than `hops` (request didn't
+            # actually pass through that many trusted proxies),
+            # fall back to the leftmost entry as best-effort -
+            # this branch can only happen on direct backend
+            # access, not via the public HF Space.
+            if len(chain) >= _TRUSTED_PROXY_HOPS:
+                candidate = chain[len(chain) - _TRUSTED_PROXY_HOPS]
+            else:
+                candidate = chain[0]
             # Tolerate IPv6 with brackets / zone IDs by feeding
             # ipaddress only the bit it'll accept; if parsing fails
             # we still return the raw string so the limiter buckets

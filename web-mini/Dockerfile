@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # yt-dlp ships extractor fixes weekly; the floor pin in
 # requirements.txt is intentionally `>=` so this upgrade actually
 # moves forward on each rebuild.
-RUN pip install --no-cache-dir --upgrade 'yt-dlp[default,curl-cffi]'
+RUN pip install --no-cache-dir --upgrade 'yt-dlp[default,curl-cffi]' 'gallery-dl' 'streamlink'
 
 # Pre-fetch whisper-tiny.en so the first request doesn't pay the
 # ~75 MB model download tax. Bakes the model into the image at build
@@ -32,7 +32,7 @@ WhisperModel("tiny.en", device="cpu", compute_type="int8")
 print("whisper tiny.en cached")
 PY
 
-COPY app.py mini_censor.py /app/
+COPY app.py mini_censor.py extractors.py /app/
 COPY wordlists /app/wordlists
 COPY templates /app/templates
 COPY static /app/static

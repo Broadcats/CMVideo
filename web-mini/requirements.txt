@@ -18,3 +18,11 @@ requests==2.32.3
 # video stream) which is far less aggressively rate-limited and
 # doesn't require an API key.
 youtube-transcript-api==1.2.4
+
+# Multi-extractor fallback chain. yt-dlp covers the long tail; the
+# tools below patch over the specific sites where yt-dlp's extractors
+# are wedged or upstream-broken. See web-mini/extractors.py for the
+# per-domain routing rules. Cobalt is reached over HTTP, no install
+# required.
+gallery-dl>=1.27.0
+streamlink>=6.7.0

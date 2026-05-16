@@ -1,3 +1,10 @@
 faster-whisper>=1.0.0
 tkinterdnd2>=0.4.0
 yt-dlp>=2025.1.0
+
+# Multi-extractor fallback chain. yt-dlp is universal; the others
+# fill in gaps where yt-dlp's extractors are wedged or upstream-broken
+# (Twitter / X, Reddit, Tumblr, Bilibili, live streams). See
+# censor/extractors.py for which tool covers which domain.
+gallery-dl>=1.27.0
+streamlink>=6.7.0

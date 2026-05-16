@@ -12,15 +12,19 @@ short_description: URL → MP4/MP3 (mini web version of cmvideo.online)
 # CMVideo Mini
 
 The browser-only slice of [CMVideo](https://cmvideo.online): paste a
-video URL, get a clean **MP4** or **MP3** back. Powered by
-[`yt-dlp`](https://github.com/yt-dlp/yt-dlp) + `ffmpeg` running in a
-Docker container on Hugging Face Spaces.
+video URL, get a clean **MP4** or **MP3** back. Powered by a
+multi-extractor fallback chain
+([`yt-dlp`](https://github.com/yt-dlp/yt-dlp) →
+[`gallery-dl`](https://github.com/mikf/gallery-dl) →
+[Cobalt API](https://github.com/imputnet/cobalt) →
+[`streamlink`](https://github.com/streamlink/streamlink))
+plus `ffmpeg`, all running in a Docker container on Hugging Face Spaces.
 
 This service is intentionally limited so it can stay free:
 
 | Cap | Value |
 |---|---|
-| Max duration per clip | 30 min |
+| Max duration per clip | 60 min |
 | Max output filesize   | 800 MB |
 | Max video resolution  | 720p MP4 |
 | Max audio bitrate     | 192 kbps MP3 |
@@ -112,12 +116,12 @@ updates. Once it's running, the Space is reachable at:
 - `https://huggingface.co/spaces/<owner>/<space>` (with HF chrome)
 
 The widget on cmvideo.online points at the direct `.hf.space` URL
-(currently `https://dandyfeet-cmvideo-mini.hf.space`). If you deploy
+(currently `https://broadcats-cmvideo-mini.hf.space`). If you deploy
 under a different name, search the main repo for that string and
 update it:
 
 ```bash
-grep -rln 'dandyfeet-cmvideo-mini.hf.space' site/ web-mini/
+grep -rln 'broadcats-cmvideo-mini.hf.space' site/ web-mini/
 ```
 
 ### Manual path
@@ -137,16 +141,46 @@ HF will rebuild automatically on every push.
 
 ---
 
+## Optional: self-host Cobalt for the fallback chain
+
+Cobalt's hand-tuned per-site extractors materially outperform yt-dlp on
+Twitter/X, Reddit, Tumblr, Bilibili and Bluesky. The public
+`api.cobalt.tools` endpoint requires JWT auth as of November 2024, so
+to use it you have to run your own Cobalt instance and point the mini
+at it via two env vars:
+
+```bash
+COBALT_API_BASE=https://your-cobalt.example.org
+COBALT_API_KEY=your-instance-api-key   # optional
+```
+
+Set them as repository secrets on the HF Space (Settings → Variables
+and secrets) and the dispatcher will pick them up automatically. The
+running Space exposes the live state at `/api/limits` under the
+`extractors` key:
+
+```json
+{ "extractors": { "yt-dlp": true, "gallery-dl": true, "cobalt": true, "streamlink": true } }
+```
+
+Cobalt itself is a single Docker container — see
+<https://github.com/imputnet/cobalt> for the canonical setup. Fly.io
+and Railway free tiers are both fine for it. Without these env vars
+the chain still works; it just skips the Cobalt step.
+
+---
+
 ## Tweaking the caps
 
 All cap constants live at the top of `app.py`:
 
 ```python
-MAX_DURATION_SECONDS = 30 * 60
-MAX_FILESIZE_BYTES = 200 * 1024 * 1024
+MAX_DOWNLOAD_DURATION_SECONDS = 60 * 60
+MAX_DOWNLOAD_FILESIZE_BYTES = 800 * 1024 * 1024
+MAX_CENSOR_DURATION_SECONDS = 8 * 60      # bounded by free-CPU whisper
 MAX_VIDEO_HEIGHT = 720
 AUDIO_BITRATE_KBPS = "192"
-JOB_TIMEOUT_SECONDS = 120
+DOWNLOAD_TIMEOUT_SECONDS = 360
 RATE_LIMIT_PER_HOUR = "5/hour"
 ```
 

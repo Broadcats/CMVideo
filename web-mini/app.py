@@ -38,6 +38,7 @@ from slowapi.util import get_remote_address
 from starlette.background import BackgroundTask
 
 import mini_censor
+import extractors as _extractors  # multi-tool fallback chain (yt-dlp -> gallery-dl -> Cobalt -> streamlink)
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +563,10 @@ def _video_format_selector(fps: str = "source") -> str:
 
 
 def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesize: int, fps: str = "source") -> Path:
+    """Try yt-dlp first; if it fails with a recoverable error, fall
+    through to gallery-dl / Cobalt / streamlink. Caps are enforced
+    inside the yt-dlp options so the cheap path never even starts a
+    download that would obviously bust them."""
     opts = _ydl_common_opts(tmpdir, max_duration, max_filesize)
     if fmt == "mp4":
         opts.update({
@@ -583,17 +588,32 @@ def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesi
             ],
         })
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        if info is None:
-            raise RuntimeError(f"Source rejected (likely longer than {max_duration // 60} min or larger than {max_filesize // (1024 * 1024)} MB).")
+    try:
+        result = _extractors.extract_with_fallbacks(
+            url,
+            tmpdir,
+            fmt=fmt,
+            ydl_opts=opts,
+            on_attempt=lambda tool, msg: log.info("extractor[%s]: %s", tool, msg[:200]),
+        )
+    except _extractors.ExtractionError as exc:
+        # Surface as a yt-dlp DownloadError-shaped exception so the
+        # caller's friendly-error mapping still works for the common
+        # cases. Tools that ran are listed in the exception text.
+        raise yt_dlp.utils.DownloadError(str(exc)) from exc
 
-    out_files = [p for p in tmpdir.iterdir() if p.is_file() and p.suffix.lower() == f".{fmt}"]
-    if not out_files:
-        out_files = [p for p in tmpdir.iterdir() if p.is_file()]
-        if not out_files:
-            raise RuntimeError("Download finished but no output file was produced.")
-    return max(out_files, key=lambda p: p.stat().st_size)
+    if result.path.suffix.lower() != f".{fmt}":
+        # gallery-dl / Cobalt may hand us a different container. The
+        # caller's mode-specific finalisation path will remux the
+        # censor flow; for `download` mode we leave the suffix alone -
+        # surface the real container the source provided rather than
+        # lying about the format.
+        log.info("extractor returned %s (not .%s) - keeping as-is", result.path.suffix, fmt)
+    log.info(
+        "extractor win: %s via %s [tries: %s]",
+        result.title, result.extractor, " | ".join(result.attempts) or "none",
+    )
+    return result.path
 
 
 def _do_info(url: str) -> dict:
@@ -896,4 +916,6 @@ async def api_limits():
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
         "yt_censor_enabled": True,
         "full_app_url": "https://cmvideo.online",
+        "extractors": _extractors.available_tools(),
+        "extractor_versions": _extractors.tool_versions(),
     }

@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
+from . import extractors as _extractors
 from . import plugins as _user_plugins
 
 
@@ -135,7 +136,6 @@ def download(
     audio_quality: str = "192",
     progress_cb: DownloadProgressCb | None = None,
     cookies_file: Path | None = None,
-    fps: str = "source",
 ) -> Path:
     """Download a URL to `output_dir` in the requested format.
 
@@ -168,7 +168,7 @@ def download(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        from yt_dlp import YoutubeDL  # type: ignore[import-not-found]
+        from yt_dlp import YoutubeDL  # type: ignore[import-not-found] # noqa: F401
     except ImportError as e:
         raise RuntimeError(
             "yt-dlp is not installed in the venv. Re-run ./run.sh to install it."
@@ -185,7 +185,7 @@ def download(
     hooks.append(_make_finished_hook(final_path_holder))
 
     if fmt in VIDEO_DOWNLOAD_FORMATS:
-        format_selector = _video_format_selector(fmt, video_quality, fps)
+        format_selector = _video_format_selector(fmt, video_quality)
         ydl_opts: dict = {
             "format": format_selector,
             "outtmpl": str(output_dir / "%(title).180B [%(id)s].%(ext)s"),
@@ -226,21 +226,36 @@ def download(
     if progress_cb is not None:
         progress_cb(0.0, "Resolving URL...")
 
+    # Try yt-dlp first; on a recoverable extractor failure (Twitter / X,
+    # Reddit, Tumblr, parser bugs, "no formats" errors) fall through to
+    # gallery-dl, Cobalt API and streamlink in turn. The dispatcher
+    # itself decides which non-yt-dlp tools are worth invoking based on
+    # the URL's domain.
+    def _on_attempt(tool: str, msg: str) -> None:
+        if progress_cb is not None:
+            progress_cb(0.0, f"{tool}: {msg[:80]}")
+
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            base = Path(ydl.prepare_filename(info))
-    except Exception as e:  # noqa: BLE001
+        result = _extractors.extract_with_fallbacks(
+            url,
+            output_dir,
+            fmt=fmt,
+            ydl_opts=ydl_opts,
+            on_attempt=_on_attempt,
+        )
+    except _extractors.ExtractionError as e:
         raise RuntimeError(f"Download failed: {e}") from e
+
+    candidate = result.path
 
     # Audio postprocessor / video remuxer often swap the extension.
     if fmt in _AUDIO_FORMATS or fmt != "mp4":
-        candidate = base.with_suffix("." + fmt)
-        if candidate.exists():
-            return candidate
+        alt = candidate.with_suffix("." + fmt)
+        if alt.exists():
+            return alt
 
-    if base.exists():
-        return base
+    if candidate.exists():
+        return candidate
     if final_path_holder.get("path"):
         p = Path(final_path_holder["path"])
         if p.exists():
@@ -251,11 +266,11 @@ def download(
             return p
 
     raise RuntimeError(
-        f"Download finished but output file was not found at {base}"
+        f"Download finished but output file was not found at {candidate}"
     )
 
 
-def _video_format_selector(fmt: str, quality_label: str, fps: str = "source") -> str:
+def _video_format_selector(fmt: str, quality_label: str) -> str:
     """Build a yt-dlp format selector for video output, capped to the chosen
     height (or pinned to ``worstvideo`` for ``Worst``).
 
@@ -268,39 +283,17 @@ def _video_format_selector(fmt: str, quality_label: str, fps: str = "source") ->
     if height == "worst":
         return "worstvideo+worstaudio/worst"
 
-    # FPS clause: empty for "source", [fps<=30] for "24" / "30",
-    # [fps>=50] for "48" / "60". yt-dlp's "fps" key is the source's
-    # native rate; we filter loosely and rely on the un-filtered
-    # fallbacks if no matching format exists.
-    fps_clause = {
-        "source": "",
-        "24": "[fps<=30]",
-        "30": "[fps<=30]",
-        "48": "[fps>=50]",
-        "60": "[fps>=50]",
-    }.get(fps, "")
-
     if fmt == "mp4":
         if height is None:
-            return (
-                f"bestvideo[ext=mp4]{fps_clause}+bestaudio[ext=m4a]/"
-                f"bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
-                f"best[ext=mp4]/best"
-            )
+            return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         return (
-            f"bestvideo[ext=mp4][height<={height}]{fps_clause}+bestaudio[ext=m4a]/"
             f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/"
             f"best[ext=mp4][height<={height}]/best[height<={height}]/best"
         )
     if fmt == "webm":
         if height is None:
-            return (
-                f"bestvideo[ext=webm]{fps_clause}+bestaudio[ext=webm]/"
-                f"bestvideo[ext=webm]+bestaudio[ext=webm]/"
-                f"bestvideo+bestaudio/best"
-            )
+            return "bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo+bestaudio/best"
         return (
-            f"bestvideo[ext=webm][height<={height}]{fps_clause}+bestaudio[ext=webm]/"
             f"bestvideo[ext=webm][height<={height}]+bestaudio[ext=webm]/"
             f"bestvideo[height<={height}]+bestaudio/"
             f"best[height<={height}]/best"

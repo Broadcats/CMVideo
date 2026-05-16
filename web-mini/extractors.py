@@ -342,13 +342,55 @@ def gallery_dl_available() -> bool:
     return _resolve_tool("gallery-dl") is not None
 
 
+def _gallery_dl_quality_overrides(target_height: int) -> list[str]:
+    """Build `-o key=value` overrides that nudge gallery-dl toward
+    the requested height on the video-supporting extractors. Most
+    gallery-dl traffic is images (where height is meaningless), but
+    a handful of extractors (twitter, instagram, reddit, tumblr,
+    bilibili) do support video and accept per-site quality keys.
+
+    We map `target_height` to the closest bucket each extractor
+    accepts. The `-o` flag silently ignores keys that the resolved
+    extractor doesn't know about, so this is safe to spam.
+    """
+    h = int(target_height) if target_height else 720
+    # Most extractors accept "lowest" / "low" / "medium" / "high" /
+    # "highest"; some use raw heights. We use the closest bucket name.
+    if h >= 1440:
+        bucket = "highest"
+    elif h >= 720:
+        bucket = "high"
+    elif h >= 480:
+        bucket = "medium"
+    else:
+        bucket = "low"
+    return [
+        # twitter / x: variants list, pick by bucket name.
+        "-o", f"extractor.twitter.videos=true",
+        "-o", f"extractor.twitter.video-quality={bucket}",
+        # bilibili: takes raw heights, falls through gracefully.
+        "-o", f"extractor.bilibili.quality={h}",
+        # reddit: dash/hls master selector.
+        "-o", f"extractor.reddit.video-quality={bucket}",
+        # tumblr / instagram: a few variants, "best" picks highest.
+        "-o", f"extractor.tumblr.videos=true",
+        "-o", f"extractor.instagram.videos=true",
+    ]
+
+
 def gallery_dl_download(
     url: str,
     dst_dir: Path,
     *,
     timeout: int = 180,
+    target_height: int = 720,
 ) -> ExtractionResult:
-    """Download via gallery-dl. Raises ExtractionError on failure."""
+    """Download via gallery-dl. Raises ExtractionError on failure.
+
+    `target_height` is plumbed via per-site `-o` overrides for the
+    extractors that support video. Image-only extractors silently
+    ignore the keys, so this is safe to apply universally.
+    """
     if not gallery_dl_available():
         raise ExtractionError("gallery-dl not installed", terminal=True)
 
@@ -358,8 +400,9 @@ def gallery_dl_download(
         "--quiet",
         "--no-mtime",
         "--directory", str(dst_dir),
-        url,
     ]
+    cmd += _gallery_dl_quality_overrides(target_height)
+    cmd.append(url)
     try:
         proc = subprocess.run(
             cmd,
@@ -429,6 +472,18 @@ def cobalt_available() -> bool:
     return True
 
 
+def _cobalt_quality_str(target_height: int) -> str:
+    """Map our 720/1080 height cap to one of Cobalt's accepted
+    quality buckets. Cobalt v10 accepts:
+      144, 240, 360, 480, 720, 1080, 1440, 2160, max
+    We pick the bucket closest to but not exceeding the cap.
+    """
+    buckets = (144, 240, 360, 480, 720, 1080, 1440, 2160)
+    h = int(target_height) if target_height else 720
+    fit = max((b for b in buckets if b <= h), default=buckets[0])
+    return str(fit)
+
+
 def cobalt_download(
     url: str,
     dst_dir: Path,
@@ -437,11 +492,16 @@ def cobalt_download(
     timeout: int = 180,
     api_base: str | None = None,
     api_key: str | None = None,
+    target_height: int = 720,
 ) -> ExtractionResult:
     """Resolve a media URL through a Cobalt instance and stream it to
     disk. Cobalt v10+ takes a POST to the instance root and returns
     either a `redirect` (direct CDN URL) or a `tunnel` URL which we
     then fetch ourselves.
+
+    `target_height` is mapped to Cobalt's `videoQuality` bucket so the
+    tool returns a CDN URL at the right resolution rather than its
+    server-side default.
 
     Configuration:
       COBALT_API_BASE  - required, e.g. https://your-cobalt.fly.dev
@@ -457,7 +517,7 @@ def cobalt_download(
 
     body = json.dumps({
         "url": url,
-        "videoQuality": "720",
+        "videoQuality": _cobalt_quality_str(target_height),
         "audioFormat": "mp3" if fmt == "mp3" else "best",
         "downloadMode": "audio" if fmt == "mp3" else "auto",
     }).encode("utf-8")
@@ -597,18 +657,96 @@ def lux_available() -> bool:
     return _resolve_tool("lux") is not None
 
 
-def lux_download(url: str, dst_dir: Path, *, timeout: int = 240) -> ExtractionResult:
-    """Download via lux. Raises ExtractionError on failure."""
+def _lux_pick_stream(bin_path: str, url: str, *, target_height: int, timeout: int = 25) -> str:
+    """Best-effort stream picker for lux. Calls `lux -i <url>` to
+    enumerate available streams and parses the markdown-ish output for
+    the highest stream at or below `target_height`. Returns the stream
+    id (e.g. ``"hd"``, ``"360p"``, ``"flv720"``) or ``""`` if we can't
+    pick - in which case the caller should run lux without a stream
+    flag and let it default to its highest variant.
+    """
+    try:
+        proc = subprocess.run(
+            [bin_path, "-i", url],
+            check=False, capture_output=True, text=True, timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.info("lux -i probe failed: %s", exc)
+        return ""
+    if proc.returncode != 0:
+        return ""
+
+    # `lux -i` prints stream blocks roughly:
+    #   1     Title:       ...
+    #         Quality:     720P AVC ...
+    #         Stream:      mp4-720p
+    # We extract `(stream_id, height)` pairs and pick the highest <= cap.
+    streams: list[tuple[str, int]] = []
+    cur_id = ""
+    cur_height = 0
+    for raw in proc.stdout.splitlines():
+        line = raw.strip()
+        m_id = re.match(r"(?i)stream:\s*(\S+)", line)
+        if m_id:
+            cur_id = m_id.group(1)
+        m_q = re.search(r"(?i)quality:\s*([^\n]+)", line)
+        if m_q:
+            blob = m_q.group(1)
+            m_h = re.search(r"(\d{3,4})\s*[Pp]\b", blob) or re.search(r"\b\d+x(\d{3,4})\b", blob)
+            if m_h:
+                try:
+                    cur_height = int(m_h.group(1))
+                except ValueError:
+                    cur_height = 0
+        # Each stream block ends at a blank line.
+        if not line and cur_id:
+            streams.append((cur_id, cur_height))
+            cur_id, cur_height = "", 0
+    if cur_id:
+        streams.append((cur_id, cur_height))
+
+    if not streams:
+        return ""
+    # Highest at or below the cap; if everything exceeds, pick lowest.
+    cap = int(target_height) if target_height else 0
+    within = [s for s in streams if cap == 0 or s[1] <= cap]
+    if within:
+        within.sort(key=lambda s: s[1], reverse=True)
+        return within[0][0]
+    streams.sort(key=lambda s: s[1])
+    return streams[0][0]
+
+
+def lux_download(
+    url: str,
+    dst_dir: Path,
+    *,
+    timeout: int = 240,
+    target_height: int = 720,
+) -> ExtractionResult:
+    """Download via lux. Raises ExtractionError on failure.
+
+    Quality control: we run `lux -i` first to enumerate streams and
+    pass `-stream <id>` for the highest that fits `target_height`. If
+    enumeration fails (lux's output format varies between versions and
+    sites), we fall back to lux's default behavior.
+    """
     bin_path = _resolve_tool("lux")
     if not bin_path:
         raise ExtractionError("lux not installed", terminal=True)
 
+    stream_id = _lux_pick_stream(bin_path, url, target_height=target_height)
     cmd = [
         bin_path,
         "-o", str(dst_dir),
         "-O", "lux-out",
-        url,
     ]
+    if stream_id:
+        cmd += ["-stream", stream_id]
+        log.info("lux: picked stream=%s for cap=%d", stream_id, target_height)
+    else:
+        log.info("lux: stream enumeration failed; using default", extra={"url": url[:80]})
+    cmd.append(url)
     try:
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -642,19 +780,94 @@ def you_get_available() -> bool:
     return _resolve_tool("you-get") is not None
 
 
-def you_get_download(url: str, dst_dir: Path, *, timeout: int = 240) -> ExtractionResult:
-    """Download via you-get."""
+def _you_get_pick_format(bin_path: str, url: str, *, target_height: int, timeout: int = 25) -> str:
+    """Best-effort format picker for you-get. Calls `you-get -i <url>`
+    to enumerate available streams and parses the indented `streams`
+    block for the highest variant at or below `target_height`. Returns
+    the format tag (passed via ``--format=<tag>``) or ``""`` to fall
+    through to you-get's default.
+    """
+    try:
+        proc = subprocess.run(
+            [bin_path, "-i", url],
+            check=False, capture_output=True, text=True, timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.info("you-get -i probe failed: %s", exc)
+        return ""
+    if proc.returncode != 0:
+        return ""
+
+    # `you-get -i` prints blocks roughly:
+    #   - format:        mp4-720p
+    #     container:     mp4
+    #     quality:       1280x720
+    #     size:          ...
+    streams: list[tuple[str, int]] = []
+    cur_fmt = ""
+    cur_height = 0
+    for raw in proc.stdout.splitlines():
+        line = raw.strip()
+        m_fmt = re.match(r"(?i)-?\s*format:\s*(\S+)", line)
+        if m_fmt:
+            if cur_fmt:
+                streams.append((cur_fmt, cur_height))
+            cur_fmt = m_fmt.group(1)
+            cur_height = 0
+            continue
+        m_q = re.search(r"(?i)quality:\s*([^\n]+)", line)
+        if m_q:
+            blob = m_q.group(1)
+            m_h = re.search(r"\b\d+x(\d{3,4})\b", blob) or re.search(r"(\d{3,4})\s*[Pp]\b", blob)
+            if m_h:
+                try:
+                    cur_height = int(m_h.group(1))
+                except ValueError:
+                    cur_height = 0
+    if cur_fmt:
+        streams.append((cur_fmt, cur_height))
+
+    if not streams:
+        return ""
+    cap = int(target_height) if target_height else 0
+    within = [s for s in streams if cap == 0 or s[1] <= cap]
+    if within:
+        within.sort(key=lambda s: s[1], reverse=True)
+        return within[0][0]
+    streams.sort(key=lambda s: s[1])
+    return streams[0][0]
+
+
+def you_get_download(
+    url: str,
+    dst_dir: Path,
+    *,
+    timeout: int = 240,
+    target_height: int = 720,
+) -> ExtractionResult:
+    """Download via you-get.
+
+    Quality control: we run `you-get -i` first to enumerate streams
+    and pass ``--format <tag>`` for the highest at-or-below
+    `target_height`. Falls back to you-get's default if enumeration
+    fails."""
     bin_path = _resolve_tool("you-get")
     if not bin_path:
         raise ExtractionError("you-get not installed", terminal=True)
 
+    fmt_tag = _you_get_pick_format(bin_path, url, target_height=target_height)
     cmd = [
         bin_path,
         "--no-caption",
         "--output-dir", str(dst_dir),
         "--output-filename", "you-get-out",
-        url,
     ]
+    if fmt_tag:
+        cmd += ["--format", fmt_tag]
+        log.info("you-get: picked format=%s for cap=%d", fmt_tag, target_height)
+    else:
+        log.info("you-get: format enumeration failed; using default")
+    cmd.append(url)
     try:
         proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -1021,7 +1234,7 @@ def extract_with_fallbacks(
 
     if "gallery-dl" in enabled_set and (not domain or domain in GALLERY_DL_DOMAINS or _ends_with_any(domain, GALLERY_DL_DOMAINS)):
         try:
-            r = gallery_dl_download(url, dst_dir)
+            r = gallery_dl_download(url, dst_dir, target_height=target_height)
             r.attempts = attempts + [f"gallery-dl: ok"]
             return r
         except ExtractionError as exc:
@@ -1036,7 +1249,7 @@ def extract_with_fallbacks(
         and (not domain or domain in COBALT_DOMAINS or _ends_with_any(domain, COBALT_DOMAINS))
     ):
         try:
-            r = cobalt_download(url, dst_dir, fmt=fmt)
+            r = cobalt_download(url, dst_dir, fmt=fmt, target_height=target_height)
             r.attempts = attempts + [f"cobalt: ok"]
             return r
         except ExtractionError as exc:
@@ -1049,7 +1262,7 @@ def extract_with_fallbacks(
         and (not domain or _ends_with_any(domain, LUX_DOMAINS))
     ):
         try:
-            r = lux_download(url, dst_dir)
+            r = lux_download(url, dst_dir, target_height=target_height)
             r.attempts = attempts + ["lux: ok"]
             return r
         except ExtractionError as exc:
@@ -1062,7 +1275,7 @@ def extract_with_fallbacks(
         and (not domain or _ends_with_any(domain, YOU_GET_DOMAINS))
     ):
         try:
-            r = you_get_download(url, dst_dir)
+            r = you_get_download(url, dst_dir, target_height=target_height)
             r.attempts = attempts + ["you-get: ok"]
             return r
         except ExtractionError as exc:

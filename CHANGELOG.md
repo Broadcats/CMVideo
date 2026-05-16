@@ -3,6 +3,50 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13.4-alpha] - 2026-05-16
+
+Mini-app: close the resolution-cap gap on the remaining four
+extractor tiers (cobalt, lux, you-get, gallery-dl). Combined with
+v0.4.13.2 (yt-dlp tier) and v0.4.13.3 (Playwright tier), every
+extractor in the chain now respects the user's 720p / 1080p
+choice instead of returning whatever the tool's server-side
+default happens to be.
+
+### Added
+
+- **Cobalt** now sends `videoQuality` matching the requested cap
+  (720 / 1080) instead of a hardcoded "720". Maps the cap to
+  Cobalt's nearest accepted bucket
+  (144/240/360/480/720/1080/1440/2160).
+- **Lux** runs `lux -i <url>` first to enumerate streams, parses
+  the markdown-ish output for `(stream_id, height)` pairs, and
+  passes `-stream <id>` for the highest variant at-or-below the
+  cap. Gracefully falls back to lux's default if enumeration
+  output isn't parseable (it varies between versions and sites).
+- **you-get** runs `you-get -i <url>` first and passes
+  `--format <tag>` for the highest variant at-or-below the cap.
+  Same graceful-fallback pattern as lux.
+- **gallery-dl** sends per-extractor `-o` overrides:
+  `extractor.twitter.video-quality=high`,
+  `extractor.bilibili.quality=720`, etc. Image-only extractors
+  silently ignore unknown keys, so the spam is safe.
+
+### Why now
+
+v0.4.13.3 fixed Playwright (which catches thisvid and friends),
+but the chain has six other tiers that fire for niche sites. The
+gap was small in practice but real - someone pulling a Bilibili
+clip via lux would silently get 480p regardless of what the
+mini's chip said. Closing it makes the height chip a contract,
+not a hint.
+
+### Tests
+
+cobalt bucket mapping verified for all six edge cases (cap=1
+clamps to 144, cap=4000 clamps to 2160, all standard heights map
+through cleanly). All four tier helpers now expose
+`target_height` in their signature.
+
 ## [0.4.13.3-alpha] - 2026-05-16
 
 Mini-app: second resolution fix. v0.4.13.2 fixed yt-dlp's selector

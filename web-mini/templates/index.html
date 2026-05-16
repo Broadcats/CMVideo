@@ -78,7 +78,7 @@
       <ul>
         <li>Up to <strong>{{ max_duration_min }} minutes</strong> per clip.</li>
         <li>Up to <strong>{{ max_filesize_mb }} MB</strong> per file.</li>
-        <li>Video maxes out at <strong>{{ max_video_height }}p MP4</strong>; audio at <strong>{{ audio_bitrate_kbps }} kbps MP3</strong>.</li>
+        <li>Video maxes out at <strong>{{ max_video_height }}p MP4</strong> by default; the API also accepts <code>quality=hd</code> for <strong>1080p</strong> (slower, larger file). Audio at <strong>{{ audio_bitrate_kbps }} kbps MP3</strong>.</li>
         <li><strong>{{ rate_limit }}</strong> per visitor.</li>
         <li>No censoring, no transcripts, no other formats - those live in the full app.</li>
       </ul>

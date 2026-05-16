@@ -45,12 +45,29 @@ import extractors as _extractors  # multi-tool fallback chain (yt-dlp -> gallery
 # Caps. The "mini" pitch only holds if these stay tight.
 # ---------------------------------------------------------------------------
 MAX_DOWNLOAD_DURATION_SECONDS = 60 * 60          # URL download only (1 hour)
-MAX_DOWNLOAD_FILESIZE_BYTES = 800 * 1024 * 1024  # URL download only
 MAX_CENSOR_DURATION_SECONDS = 8 * 60             # transcription is slow on free CPU
 MAX_CENSOR_FILESIZE_BYTES = 100 * 1024 * 1024    # cap upload + output
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024             # multipart body size
-MAX_VIDEO_HEIGHT = 720
 AUDIO_BITRATE_KBPS = "192"
+
+# Quality tiers. "standard" stays the default because the speed wins
+# from 0.4.11 (single-file progressive MP4, no merge step) only apply
+# at 720p - bumping the default to 1080p makes first-impression
+# pulls slower for everyone. HD is opt-in.
+ALLOWED_QUALITY = {"standard", "hd"}
+DEFAULT_QUALITY = "standard"
+QUALITY_HEIGHTS = {"standard": 720, "hd": 1080}
+# 1080p source can run 1.3-2.7 GB/hr on AVC; bump the per-job size
+# cap accordingly. HF Spaces' ephemeral disk is ~50 GB so even three
+# concurrent HD pulls (~4.5 GB tmp) is fine.
+QUALITY_DOWNLOAD_CAPS = {
+    "standard": 800 * 1024 * 1024,
+    "hd":      1_500 * 1024 * 1024,
+}
+# Back-compat: anywhere downstream still references the legacy
+# constants we keep them pointing at the standard tier.
+MAX_VIDEO_HEIGHT = QUALITY_HEIGHTS[DEFAULT_QUALITY]
+MAX_DOWNLOAD_FILESIZE_BYTES = QUALITY_DOWNLOAD_CAPS[DEFAULT_QUALITY]
 
 # 1-hour 720p AVC files land around 600-800 MB. From the HF Space's
 # datacenter peering that pulls in roughly 60-180s depending on
@@ -563,7 +580,7 @@ def _ydl_common_opts(
     return opts
 
 
-def _video_format_selector(fps: str = "source") -> str:
+def _video_format_selector(fps: str = "source", *, height: int | None = None) -> str:
     """Pick the format yt-dlp should download.
 
     The order matters for SPEED, not just quality: a single-file
@@ -574,8 +591,14 @@ def _video_format_selector(fps: str = "source") -> str:
     the network time. We try the progressive single-file first, and
     only fall through to the split-track form if no progressive
     variant exists at the cap (modern YouTube is the main offender).
+
+    `height` controls the resolution cap. Defaults to 720 (the
+    `standard` quality tier). When `height` is 1080 we still embed
+    a 720 fallback at the bottom of the selector so an HD request
+    against a source that doesn't expose 1080 still produces a file
+    rather than failing the whole job.
     """
-    h = MAX_VIDEO_HEIGHT
+    h = int(height or MAX_VIDEO_HEIGHT)
     # FPS clause: empty for "source", [fps<=30] for 30,
     # [fps>=50] for 60 (real 60fps streams sometimes report 59.94).
     fps_clause = {
@@ -583,7 +606,7 @@ def _video_format_selector(fps: str = "source") -> str:
         "30": "[fps<=30]",
         "60": "[fps>=50]",
     }.get(fps, "")
-    return (
+    base = (
         # 1) Progressive MP4 with audio baked in - one stream, no merge.
         f"best[height<={h}]{fps_clause}[ext=mp4][acodec!=none]/"
         f"best[height<={h}][ext=mp4][acodec!=none]/"
@@ -595,9 +618,19 @@ def _video_format_selector(fps: str = "source") -> str:
         f"bestvideo[height<={h}]{fps_clause}[ext=mp4]+bestaudio/"
         f"bestvideo[height<={h}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
         f"bestvideo[height<={h}][ext=mp4]+bestaudio/"
-        # 4) Last resort - any container at the cap.
-        f"best[height<={h}]/best"
+        # 4) Last resort at the requested height - any container.
+        f"best[height<={h}]/"
     )
+    # If the user asked for HD and the source has nothing at 1080,
+    # fall back through the standard tier rather than letting the
+    # job error out. yt-dlp picks the highest-matching tier.
+    if h > 720:
+        base += (
+            f"best[height<=720][ext=mp4][acodec!=none]/"
+            f"bestvideo[height<=720][ext=mp4]+bestaudio/"
+            f"best[height<=720]/"
+        )
+    return base + "best"
 
 
 # Direct-media-URL fast path: extensions that point straight at a
@@ -729,6 +762,7 @@ def _do_download(
     max_filesize: int,
     fps: str = "source",
     *,
+    height: int | None = None,
     progress_hook=None,
     on_attempt=None,
 ) -> Path:
@@ -751,7 +785,7 @@ def _do_download(
     opts = _ydl_common_opts(tmpdir, max_duration, max_filesize, progress_hook=progress_hook)
     if fmt == "mp4":
         opts.update({
-            "format": _video_format_selector(fps),
+            "format": _video_format_selector(fps, height=height),
             "merge_output_format": "mp4",
             "postprocessors": [
                 {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"},
@@ -923,6 +957,9 @@ async def index(request: Request):
             "max_censor_min": MAX_CENSOR_DURATION_SECONDS // 60,
             "max_censor_mb": MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024),
             "max_video_height": MAX_VIDEO_HEIGHT,
+            "qualities": sorted(ALLOWED_QUALITY),
+            "default_quality": DEFAULT_QUALITY,
+            "quality_heights": dict(QUALITY_HEIGHTS),
             "audio_bitrate_kbps": AUDIO_BITRATE_KBPS,
             "rate_limit": RATE_LIMIT_PER_HOUR,
         },
@@ -1085,6 +1122,7 @@ async def _run_pipeline_async(
     md: str,
     fmt: str,
     fps_choice: str,
+    quality_choice: str,
     have_url: bool,
     clean_url: Optional[str],
     saved_upload: Optional[Path],
@@ -1101,7 +1139,12 @@ async def _run_pipeline_async(
         if have_url:
             assert clean_url is not None
             max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
-            max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+            # HD download mode lifts the per-job size cap to fit
+            # 1080p clips. Censor mode is unaffected because the
+            # transcript step is the bottleneck, not the bytes.
+            quality_cap = QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            max_size = quality_cap if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+            target_height = QUALITY_HEIGHTS.get(quality_choice, MAX_VIDEO_HEIGHT)
 
             # Track download speed across hook invocations so the
             # frontend can render `2.4 MB/s · 14s left` instead of a
@@ -1160,6 +1203,7 @@ async def _run_pipeline_async(
                     asyncio.to_thread(
                         _do_download,
                         clean_url, fmt, tmpdir, max_dur, max_size, fps_choice,
+                        height=target_height,
                         progress_hook=_yt_progress,
                         on_attempt=_on_attempt,
                     ),
@@ -1432,6 +1476,7 @@ async def api_process(
     url: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     fps: str = Form("source"),
+    quality: str = Form(DEFAULT_QUALITY),
 ):
     # Hardening gates run BEFORE we touch any of the request body, so
     # an attacker can't make us allocate tmpdirs / stream uploads
@@ -1443,15 +1488,33 @@ async def api_process(
     fmt = (format or "").lower().strip()
     md = (mode or "").lower().strip()
     fps_choice = (fps or "source").lower().strip()
+    quality_choice = (quality or DEFAULT_QUALITY).lower().strip()
     if fmt not in ALLOWED_FORMATS:
         raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
     if md not in ALLOWED_MODES:
         raise HTTPException(status_code=400, detail="Mode must be 'download', 'silence', or 'beep'.")
     if fps_choice not in ALLOWED_FPS:
         raise HTTPException(status_code=400, detail="FPS must be 'source', '30', or '60'.")
+    if quality_choice not in ALLOWED_QUALITY:
+        raise HTTPException(status_code=400, detail="Quality must be 'standard' or 'hd'.")
     # FPS is video-only; ignore the field for MP3.
     if fmt == "mp3":
         fps_choice = "source"
+        quality_choice = DEFAULT_QUALITY  # height is meaningless for audio
+    # 1080p + fps override = libx264 ultrafast at 1080p on 2 shared
+    # vCPUs, which runs at ~5x slower than realtime. An 8-min censor
+    # job would hit the ffmpeg timeout. Refuse the combo with a clear
+    # message instead of silently coercing - users who specifically
+    # picked 60fps deserve to know why we're not honoring it.
+    if quality_choice == "hd" and fps_choice in {"30", "60"}:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "1080p + fps override is too slow on the mini's shared CPU. "
+                "Pick 720p (Standard) for 30/60 fps, or 1080p with Source fps. "
+                "The desktop app handles both at any combination."
+            ),
+        )
 
     have_url = bool(url and url.strip())
     have_file = file is not None and bool(file.filename)
@@ -1499,6 +1562,7 @@ async def api_process(
             asyncio.create_task(_run_pipeline_async(
                 job,
                 md=md, fmt=fmt, fps_choice=fps_choice,
+                quality_choice=quality_choice,
                 have_url=have_url, clean_url=clean_url,
                 saved_upload=saved_upload,
             ))
@@ -1519,10 +1583,15 @@ async def api_process(
         if have_url:
             clean_url = _validate_url(url)
             max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
-            max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+            quality_cap = QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            max_size = quality_cap if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+            target_height = QUALITY_HEIGHTS.get(quality_choice, MAX_VIDEO_HEIGHT)
             try:
                 src = await asyncio.wait_for(
-                    asyncio.to_thread(_do_download, clean_url, fmt, tmpdir, max_dur, max_size, fps_choice),
+                    asyncio.to_thread(
+                        _do_download, clean_url, fmt, tmpdir, max_dur, max_size, fps_choice,
+                        height=target_height,
+                    ),
                     timeout=DOWNLOAD_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
@@ -1735,6 +1804,10 @@ async def api_limits():
         "rate_limit": RATE_LIMIT_PER_HOUR,
         "modes": sorted(ALLOWED_MODES),
         "formats": sorted(ALLOWED_FORMATS),
+        "qualities": sorted(ALLOWED_QUALITY),
+        "default_quality": DEFAULT_QUALITY,
+        "quality_heights": dict(QUALITY_HEIGHTS),
+        "quality_download_caps_mb": {k: v // (1024 * 1024) for k, v in QUALITY_DOWNLOAD_CAPS.items()},
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
         "hardening": {
             "killswitch_active": _killswitch_active(),

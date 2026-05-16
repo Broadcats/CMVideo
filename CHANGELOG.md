@@ -3,6 +3,62 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13-alpha] - 2026-05-16
+
+Mini-app: optional **1080p HD** download tier. 720p stays the default
+(it's the fast path and what makes "Preview & Pull" feel snappy);
+HD is one click away when the user wants better quality and is happy
+to wait for the bigger file.
+
+### Added
+
+- **Quality chip group** under the existing fps row: `720p ·
+  fastest` (default) vs `1080p · larger · slower`. Sends a new
+  `quality` form field (`standard` / `hd`) on `/api/process`.
+- **Per-quality download size cap.** `standard` keeps the existing
+  800 MB ceiling; `hd` lifts it to 1.5 GB to fit a 1-hour 1080p AVC
+  source. Censor mode is unaffected (transcript is the bottleneck,
+  not bytes).
+- **HD-aware format selector.** `_video_format_selector` now takes a
+  `height` arg. When 1080p is requested it tries progressive 1080p
+  first, then split tracks at 1080p, then falls back through 720p
+  rather than failing the job outright on sources that don't expose
+  HD.
+- `/api/limits` and `/api/info` now expose `qualities`,
+  `default_quality`, `quality_heights`, and (on `/api/limits`)
+  `quality_download_caps_mb` so the widget can stay in sync if the
+  caps are tuned later.
+
+### Performance guardrails
+
+- **1080p + 30/60 fps override is rejected.** libx264 ultrafast at
+  1080p on the Space's 2 shared vCPUs runs ~5x slower than realtime,
+  which would blow the ffmpeg cap on any clip more than a couple of
+  minutes long. The frontend visibly disables the override fps pills
+  when HD is selected; the backend returns a 400 with a clear "use
+  the desktop app for that combination" message if anyone tries the
+  combination via raw API.
+- HD download mode keeps the existing 360 s download timeout - HF
+  egress at ~10 MB/s easily completes a 1.5 GB pull inside the
+  budget, with headroom for the merge step on split-track sources.
+
+### UI
+
+- Caps blurb on the homepage now reads "≤1 hr / 800 MB at 720p (or
+  1.5 GB at 1080p)" and lists 720p / 1080p in the quality summary.
+- Inline cyan heads-up appears below the chips when 1080p is
+  selected, calling out the larger file, the longer pull time, and
+  why 30/60 fps is locked to Source for HD on the mini.
+
+### Why the default is still 720p
+
+A bumped global default would slow down everyone's first impression
+of the widget - 1080p is roughly 2x the bytes of 720p and the
+single-file fast path that gives us 4x speedups in 0.4.11 hits less
+often at 1080p. Keeping 720p as default preserves the fast path for
+the 80%+ of pulls where nobody actually cares about resolution, and
+lets the people who do explicitly opt in.
+
 ## [0.4.12-alpha] - 2026-05-16
 
 Mini-service hardening pass for "what happens when this blows up

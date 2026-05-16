@@ -605,22 +605,32 @@ h1 {
 
 .shot-fmt-row,
 .shot-mode-row,
-.shot-fps-row {
+.shot-fps-row,
+.shot-quality-row {
   margin-bottom: 8px;
 }
-.shot-fps-row.hidden { display: none; }
+.shot-fps-row.hidden,
+.shot-quality-row.hidden { display: none; }
 .shot-fmt-row .pill,
 .shot-mode-row .pill,
-.shot-fps-row .pill {
+.shot-fps-row .pill,
+.shot-quality-row .pill {
   position: relative;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
+.shot-fps-row .pill.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+.shot-fps-row .pill.disabled input[type="radio"] { cursor: not-allowed; }
 .shot-fmt-row .pill input[type="radio"],
 .shot-mode-row .pill input[type="radio"],
-.shot-fps-row .pill input[type="radio"] {
+.shot-fps-row .pill input[type="radio"],
+.shot-quality-row .pill input[type="radio"] {
   position: absolute;
   opacity: 0;
   inset: 0;
@@ -659,6 +669,20 @@ h1 {
 .shot-mode-note strong { color: #fde68a; }
 .shot-mode-note a { color: #fde68a; text-decoration: underline; }
 .shot-mode-note[hidden] { display: none; }
+
+/* Same look as the censor heads-up but in cyan to differentiate. */
+.shot-quality-note {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.07);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim, #cbd5e1);
+}
+.shot-quality-note strong { color: #bae6fd; }
+.shot-quality-note[hidden] { display: none; }
 
 .hero-mini .shot-btn {
   cursor: pointer;
@@ -1116,9 +1140,9 @@ h1 {
   .shot-field input[type="url"] { font-size: 16px; }
   .shot-hint { font-size: 12px; margin: 2px 4px 12px; }
 
-  /* ---- format / mode / fps pills: bigger tap targets ----- */
-  .shot-fmt-row, .shot-mode-row, .shot-fps-row { gap: 6px; margin-bottom: 10px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill {
+  /* ---- format / mode / fps / quality pills: bigger tap targets ----- */
+  .shot-fmt-row, .shot-mode-row, .shot-fps-row, .shot-quality-row { gap: 6px; margin-bottom: 10px; }
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill, .shot-quality-row .pill {
     padding: 9px 14px;
     font-size: 13px;
     min-height: 36px;
@@ -1211,7 +1235,7 @@ h1 {
   .mini-tag { font-size: 0.5em; padding: 2px 6px; }
 
   .shot-row { gap: 6px; }
-  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill {
+  .shot-fmt-row .pill, .shot-mode-row .pill, .shot-fps-row .pill, .shot-quality-row .pill {
     padding: 8px 12px;
     font-size: 12px;
   }

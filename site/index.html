@@ -216,38 +216,40 @@
                 </svg>
               </span>
               <span class="yt-fullapp-text">
-                <strong>YouTube downloads available in the full version</strong>
-                <span class="yt-fullapp-sub">Mini does in-browser cleanwatch only — the desktop app saves the file.</span>
+                <strong>YouTube works best in the desktop app</strong>
+                <span class="yt-fullapp-sub">Mini supports YouTube MP4 / MP3 download (best-effort) — censoring and 100% reliability live in the full app.</span>
               </span>
               <span class="yt-fullapp-arrow" aria-hidden="true">↓</span>
             </a>
 
             <details class="shot-legal">
-              <summary>Why no YouTube download here?</summary>
+              <summary>How does YouTube work here?</summary>
               <p>
-                YouTube’s Terms of Service forbid third-party servers from
-                downloading their content, and YouTube actively blocks cloud-hosted
-                scrapers at the network level. Running a public YouTube downloader
-                on a free host would be both a ToS violation and a constant
-                cat-and-mouse game.
+                <strong>Plain download (MP4 / MP3) works in the mini.</strong>
+                YouTube actively rate-limits cloud-hosted scrapers, so we route
+                YouTube traffic through a residential-IP proxy to look like a
+                normal home connection. Success rate is solid for short, public,
+                non-age-gated clips — call it "best-effort". If a particular video
+                fails, the desktop app is the safer next step.
               </p>
               <p>
-                So instead, when you paste a YouTube URL here we embed the
-                official YouTube player and auto-mute the swears in your browser.
-                No video bytes ever touch our server. Embedding is explicitly
-                allowed by YouTube’s ToS.
+                <strong>Censoring (silence / beep) on YouTube redirects to the
+                desktop app.</strong> Censor mode needs the transcript API, which
+                YouTube guards more aggressively than the video itself. The
+                desktop app runs from your own connection, where the API behaves
+                normally.
               </p>
               <p>
-                <strong>Every other source still works as a normal download here</strong>
+                <strong>Every other source works as a normal download here</strong>
                 — Vimeo, TikTok, Reddit, X, Twitch, SoundCloud, Bandcamp and
-                ~1,800 other sites that yt-dlp supports.
+                ~1,800 other sites that yt-dlp supports, with the same
+                residential-proxy boost on the sites that need it.
               </p>
               <p>
-                <strong>And YouTube downloads work perfectly in the full desktop
-                app</strong> — because it runs on your machine, on your IP, as a
-                personal-use tool. That’s the legally clean path and the one
-                that doesn’t depend on whatever YouTube’s anti-bot system did
-                this week.
+                <strong>The desktop app is still the most reliable option for
+                YouTube</strong> — it runs on your machine, on your IP, as a
+                personal-use tool, with no proxy in the middle and no anti-bot
+                surprises.
               </p>
             </details>
           </form>
@@ -295,7 +297,7 @@
 
   <section id="downloads" class="downloads">
     <div class="container">
-      <h2>Get CMVideo <span class="ver">0.4.13.5-alpha</span></h2>
+      <h2>Get CMVideo <span class="ver">0.4.7-alpha</span></h2>
       <p class="muted">
         Linux gets a single-file AppImage; Windows gets a single
         <code>.exe</code> &mdash; download and double-click. No installer,
@@ -303,7 +305,7 @@
       </p>
 
       <div class="download-grid">
-        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.13.5-alpha/CMVideo-0.4.13.5-alpha-x86_64.AppImage">
+        <a class="dl-card" data-os="linux" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.7-alpha/CMVideo-0.4.7-alpha-x86_64.AppImage">
           <div class="dl-icon"><img class="os-img os-img-linux" src="tux.svg" width="64" height="76" alt="" aria-hidden="true" decoding="async" loading="lazy" /></div>
           <div class="dl-title">Linux</div>
           <div class="dl-sub">
@@ -312,7 +314,7 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.13.5-alpha/CMVideo-0.4.13.5-alpha-win-amd64.exe">
+        <a class="dl-card" data-os="windows" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.7-alpha/CMVideo-0.4.7-alpha-win-amd64.exe">
           <div class="dl-icon"><svg class="os-svg os-svg-windows" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 3.449L9.75 2.1 9.755 11.5 0 11.5zm10.949-1.501L24 0 24 11.5 10.949 11.5zM0 12.5L9.75 12.5 9.755 21.9 0 20.551zm10.949 0L24 12.5 24 24 10.949 22.1z" fill="#00adef"/></svg></div>
           <div class="dl-title">Windows</div>
           <div class="dl-sub">
@@ -321,7 +323,7 @@
           </div>
         </a>
 
-        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.13.5-alpha/CMVideo-0.4.13.5-alpha-source.tar.gz">
+        <a class="dl-card" data-os="mac" href="https://github.com/Broadcats/CMVideo/releases/download/v0.4.7-alpha/CMVideo-0.4.7-alpha-source.tar.gz">
           <div class="dl-icon"><svg class="os-svg os-svg-mac" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" fill="#f5f5f7"/></svg></div>
           <div class="dl-title">macOS</div>
           <div class="dl-sub">
@@ -333,12 +335,12 @@
 
       <p class="muted small">
         Linux quickstart:
-        <code>chmod +x CMVideo-0.4.13.5-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.13.5-alpha-x86_64.AppImage</code>
+        <code>chmod +x CMVideo-0.4.7-alpha-x86_64.AppImage &amp;&amp; ./CMVideo-0.4.7-alpha-x86_64.AppImage</code>
         &middot;
         Windows: if SmartScreen appears, choose &ldquo;More info&rdquo; &rarr;
         &ldquo;Run anyway&rdquo; (unsigned prerelease build).
         &middot;
-        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.13.5-alpha" target="_blank" rel="noopener noreferrer">checksums &amp; release notes</a>
+        <a href="https://github.com/Broadcats/CMVideo/releases/tag/v0.4.7-alpha" target="_blank" rel="noopener noreferrer">checksums &amp; release notes</a>
       </p>
 
       <p class="muted small">

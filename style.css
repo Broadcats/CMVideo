@@ -627,6 +627,39 @@ h1 {
   cursor: pointer;
 }
 
+/* Inline cap hint inside the censor mode chips ("Silence swears
+ * <8 min>"). Lives in its own line so the main label keeps the
+ * size it had before. */
+.chip-text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+.chip-hint {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-dim, #94a3b8);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+.chip.pill.on .chip-hint { color: rgba(255, 255, 255, 0.78); }
+
+/* Yellow heads-up shown only when a censor mode is selected. */
+.shot-mode-note {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.08);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #facc15;
+}
+.shot-mode-note strong { color: #fde68a; }
+.shot-mode-note a { color: #fde68a; text-decoration: underline; }
+.shot-mode-note[hidden] { display: none; }
+
 .hero-mini .shot-btn {
   cursor: pointer;
   transition: filter 0.12s, transform 0.08s;

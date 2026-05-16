@@ -117,16 +117,26 @@
   var btn         = document.getElementById("mini-btn");
   var statusEl    = document.getElementById("mini-status");
 
+  // Caps mirror MAX_DOWNLOAD_DURATION_SECONDS / MAX_CENSOR_DURATION_SECONDS
+  // in web-mini/app.py. Kept duplicated here because the widget has no
+  // way to ask the backend for them cheaply, and these don't change
+  // often. If you bump them in app.py, bump them here too.
+  var MAX_DOWNLOAD_DURATION_S = 60 * 60;     // 1 hour
+  var MAX_CENSOR_DURATION_S   = 8 * 60;      // 8 min - the surprising one
+  var MAX_DOWNLOAD_FILESIZE_MB = 800;
+  var MAX_CENSOR_FILESIZE_MB   = 100;
+
   var BTN_LABELS = {
     download: "Download",
-    silence:  "Silence swears",
-    beep:     "Beep swears"
+    silence:  "Silence swears (\u2264 8 min)",
+    beep:     "Beep swears (\u2264 8 min)"
   };
   var BUSY_LABELS = {
     download: "Downloading\u2026",
-    silence:  "Transcribing\u2026",
-    beep:     "Transcribing\u2026"
+    silence:  "Transcribing (\u2264 8 min cap)\u2026",
+    beep:     "Transcribing (\u2264 8 min cap)\u2026"
   };
+  var modeNoteEl = document.getElementById("mini-mode-note");
 
   function getMode()   { var s = form.querySelector('input[name="mini-mode"]:checked'); return s ? s.value : "download"; }
   function getFormat() { var s = form.querySelector('input[name="mini-fmt"]:checked');  return s ? s.value : "mp4"; }
@@ -142,6 +152,13 @@
   function syncBtnLabel() {
     if (!btn) return;
     btn.textContent = BTN_LABELS[getMode()] || "Download";
+  }
+
+  function syncModeNote() {
+    if (!modeNoteEl) return;
+    var m = getMode();
+    if (m === "silence" || m === "beep") modeNoteEl.removeAttribute("hidden");
+    else                                 modeNoteEl.setAttribute("hidden", "");
   }
 
   function setBusy(b) {
@@ -169,13 +186,14 @@
             if (pill) pill.classList.toggle("on", i.checked);
           }
         );
-        if (groupName === "mini-mode") syncBtnLabel();
+        if (groupName === "mini-mode") { syncBtnLabel(); syncModeNote(); }
         if (groupName === "mini-fmt")  syncFpsRow();
       });
     }
   );
   syncBtnLabel();
   syncFpsRow();
+  syncModeNote();
 
   /* ---- selected file row ---- */
   var selectedFile = null;
@@ -284,9 +302,49 @@
       return;
     }
 
+    // Local pre-flight checks: file size for uploads, source duration
+    // for URLs in censor mode. Cheaper than letting the backend reject
+    // with a 413/504 after the user already waited for the cold-start.
+    var capMB   = (mode === "download") ? MAX_DOWNLOAD_FILESIZE_MB : MAX_CENSOR_FILESIZE_MB;
+    if (selectedFile && selectedFile.size > capMB * 1024 * 1024) {
+      setStatus(
+        "That file is " + Math.round(selectedFile.size / 1024 / 1024) +
+        " MB \u2014 over the " + capMB + " MB " + (mode === "download" ? "download" : "censor") +
+        " cap. Use the desktop app for full-size files.",
+        "error"
+      );
+      return;
+    }
+
     setBusy(true);
     setStatus("Submitting\u2026", "busy");
     setProgress(0, "Submitting\u2026", true);
+
+    // Censor mode + URL: ask the backend for duration before we
+    // commit to the rate-limiter. If it's over 8 min we never burn a
+    // job slot and the user gets an instant, clear rejection.
+    var preflight = Promise.resolve();
+    if ((mode === "silence" || mode === "beep") && !selectedFile) {
+      preflight = fetch(MINI_API_BASE + "/api/info", {
+        method: "POST", mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url })
+      }).then(function (res) {
+        if (!res.ok) return null;       // info failed - let the backend handle it
+        return res.json().catch(function () { return null; });
+      }).then(function (info) {
+        if (!info || info.duration == null) return;
+        if (info.duration > MAX_CENSOR_DURATION_S) {
+          var mins = Math.floor(info.duration / 60);
+          var secs = Math.round(info.duration % 60);
+          var len  = mins + ":" + (secs < 10 ? "0" : "") + secs;
+          throw new Error(
+            "That clip is " + len + " \u2014 over the 8-minute mini-app censor cap. " +
+            "Use the desktop app at cmvideo.online for full-length censoring."
+          );
+        }
+      });
+    }
 
     var fd = new FormData();
     fd.append("format", fmt);
@@ -299,7 +357,10 @@
     //   POST /api/process?async=1   -> { job_id }
     //   poll GET /api/jobs/{id}     -> { stage, pct, ready, error, filename }
     //   when ready: GET /api/jobs/{id}/file
-    fetch(MINI_API_BASE + "/api/process?async=1", { method: "POST", mode: "cors", body: fd })
+    preflight
+      .then(function () {
+        return fetch(MINI_API_BASE + "/api/process?async=1", { method: "POST", mode: "cors", body: fd });
+      })
       .then(function (res) {
         if (!res.ok) return mapHttpError(res);
         return res.json();

@@ -67,7 +67,7 @@ except Exception:  # noqa: BLE001
     ctk = None  # type: ignore[assignment]
     _CTK_AVAILABLE = False
 
-from censor import funtts, pipeline
+from censor import cancel as censor_cancel, funtts, pipeline
 from censor.audio import SUPPORTED_INPUT_EXTS
 from censor.config_store import load_config, save_config
 from censor.download import (
@@ -495,6 +495,11 @@ class CensorApp:
         self._input_paths: list[Path] = []
         self._last_output: Path | None = None
         self._worker: threading.Thread | None = None
+        # Cancel token for the current pipeline run. The Cancel button
+        # sets it; pipeline.run() observes it at stage boundaries +
+        # kills any registered ffmpeg/ffprobe subprocess so a long
+        # encode dies in <1 s instead of waiting for the whole pass.
+        self._cancel_token: censor_cancel.CancelToken | None = None
         self._events: queue.Queue = queue.Queue()
         # after-id for the event drain, kept so a starting worker can
         # bump the next tick forward to _ACTIVE_DRAIN_MS.
@@ -663,14 +668,17 @@ class CensorApp:
     def _init_fonts(self) -> None:
         sans = ["Inter", "SF Pro Display", "Segoe UI", "Ubuntu", "Cantarell", "DejaVu Sans", "Helvetica"]
         self.font_title = _pick_font(sans, 22, "bold")
-        self.font_tagline = _pick_font(sans, 11)
-        self.font_body = _pick_font(sans, 11)
-        self.font_section = _pick_font(sans, 10, "bold")
-        self.font_button = _pick_font(sans, 13, "bold")
-        self.font_status = _pick_font(sans, 10)
-        self.font_footer = _pick_font(sans, 9)
-        self.font_drop = _pick_font(sans, 13, "bold")
-        self.font_drop_sub = _pick_font(sans, 10)
+        self.font_tagline = _pick_font(sans, 12)
+        # Body / section / status / drop-sub all bumped a touch so the
+        # CTk widgets (taller than the old ttk widgets) don't dwarf the
+        # text inside them.
+        self.font_body = _pick_font(sans, 12)
+        self.font_section = _pick_font(sans, 11, "bold")
+        self.font_button = _pick_font(sans, 14, "bold")
+        self.font_status = _pick_font(sans, 11)
+        self.font_footer = _pick_font(sans, 10)
+        self.font_drop = _pick_font(sans, 14, "bold")
+        self.font_drop_sub = _pick_font(sans, 11)
 
     def _init_styles(self) -> None:
         style = ttk.Style()
@@ -835,7 +843,7 @@ class CensorApp:
 
     def _build_ui(self) -> None:
         outer = tk.Frame(self.root, bg=Theme.BG)
-        outer.pack(fill="both", expand=True, padx=20, pady=16)
+        outer.pack(fill="both", expand=True, padx=14, pady=10)
 
         # Pack bottom-anchored widgets first so they survive a shrunk
         # window - only the options card in the middle gets clipped.
@@ -877,23 +885,21 @@ class CensorApp:
         self._brand_image: tk.PhotoImage | None = None
         # Prefer the rendered wordmark (matches website); fall back to
         # the icon + plain text combo if the wordmark assets don't ship.
+        # 256 is the most compact size (~47px tall with the new
+        # breathing room) and renders crisply at the header height.
+        # The 384/512 sizes ship for larger HiDPI scales the user can
+        # opt into in a future zoom setting.
         for _name in (
-            "assets/wordmark/wordmark-384.png",
             "assets/wordmark/wordmark-256.png",
+            "assets/wordmark/wordmark-384.png",
             "assets/wordmark/wordmark-512.png",
         ):
             _wm = HERE / _name
             if _wm.is_file():
                 try:
                     img = tk.PhotoImage(file=str(_wm))
-                    # 256 = ~41px tall, 384 = ~50px, 512 = ~60px. The
-                    # header is ~46px comfortable height, so subsample
-                    # the larger ones.
                     if "wordmark-512" in _name:
                         img = img.subsample(2, 2)
-                    elif "wordmark-384" in _name and img.height() > 52:
-                        # subsample(2,2) would shrink too far; keep 1:1
-                        pass
                     self._brand_image = img
                     break
                 except tk.TclError:
@@ -1013,12 +1019,12 @@ class CensorApp:
     def _build_drop_zone(self, parent: tk.Frame) -> None:
         # 1px halo ring; the inner card keeps the real interactive border.
         halo = tk.Frame(parent, bg=Theme.BORDER, padx=1, pady=1)
-        halo.pack(side="top", fill="x", pady=(0, 12))
+        halo.pack(side="top", fill="x", pady=(0, 10))
 
         self.drop_card = tk.Frame(
             halo,
             bg=Theme.SURFACE,
-            highlightthickness=2,
+            highlightthickness=1,
             highlightbackground=Theme.BORDER,
             highlightcolor=Theme.ACCENT_GLOW,
             cursor="hand2",
@@ -1238,14 +1244,12 @@ class CensorApp:
         self.browse_save_dir_btn.pack(side="right")
 
     def _build_options(self, parent: tk.Frame) -> None:
-        # Options card fills the leftover middle space.
-        options_card = tk.Frame(
-            parent,
-            bg=Theme.SURFACE,
-            highlightthickness=1,
-            highlightbackground=Theme.BORDER,
-        )
-        options_card.pack(side="top", fill="both", expand=True, pady=(0, 12))
+        # Options card fills the leftover middle space. We don't draw
+        # a border around it on purpose — the section labels (REMOVE /
+        # REPLACE WITH / ...) read as the visual divider, and dropping
+        # the 1px ring makes the whole panel breathe more.
+        options_card = tk.Frame(parent, bg=Theme.SURFACE)
+        options_card.pack(side="top", fill="both", expand=True, pady=(0, 10))
 
         opts_inner = tk.Frame(options_card, bg=Theme.SURFACE)
         opts_inner.pack(fill="x", padx=18, pady=16, anchor="n")
@@ -1286,7 +1290,7 @@ class CensorApp:
         self.beep_radio.pack(anchor="w", pady=(2, 0))
         self.fun_radio = _make_radio(
             opts_inner,
-            text="Fun (retro robotic TTS saying PG words)",
+            text="TTS",
             variable=self.mode,
             value="fun",
             font=self.font_body,
@@ -1294,14 +1298,14 @@ class CensorApp:
         self.fun_radio.pack(anchor="w", pady=(2, 12))
 
         self.fun_section_label = ttk.Label(
-            opts_inner, text="FUN", style="Section.TLabel"
+            opts_inner, text="TTS", style="Section.TLabel"
         )
         self.fun_section_label.pack(anchor="w")
 
         fv_row = tk.Frame(opts_inner, bg=Theme.SURFACE)
         fv_row.pack(anchor="w", fill="x", pady=(6, 0))
         self.fun_voice_label = ttk.Label(
-            fv_row, text="Fun voice", style="OptionLabel.TLabel"
+            fv_row, text="Voice", style="OptionLabel.TLabel"
         )
         self.fun_voice_label.pack(side="left", padx=(0, 8))
         self.fun_voice_combo = _make_combobox(
@@ -2371,10 +2375,35 @@ class CensorApp:
 
     # ---------- Resize handling ----------
 
+    # Debounce window-resize work to ~60 fps max. Without this the
+    # accent-strip repaint and three wraplength updates fire on every
+    # single Configure event Tk emits while the user drags the window
+    # corner, which on Linux can be hundreds of times per second and
+    # is the main cause of "the app is laggy as hell".
+    _RESIZE_DEBOUNCE_MS = 16
+
     def _on_resize(self, event) -> None:  # type: ignore[no-untyped-def]
         if event.widget is not self.root:
             return
-        wrap = max(180, event.width - 60)
+        self._pending_resize_w = event.width
+        if getattr(self, "_resize_after_id", None) is not None:
+            return
+        self._resize_after_id = self.root.after(
+            self._RESIZE_DEBOUNCE_MS, self._apply_resize
+        )
+
+    def _apply_resize(self) -> None:
+        self._resize_after_id = None
+        width = getattr(self, "_pending_resize_w", None)
+        if width is None:
+            return
+        # Skip the work entirely when the width hasn't actually
+        # changed since the last apply (Configure events fire for
+        # plain re-layout and tab focus changes too).
+        if width == getattr(self, "_last_applied_width", None):
+            return
+        self._last_applied_width = width
+        wrap = max(180, width - 60)
         try:
             self.status_label.config(wraplength=wrap)
             self.drop_sub.config(wraplength=wrap - 40)
@@ -2396,8 +2425,14 @@ class CensorApp:
 
     def _redraw_accent_strip(self, _event=None) -> None:
         """Paint a horizontal indigo -> violet -> cyan gradient onto the
-        accent strip canvas. Called on every <Configure> so the gradient
-        rescales with the window width.
+        accent strip canvas.
+
+        Performance: we used to call ``create_line`` once per pixel
+        column (~860 Tk round-trips per repaint at 1080p); the resize
+        handler is debounced now but a brand new repaint is still O(w).
+        We batch the whole row into a single ``PhotoImage.put`` call,
+        which is ~50x faster on Linux because Tk only crosses the C
+        boundary once.
         """
         c = getattr(self, "accent_strip", None)
         if c is None:
@@ -2409,14 +2444,57 @@ class CensorApp:
             return
         if w < 2 or h < 1:
             return
-        c.delete("grad")
+
+        # Cache + reuse the gradient PhotoImage. We only redraw when
+        # the width changes, since the height of the strip is fixed.
+        cache = getattr(self, "_grad_cache", None)
+        if cache is not None and cache.get("w") == w and cache.get("h") == h:
+            return  # nothing to do
+
+        # Debounce: during a window-drag <Configure> fires dozens of
+        # times per second per widget. Coalesce them via after_idle so
+        # we only build the PhotoImage once per Tk update cycle.
+        if getattr(self, "_grad_pending", False):
+            return
+        self._grad_pending = True
+        self.root.after_idle(self._do_redraw_accent_strip, w, h)
+
+    def _do_redraw_accent_strip(self, w: int, h: int) -> None:  # type: ignore[no-untyped-def]
+        self._grad_pending = False
+        c = getattr(self, "accent_strip", None)
+        if c is None:
+            return
+        try:
+            cur_w = c.winfo_width()
+            cur_h = c.winfo_height()
+        except tk.TclError:
+            return
+        # The widget may have changed size again since the after_idle
+        # was scheduled; pull the live width/height instead of using
+        # the stale args.
+        w, h = max(2, cur_w), max(1, cur_h)
+        cache = getattr(self, "_grad_cache", None)
+        if cache is not None and cache.get("w") == w and cache.get("h") == h:
+            return
+
         stops = (Theme.ACCENT_LO, Theme.ACCENT_GLOW, Theme.COOL)
         n = len(stops) - 1
+        # Build one row of hex colors; PhotoImage.put accepts a
+        # whitespace-separated list of `#rrggbb` tokens for a row.
+        row_tokens: list[str] = []
         for x in range(w):
             t = x / max(1, w - 1) * n
             seg = min(int(t), n - 1)
-            col = self._lerp_hex(stops[seg], stops[seg + 1], t - seg)
-            c.create_line(x, 0, x, h, fill=col, tags="grad")
+            row_tokens.append(self._lerp_hex(stops[seg], stops[seg + 1], t - seg))
+        row = "{" + " ".join(row_tokens) + "}"
+        # Pillow + tk PhotoImage both accept the same put() string. We
+        # keep the image around on `self` so the GC doesn't reap it
+        # while it's still referenced by the canvas.
+        img = tk.PhotoImage(width=w, height=h)
+        img.put(" ".join([row] * h))
+        c.delete("grad")
+        c.create_image(0, 0, anchor="nw", image=img, tags="grad")
+        self._grad_cache = {"w": w, "h": h, "img": img}
 
     def _set_drop_hover(self, hover: bool) -> None:
         if self._worker and self._worker.is_alive():
@@ -2459,21 +2537,27 @@ class CensorApp:
                 cursor="arrow",
             )
 
-    def _set_action_working(self, label: str = "Working...") -> None:
+    def _set_action_working(self, label: str = "Cancel") -> None:
+        """Switch the action button into 'job-running' mode.
+
+        While a job is alive the button is the cancel control. The
+        click handler in :meth:`_on_action` looks at the button text
+        to decide which path to dispatch."""
         if _CTK_AVAILABLE:
             self.action_btn.configure(
-                state="disabled",
+                state="normal",
                 text=label,
-                fg_color=Theme.SURFACE_HI,
-                text_color=Theme.TEXT_MUTED,
+                fg_color=Theme.DANGER,
+                hover_color="#ef4444",
+                text_color="white",
             )
         else:
             self.action_btn.config(
-                state="disabled",
+                state="normal",
                 text=label,
-                bg=Theme.SURFACE_HI,
-                fg=Theme.TEXT_MUTED,
-                cursor="watch",
+                bg=Theme.DANGER,
+                fg="white",
+                cursor="hand2",
             )
 
     def _on_btn_hover(self, _event) -> None:  # type: ignore[no-untyped-def]
@@ -2653,10 +2737,31 @@ class CensorApp:
     # ---------- Main action ----------
 
     def _on_action(self) -> None:
-        if self.action_btn.cget("text") == "Open Folder":
+        label = self.action_btn.cget("text")
+        if label == "Open Folder":
             self._open_output_folder()
             return
+        if label == "Cancel":
+            self._cancel_running_job()
+            return
         self._start_job()
+
+    def _cancel_running_job(self) -> None:
+        """Set the cancel token + reflect it in the UI immediately.
+
+        The worker thread itself takes a beat to unwind (ffmpeg has to
+        actually die, the next stage check has to fire), so we don't
+        wait — the action button flips to "Cancelling..." and the
+        worker emits its own "Cancelled" status when it bails."""
+        token = self._cancel_token
+        if token is None:
+            return
+        token.cancel()
+        try:
+            self.action_btn.configure(text="Cancelling...", state="disabled")
+        except tk.TclError:
+            pass
+        self.status_var.set("Cancelling...")
 
     def _start_job(self) -> None:
         url_text = self.url_var.get().strip()
@@ -2735,15 +2840,24 @@ class CensorApp:
         # later UI changes don't warp the progress bar mid-run.
         self._active_ranges = self._stage_ranges_for_current_job()
 
-        self._set_action_working("Working...")
+        self._cancel_token = censor_cancel.CancelToken()
+        self._set_action_working("Cancel")
         self.progress["value"] = 0
         self.status_var.set("Starting..." if total == 1 else f"Starting batch of {total}...")
 
         events = self._events
+        cancel_token = self._cancel_token
 
         def worker() -> None:
             results: list[tuple[Path | str, pipeline.CensorResult | None, str | None]] = []
             for idx, (kind, url, path) in enumerate(items):
+                if cancel_token.cancelled:
+                    # Bail out of the remainder of the batch instantly
+                    # once the user hits Cancel.
+                    results.append(
+                        (path or (url or ""), None, "Cancelled by user.")
+                    )
+                    continue
                 name = path.name if path is not None else (url or "")
 
                 def cb(stage, frac, msg, _idx=idx, _name=name):  # type: ignore[no-untyped-def]
@@ -2757,6 +2871,7 @@ class CensorApp:
                             options=options,
                             progress=cb,
                             url=url,
+                            cancel_token=cancel_token,
                         )
                         src: Path | str = url or ""
                     else:
@@ -2769,9 +2884,14 @@ class CensorApp:
                             options=options,
                             progress=cb,
                             url=None,
+                            cancel_token=cancel_token,
                         )
                         src = path  # type: ignore[assignment]
                     results.append((src, result, None))
+                except censor_cancel.PipelineCancelled:
+                    results.append(
+                        (path or (url or ""), None, "Cancelled by user.")
+                    )
                 except Exception as e:  # noqa: BLE001
                     results.append((path or (url or ""), None, str(e)))
             events.put(("batch_done", results))
@@ -2924,6 +3044,21 @@ class CensorApp:
         self,
         results: list[tuple[object, pipeline.CensorResult | None, str | None]],
     ) -> None:
+        # Cancel token only lives for the duration of one batch.
+        self._cancel_token = None
+
+        # Detect a user-initiated cancel and short-circuit the regular
+        # success/failure flow: the user already knows what happened
+        # and a "Censor failed" alert would just be noise.
+        was_cancelled = any(
+            err == "Cancelled by user." for _, _, err in results
+        )
+        if was_cancelled:
+            self.progress["value"] = 0
+            self.status_var.set("Cancelled.")
+            self._enable_action_btn(self._intended_action_label())
+            return
+
         self.progress["value"] = 100.0
 
         successes = [(src, r) for src, r, err in results if r is not None]

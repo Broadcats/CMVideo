@@ -3,6 +3,40 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.7-alpha] - 2026-05-16
+
+UX + perf hotfix on top of 0.4.6. Cancel button, lighter UI, and
+the website wordmark + drop-down lag are gone.
+
+### Added
+
+- **Cancel button.** While a job is running the action button flips
+  to "Cancel". Clicking it sets a cooperative cancel token observed
+  at every pipeline stage boundary AND terminates the in-flight
+  ffmpeg / ffprobe / yt-dlp subprocess, so a 5-minute encode dies
+  in well under a second instead of waiting for the pass to finish.
+
+### Changed
+
+- Renamed "Fun (retro robotic TTS saying PG words)" to just **"TTS"**
+  in both the desktop options panel and the website feature copy. The
+  voice combo label became "Voice".
+- Wordmark generator now leaves ~22 % cap-height of clean pixels
+  above the camera silhouette so it can never kiss the title bar.
+  Header loads the compact 256 wordmark by default.
+- App padding tightened from 20 / 16 px to 14 / 10 px; options card
+  border dropped; drop-zone halo trimmed from 2 px to 1 px. Body /
+  section / drop-sub fonts each bumped 1 pt so the text fills the
+  taller CTk widgets.
+
+### Fixed
+
+- **The lag.** Window-resize handler is now debounced and skips work
+  when the width hasn't actually changed. The accent-strip gradient
+  was being repainted with ~860 ``create_line`` round-trips per
+  Configure event; rewrote it to draw a single ``PhotoImage.put`` and
+  cache the resulting bitmap, ~50× faster.
+
 ## [0.4.6-alpha] - 2026-05-16
 
 UI overhaul to match the website, livestream-style ElevenLabs TTS

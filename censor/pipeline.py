@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import audio, download, funtts, transcribe, wordlist
+from . import audio, cancel as cancel_mod, download, funtts, transcribe, wordlist
 
 
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -143,6 +143,7 @@ def run(
     options: CensorOptions,
     progress: ProgressCb | None = None,
     url: str | None = None,
+    cancel_token: "cancel_mod.CancelToken | None" = None,
 ) -> CensorResult:
     """Run the pipeline. Supports four modes:
 
@@ -162,12 +163,56 @@ def run(
     if not url and not input_path:
         raise RuntimeError("No input: drop a file or paste a URL.")
 
+    # Publish the cancel token globally so audio.py / download.py /
+    # extractors.py can spawn subprocesses inside `token.registered()`
+    # without us having to thread the token through every signature.
+    # We restore the previous active token on exit so a future nested
+    # run() (none today, but cheap insurance) doesn't get clobbered.
+    _prev_token = cancel_mod.get_active()
+    cancel_mod.set_active(cancel_token)
+
+    def _check_cancel() -> None:
+        if cancel_token is not None and cancel_token.cancelled:
+            raise cancel_mod.PipelineCancelled("Cancelled by user.")
+
+    try:
+        return _run_body(
+            input_path=input_path,
+            output_path=output_path,
+            options=options,
+            progress=progress,
+            url=url,
+            cancel_token=cancel_token,
+            check_cancel=_check_cancel,
+        )
+    finally:
+        cancel_mod.set_active(_prev_token)
+
+
+def _run_body(
+    *,
+    input_path: Path | None,
+    output_path: Path | None,
+    options: CensorOptions,
+    progress: ProgressCb | None,
+    url: str | None,
+    cancel_token: "cancel_mod.CancelToken | None",
+    check_cancel: Callable[[], None],
+) -> CensorResult:
+    """Body of :func:`run`, factored out so the active-token cleanup
+    in :func:`run` is unconditional."""
     # Stage 0: download (only if URL).
     if url:
+        check_cancel()
         dl_dir = options.output_dir or download.default_download_dir()
         _emit(progress, "download", 0.0, "Starting download...")
 
         def _dlcb(frac: float, msg: str) -> None:
+            # Honour cancel from inside yt-dlp's progress hook so a
+            # 5-minute download dies on the next chunk, not when the
+            # whole thing finishes.
+            if cancel_token is not None and cancel_token.cancelled:
+                raise cancel_mod.PipelineCancelled("Cancelled by user.")
             _emit(progress, "download", frac, msg)
 
         try:
@@ -180,7 +225,15 @@ def run(
                 cookies_file=options.cookies_file,
                 progress_cb=_dlcb,
             )
+        except cancel_mod.PipelineCancelled:
+            raise
         except Exception as e:  # noqa: BLE001
+            # The cancel token is set after the user pressed Cancel and
+            # yt-dlp also bails. We translate the resulting yt-dlp
+            # error into a clean PipelineCancelled so the GUI shows a
+            # cancelled message instead of a scary traceback.
+            if cancel_token is not None and cancel_token.cancelled:
+                raise cancel_mod.PipelineCancelled("Cancelled by user.") from e
             raise RuntimeError(str(e)) from e
         _emit(progress, "download", 1.0, f"Downloaded: {downloaded.name}")
         input_path = downloaded
@@ -236,13 +289,20 @@ def run(
     with tempfile.TemporaryDirectory(prefix="censor_") as tmp:
         wav_path = Path(tmp) / "audio.wav"
 
+        check_cancel()
         _emit(progress, "extract", 0.0, "Extracting audio...")
         audio.extract_audio_wav(input_path, wav_path)
         _emit(progress, "extract", 1.0, "Audio extracted.")
+        check_cancel()
 
         _emit(progress, "transcribe", 0.0, "Transcribing audio...")
 
         def _tcb(frac: float) -> None:
+            # Whisper segments are ~30s each, so this fires every few
+            # seconds during a long transcribe; it's the cleanest hook
+            # we have to honour cancel mid-transcription.
+            if cancel_token is not None and cancel_token.cancelled:
+                raise cancel_mod.PipelineCancelled("Cancelled by user.")
             _emit(progress, "transcribe", frac, f"Transcribing audio... {int(frac * 100)}%")
 
         words = transcribe.transcribe(
@@ -251,6 +311,7 @@ def run(
             progress_cb=_tcb,
         )
         _emit(progress, "transcribe", 1.0, f"Transcribed {len(words)} words.")
+        check_cancel()
 
         flagged: list[wordlist.FlaggedWord] = []
         intervals: list[tuple[float, float]] = []
@@ -297,6 +358,7 @@ def run(
             )
 
         if not transcript_only:
+            check_cancel()
             if options.mode == "fun":
                 if not funtts.is_available():
                     raise RuntimeError(funtts.INSTALL_HINT)
@@ -308,6 +370,7 @@ def run(
                 tts_dir.mkdir(exist_ok=True)
                 clips: list[tuple[float, float, Path]] = []
                 for i, (s, e) in enumerate(intervals):
+                    check_cancel()
                     word = funtts.pick_pg_word(e - s)
                     clip_path = tts_dir / f"tts_{i:04d}.wav"
                     funtts.generate_tts(

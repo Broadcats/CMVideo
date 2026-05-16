@@ -201,22 +201,31 @@ def render_wordmark(width: int) -> Image.Image:
     cluster_w = max(stem_w, camera.width)
     cluster_h = cam_h + gap + stem_h
 
-    # Total composition width
-    pad = max(8, int(text_h * 0.10))
+    # Total composition width. Vertical padding has to be generous
+    # enough that the camera silhouette never kisses the top edge of
+    # the bitmap (the Tk header that hosts this PNG can shave a few
+    # pixels in some themes), so we use ~22% of cap height instead of
+    # the originally tighter 10%.
+    pad_x = max(8, int(text_h * 0.10))
+    pad_y_top = max(14, int(text_h * 0.22))
+    pad_y_bottom = max(8, int(text_h * 0.12))
     total_w = (
         left_white.width
         + v_glyph.width
         + cluster_w
         + right_glyph.width
-        + pad * 2
+        + pad_x * 2
     )
-    total_h = max(text_h, cluster_h) + pad * 2
+    total_h = max(text_h, cluster_h) + pad_y_top + pad_y_bottom
     canvas = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
 
-    baseline_y = (total_h - text_h) // 2
-    cluster_y0 = (total_h - cluster_h) // 2
+    # Anchor the text vertically near the bottom of the available area
+    # and the camera+stem cluster at the top, so the camera always has
+    # `pad_y_top` clean pixels above it.
+    baseline_y = total_h - text_h - pad_y_bottom
+    cluster_y0 = pad_y_top
 
-    x = pad
+    x = pad_x
     canvas.paste(left_white, (x, baseline_y), left_white)
     x += left_white.width
     canvas.paste(v_glyph, (x, baseline_y), v_glyph)

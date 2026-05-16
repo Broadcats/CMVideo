@@ -8,6 +8,38 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import cancel as _cancel
+
+
+def _spawn_cancellable(cmd: list[str]) -> subprocess.CompletedProcess:
+    """Run an ffmpeg/ffprobe command, killable via the active CancelToken.
+
+    Behaves like :func:`subprocess.run` with capture_output=True and
+    check=False, but spawns the child via Popen so an in-flight cancel
+    can terminate it instead of waiting for the encode to finish.
+    Raises :class:`cancel.PipelineCancelled` if cancel fires before
+    or during the call.
+    """
+    _cancel.raise_if_cancelled()
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    token = _cancel.get_active()
+    if token is not None:
+        token.register(proc)
+    try:
+        stdout, stderr = proc.communicate()
+    finally:
+        if token is not None:
+            token.unregister(proc)
+    if token is not None and token.cancelled:
+        # Subprocess was killed by token.cancel(); surface it cleanly.
+        raise _cancel.PipelineCancelled("Cancelled by user.")
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
 
 SUPPORTED_INPUT_EXTS = {
     # Video containers
@@ -70,7 +102,7 @@ def extract_audio_wav(input_path: Path, wav_path: Path) -> None:
         "-c:a", "pcm_s16le",
         str(wav_path),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = _spawn_cancellable(cmd)
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg audio extraction failed:\n{proc.stderr.strip()}")
 
@@ -135,7 +167,10 @@ def _write_filter_script(filter_text: str) -> str:
 
 
 def _run_ffmpeg(cmd: list[str], failure_msg: str) -> None:
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    """Module-private helper used by render_censored / render_censored_fun
+    / finalize_output. Now goes through `_spawn_cancellable` so a Cancel
+    button click kills the encode mid-flight rather than after."""
+    proc = _spawn_cancellable(cmd)
     if proc.returncode != 0:
         raise RuntimeError(f"{failure_msg}:\n{proc.stderr.strip()}")
 

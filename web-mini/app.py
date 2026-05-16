@@ -846,6 +846,7 @@ def _do_download(
             fmt=fmt,
             ydl_opts=opts,
             on_attempt=_wrap_attempt,
+            target_height=int(height or MAX_VIDEO_HEIGHT),
         )
     except _extractors.ExtractionError as exc:
         # Surface as a yt-dlp DownloadError-shaped exception so the

@@ -3,6 +3,46 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13.3-alpha] - 2026-05-16
+
+Mini-app: second resolution fix. v0.4.13.2 fixed yt-dlp's selector
+but tube-style sites (thisvid, etc.) don't actually go through
+yt-dlp - they fall through to the multi-extractor chain and end up
+at the Playwright tier. The Playwright candidate ranker had two
+cascading bugs that produced low-quality output regardless of
+which height the user picked.
+
+### Fixed
+
+- **Playwright scorer is now resolution-aware.** The old scorer
+  ranked candidates by `(HLS, DASH, MP4, response_size)` and
+  ignored resolution entirely. New `_rank_candidates` parses height
+  hints out of CDN URLs (`_720p.mp4`, `?quality=1080`,
+  `/resolution=1280x720`, `/720/abc.mp4`, etc) and picks the highest
+  variant at or below the cap. Falls back to legacy size-based
+  ranking only when no height can be inferred.
+- **HLS master playlists are now resolved server-side.** When a
+  captured candidate is an HLS master `.m3u8`, we fetch it,
+  parse the `#EXT-X-STREAM-INF` lines (RESOLUTION, BANDWIDTH), and
+  pick the variant playlist URL whose height fits the cap.
+  Previously we handed ffmpeg the master and ffmpeg defaulted to
+  the FIRST variant in the manifest - usually the lowest. This
+  was the dominant cause of "looks like 480p regardless of choice"
+  on thisvid.
+- **`target_height` plumbed through the extractor chain.** Added a
+  `target_height` kwarg to `extract_with_fallbacks`,
+  `playwright_download`, `_playwright_download_locked`, and
+  `_playwright_download_from_capture`. The user's quality choice
+  now actually reaches the tier that does the work.
+
+### Tests
+
+10/10 height-hint extraction cases pass (covers `_720p.mp4`,
+`?quality=`, `?res=`, `?resolution=NxH`, bare `/720/`, and the
+opaque-URL fallback). Synthetic HLS master correctly resolves to
+720p, 1080p, falls back gracefully when cap is below all
+variants, and picks the highest when the cap is unset.
+
 ## [0.4.13.2-alpha] - 2026-05-16
 
 Mini-app: fix the resolution regression. Downloads were silently

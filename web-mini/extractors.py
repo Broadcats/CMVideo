@@ -746,10 +746,16 @@ def playwright_download(
     *,
     fmt: str = "mp4",
     timeout: int = PLAYWRIGHT_MAX_WALL_S,
+    target_height: int = 720,
 ) -> ExtractionResult:
     """Universal-ish fallback: spin up a headless Chromium, navigate
     to the page, sniff network responses for HLS/DASH manifests or
     direct video URLs, then hand the best candidate to ffmpeg.
+
+    `target_height` is the max video height the user asked for. We use
+    it to rank captured candidates by URL-encoded resolution hints
+    (`_720p.mp4`, `?quality=1080`, etc) and to pick the right variant
+    out of HLS master playlists.
 
     Will refuse to run if free RAM is below `PLAYWRIGHT_MIN_FREE_MB`
     or if `PLAYWRIGHT_MAX_CONCURRENCY` browsers are already running.
@@ -768,7 +774,9 @@ def playwright_download(
         )
 
     try:
-        return _playwright_download_locked(url, dst_dir, fmt=fmt, timeout=timeout)
+        return _playwright_download_locked(
+            url, dst_dir, fmt=fmt, timeout=timeout, target_height=target_height,
+        )
     finally:
         _playwright_semaphore.release()
 
@@ -779,6 +787,7 @@ def _playwright_download_locked(
     *,
     fmt: str,
     timeout: int,
+    target_height: int = 720,
 ) -> ExtractionResult:
     from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
 
@@ -886,25 +895,32 @@ def _playwright_download_locked(
     if not media_urls:
         raise ExtractionError("Playwright saw no media manifests on this page")
 
-    # Score candidates: prefer HLS, then DASH, then mp4, then size hint.
-    def _score(item):
-        u, ct, sz = item
-        u_l = u.lower()
-        return (
-            ".m3u8" in u_l or "mpegurl" in ct,
-            ".mpd" in u_l or "dash" in ct,
-            ".mp4" in u_l or "video/mp4" in ct,
-            sz,
-        )
-
-    media_urls.sort(key=_score, reverse=True)
+    # Quality-aware ranking: pick the best candidate at or below the
+    # user's height cap (parsing height hints out of CDN URL paths
+    # like `_720p.mp4`, `?quality=1080`, etc). Falls through to
+    # legacy size-based tie-breaking when no height can be inferred.
+    media_urls = _rank_candidates(media_urls, max_height=target_height)
     best_url = media_urls[0][0]
-    log.info("playwright candidates=%d, picked=%s", len(media_urls), best_url[:120])
+    log.info(
+        "playwright candidates=%d picked=%s height_hint=%d cap=%d",
+        len(media_urls), best_url[:120],
+        _extract_height_hint(best_url, media_urls[0][1]),
+        target_height,
+    )
 
     out_file = dst_dir / f"playwright.{fmt}"
     headers = dict(candidate_hdrs.get(best_url) or {})
-    ok, err = _ffmpeg_capture_url(
+    # If best_url is an HLS master, swap in the variant URL that
+    # matches our height cap before handing it to ffmpeg. Lets us
+    # avoid ffmpeg's "first variant in the manifest" default.
+    fetch_url = _resolve_hls_variant(
         best_url,
+        request_headers=headers,
+        cookies=cookies_snapshot,
+        max_height=target_height,
+    )
+    ok, err = _ffmpeg_capture_url(
+        fetch_url,
         out_file,
         request_headers=headers,
         cookies=cookies_snapshot,
@@ -917,8 +933,14 @@ def _playwright_download_locked(
                 continue
             log.info("playwright primary candidate failed; retrying %s", alt_url[:120])
             alt_headers = dict(candidate_hdrs.get(alt_url) or headers)
-            ok, err = _ffmpeg_capture_url(
+            alt_fetch = _resolve_hls_variant(
                 alt_url,
+                request_headers=alt_headers,
+                cookies=cookies_snapshot,
+                max_height=target_height,
+            )
+            ok, err = _ffmpeg_capture_url(
+                alt_fetch,
                 out_file,
                 request_headers=alt_headers,
                 cookies=cookies_snapshot,
@@ -957,6 +979,7 @@ def extract_with_fallbacks(
         "llm",  # Tier 8: LLM-assisted, only fires if env-configured
     ),
     on_attempt: Callable[[str, str], None] | None = None,
+    target_height: int = 720,
 ) -> ExtractionResult:
     """Try each tool in order until one wins. Raises ExtractionError if
     every applicable tool is exhausted."""
@@ -1068,7 +1091,9 @@ def extract_with_fallbacks(
             _llm = _import_llm_extract()
             _playwright_memory_check()
             shared_capture = _llm.capture_page(url)
-            r = _playwright_download_from_capture(shared_capture, dst_dir, fmt=fmt)
+            r = _playwright_download_from_capture(
+                shared_capture, dst_dir, fmt=fmt, target_height=target_height,
+            )
             r.attempts = attempts + ["playwright: ok"]
             return r
         except ExtractionError as exc:
@@ -1115,6 +1140,217 @@ def extract_with_fallbacks(
     if last_error is not None:
         msg = f"{msg} Last error: {last_error.message}"
     raise ExtractionError(msg, attempts=attempts)
+
+
+# ---- Height-aware candidate ranking & HLS variant resolution ---------------
+#
+# Why these exist: the previous Playwright scorer ranked candidates by
+# (HLS, DASH, MP4, response_size) which had two cascading bugs:
+#
+#   1. HLS master playlists won the rank, but a master `.m3u8` is just
+#      a text file pointing at variant streams at different bitrates.
+#      ffmpeg's default behavior on a master playlist is to pick the
+#      FIRST variant in the manifest - usually the lowest. So every
+#      quality choice on tube-style sites silently produced 240p/360p
+#      regardless of what the user asked for.
+#
+#   2. When the master picked direct MP4s, the tiebreaker was response
+#      size. A fully-loaded 480p variant beats a partially-loaded 1080p
+#      variant - again, low quality wins.
+#
+# Fix: parse a height hint out of the URL/path/query string itself (CDN
+# URLs almost universally encode height as `_720p`, `/720/`, `?res=720`,
+# `?quality=720` or similar), rank candidates by height-within-cap
+# first, AND resolve HLS master playlists server-side so we hand ffmpeg
+# the specific variant URL we want rather than letting it pick.
+#
+# Anything that can't be parsed (`?quality=high`, opaque tokens) falls
+# back to the legacy size-based tiebreak so we never regress to "no
+# pick at all".
+
+# Heights we care about. Anything between 144 and 4320 is plausible.
+_HEIGHT_VALUES = (144, 240, 360, 480, 540, 720, 1080, 1440, 2160, 4320)
+
+# Patterns we recognise inside URL paths/query strings. Each pattern
+# captures the height as group 1.
+_HEIGHT_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
+    r"[/_-](\d{3,4})p(?:[/_.\-?&]|$)",     # /720p/, _1080p., -480p?
+    r"[?&](?:res|height|h|quality|q)=(\d{3,4})\b",
+    r"[?&](?:resolution)=\d+x(\d{3,4})\b",
+    r"[/_-](\d{3,4})x(?:\d{3,4})(?:[/_.\-?&]|$)",  # /1280x720/
+    r"\bx(\d{3,4})(?:[/_.\-?&]|$)",        # ...x720.mp4
+    r"[/_-](\d{3,4})(?:[/_.\-?&]|$)",      # bare /720/, _720. (last resort)
+))
+
+
+def _extract_height_hint(url: str, content_type: str = "") -> int:
+    """Return the resolution (height in lines) suggested by the URL's
+    path/query, or 0 if we can't tell. Conservative: only returns a
+    plausible height (one of `_HEIGHT_VALUES`) so accidental matches
+    on timestamps or IDs don't poison ranking.
+    """
+    if not url:
+        return 0
+    # Decode percent-escapes once so `?quality%3D720` matches too.
+    try:
+        sample = urllib.parse.unquote(url)
+    except Exception:  # noqa: BLE001
+        sample = url
+    for pat in _HEIGHT_PATTERNS:
+        m = pat.search(sample)
+        if not m:
+            continue
+        try:
+            n = int(m.group(1))
+        except (ValueError, IndexError):
+            continue
+        if n in _HEIGHT_VALUES:
+            return n
+    return 0
+
+
+def _rank_candidates(
+    candidates: list[tuple[str, str, int]],
+    *,
+    max_height: int,
+) -> list[tuple[str, str, int]]:
+    """Return `candidates` sorted from best to worst given a height cap.
+
+    Ranking (each tuple element is descending):
+      0. height_within_cap: known height that fits at or below cap wins
+         over anything else. Higher height (closer to cap) is better.
+      1. container_score: prefer mp4 > webm > m3u8 (master) > mpd >
+         other. Master playlists are demoted because ffmpeg's variant
+         pick is unreliable; we still try them last so we never lose
+         the one-and-only manifest case.
+      2. height_above_cap_penalty: known heights ABOVE the cap can
+         still be used as a fallback (better something than nothing)
+         but rank below within-cap candidates.
+      3. size: legacy tiebreaker - bigger response = more likely real
+         media, not a tracking pixel.
+    """
+    cap = int(max_height) if max_height else 0
+
+    def container_score(u_l: str, ct: str) -> int:
+        ct = (ct or "").lower()
+        if ".mp4" in u_l or "video/mp4" in ct:
+            return 4
+        if ".webm" in u_l or "video/webm" in ct:
+            return 3
+        if ".m3u8" in u_l or "mpegurl" in ct:
+            return 2  # demoted from "winner" to "use only if nothing else"
+        if ".mpd" in u_l or "dash" in ct:
+            return 1
+        return 0
+
+    def key(item: tuple[str, str, int]) -> tuple:
+        u, ct, sz = item
+        u_l = u.lower()
+        h = _extract_height_hint(u, ct)
+        if cap > 0 and h > 0 and h <= cap:
+            within = h            # 144..1080 in cap; bigger is better
+            penalty = 0
+        elif cap > 0 and h > cap:
+            within = 0
+            penalty = -(h - cap)  # closer-to-cap-from-above is better
+        else:
+            within = 0            # unknown height
+            penalty = 0
+        return (
+            within,
+            container_score(u_l, ct),
+            penalty,
+            sz or 0,
+        )
+
+    return sorted(candidates, key=key, reverse=True)
+
+
+def _resolve_hls_variant(
+    master_url: str,
+    *,
+    request_headers: dict[str, str] | None,
+    cookies: list[dict] | None,
+    max_height: int,
+) -> str:
+    """If `master_url` points at an HLS master playlist, fetch it,
+    pick the variant whose RESOLUTION fits inside `max_height`
+    (preferring the highest such variant), and return that variant's
+    absolute URL. If `master_url` isn't actually a master, or we
+    can't parse it, return `master_url` unchanged - ffmpeg will then
+    handle it as before.
+
+    This is the fix for tube-style sites where the captured candidate
+    is `index-master.m3u8` and ffmpeg's default variant pick lands on
+    the lowest-bitrate stream. With this resolver, we hand ffmpeg the
+    specific 720p (or whatever fits) variant URL directly.
+    """
+    if not master_url or ".m3u8" not in master_url.lower():
+        return master_url
+    headers = dict(request_headers or {})
+    cookie_header = _build_cookie_header(cookies, master_url)
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+    headers.setdefault(
+        "User-Agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    )
+    try:
+        req = urllib.request.Request(master_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read(256 * 1024).decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        log.info("hls master fetch failed (%s); deferring to ffmpeg", exc)
+        return master_url
+
+    # Master playlists contain `#EXT-X-STREAM-INF:` lines; media
+    # playlists contain `#EXTINF:`. If we don't see any STREAM-INF
+    # this isn't a master - leave the URL alone.
+    if "#EXT-X-STREAM-INF" not in body:
+        return master_url
+
+    cap = int(max_height) if max_height else 0
+    variants: list[tuple[int, int, str]] = []  # (height, bandwidth, url)
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("#EXT-X-STREAM-INF"):
+            continue
+        # The very next non-comment line is the variant URL.
+        v_url = ""
+        for j in range(i + 1, len(lines)):
+            cand = lines[j].strip()
+            if cand and not cand.startswith("#"):
+                v_url = cand
+                break
+        if not v_url:
+            continue
+        # RESOLUTION=1280x720, BANDWIDTH=2400000
+        h_match = re.search(r"RESOLUTION=\d+x(\d+)", line)
+        b_match = re.search(r"BANDWIDTH=(\d+)", line)
+        height = int(h_match.group(1)) if h_match else 0
+        bandwidth = int(b_match.group(1)) if b_match else 0
+        v_abs = urllib.parse.urljoin(master_url, v_url)
+        variants.append((height, bandwidth, v_abs))
+
+    if not variants:
+        return master_url
+
+    # Prefer the highest variant that fits the cap. Fall back to the
+    # lowest variant ABOVE the cap if everything is over (so a 1440p-
+    # only stream still produces something rather than failing).
+    within = [v for v in variants if cap == 0 or v[0] <= cap]
+    if within:
+        within.sort(key=lambda v: (v[0], v[1]), reverse=True)
+        chosen = within[0]
+    else:
+        variants.sort(key=lambda v: (v[0], v[1]))
+        chosen = variants[0]
+    log.info(
+        "hls variant pick: cap=%d, picked=%dx?, bw=%d (out of %d variants)",
+        cap, chosen[0], chosen[1], len(variants),
+    )
+    return chosen[2]
 
 
 def _build_cookie_header(cookies: list[dict] | None, target_url: str) -> str:
@@ -1233,36 +1469,40 @@ def _ffmpeg_capture_url(
 
 
 def _playwright_download_from_capture(
-    capture, dst_dir: Path, *, fmt: str
+    capture, dst_dir: Path, *, fmt: str, target_height: int = 720,
 ) -> ExtractionResult:
     """Pick the best media URL from an already-captured page and run
     ffmpeg against it. Used by both the regular Playwright tier and
     the shared-capture path when Tier 8 follows. Refactored out of
-    `playwright_download` so both call sites share scoring logic."""
+    `playwright_download` so both call sites share scoring logic.
+
+    `target_height` is the user's quality cap (720 / 1080). Used for
+    height-aware candidate ranking and HLS variant selection."""
     if not capture.media_candidates:
         raise ExtractionError("Playwright saw no media manifests on this page")
 
-    def _score(item):
-        u, ct, sz = item
-        u_l = u.lower()
-        return (
-            ".m3u8" in u_l or "mpegurl" in ct,
-            ".mpd" in u_l or "dash" in ct,
-            ".mp4" in u_l or "video/mp4" in ct,
-            sz,
-        )
-
-    media = sorted(capture.media_candidates, key=_score, reverse=True)
+    media = _rank_candidates(list(capture.media_candidates), max_height=target_height)
     best_url = media[0][0]
-    log.info("playwright candidates=%d, picked=%s", len(media), best_url[:120])
+    log.info(
+        "playwright candidates=%d picked=%s height_hint=%d cap=%d",
+        len(media), best_url[:120],
+        _extract_height_hint(best_url, media[0][1]),
+        target_height,
+    )
 
     candidate_hdrs = getattr(capture, "candidate_headers", {}) or {}
     cookies = getattr(capture, "cookies", []) or []
     headers = dict(candidate_hdrs.get(best_url) or {})
 
     out_file = dst_dir / f"playwright.{fmt}"
-    ok, err = _ffmpeg_capture_url(
+    fetch_url = _resolve_hls_variant(
         best_url,
+        request_headers=headers,
+        cookies=cookies,
+        max_height=target_height,
+    )
+    ok, err = _ffmpeg_capture_url(
+        fetch_url,
         out_file,
         request_headers=headers,
         cookies=cookies,
@@ -1278,8 +1518,14 @@ def _playwright_download_from_capture(
                 continue
             log.info("playwright primary candidate failed; retrying %s", alt_url[:120])
             alt_headers = dict(candidate_hdrs.get(alt_url) or headers)
-            ok, err = _ffmpeg_capture_url(
+            alt_fetch = _resolve_hls_variant(
                 alt_url,
+                request_headers=alt_headers,
+                cookies=cookies,
+                max_height=target_height,
+            )
+            ok, err = _ffmpeg_capture_url(
+                alt_fetch,
                 out_file,
                 request_headers=alt_headers,
                 cookies=cookies,

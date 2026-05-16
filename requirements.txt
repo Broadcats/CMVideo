@@ -8,3 +8,24 @@ yt-dlp>=2025.1.0
 # censor/extractors.py for which tool covers which domain.
 gallery-dl>=1.27.0
 streamlink>=6.7.0
+you-get>=0.4.1700
+
+# psutil is needed for the memory guard that gates Playwright. The
+# Python /proc/meminfo fallback works on Linux but is unreliable on
+# macOS and unavailable on Windows; psutil normalises this.
+psutil>=5.9.0
+
+# Playwright (+ a bundled Chromium) is the universal "open the page
+# in a real browser and sniff network requests" fallback. Heavy:
+# ~30 MB Python package and ~450 MB unpacked Chromium per platform.
+# Chromium is *not* a pip dep; it's pulled by `playwright install
+# chromium` post-install. The desktop installer / appimage script
+# runs that step explicitly so the bundled .AppImage / .exe / .dmg
+# ships with the browser ready to go. End users on a venv should
+# run `playwright install chromium` themselves.
+playwright>=1.44.0
+
+# `lux` is a Go binary, not a Python dep. Install it from
+# https://github.com/iawia002/lux/releases (one self-contained
+# binary; just drop it on PATH). The desktop installer scripts
+# fetch the right platform's tarball.

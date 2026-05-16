@@ -87,7 +87,17 @@ jobs:
           d = json.load(open("/tmp/lim.json"))
           assert d["max_download_duration_seconds"] >= 3600, d
           assert d["max_download_filesize_bytes"]   >= 800 * 1024 * 1024, d
-          print("caps OK")
+          # Multi-extractor chain must come back healthy on every
+          # rebuild. yt-dlp + gallery-dl + streamlink + you-get are
+          # always required; lux + playwright are best-effort because
+          # they depend on apt packages that *should* be present but
+          # aren't worth failing the build over if upstream changes.
+          ex = d.get("extractors", {})
+          required = ("yt-dlp", "gallery-dl", "streamlink", "you-get")
+          missing = [t for t in required if not ex.get(t)]
+          assert not missing, f"required extractors missing: {missing}, full state: {ex}"
+          mem = d.get("memory", {})
+          print(f"caps OK; extractors={ex}; memory={mem}")
           PY
               exit 0
             fi

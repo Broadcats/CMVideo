@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -44,6 +46,53 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Memory guard helpers
+# ---------------------------------------------------------------------------
+# Playwright + Chromium is the heavyweight in this module. A headless
+# tab is roughly 150-300 MB resident, plus DOM + media buffers per page.
+# Two of those running at once on a 16 GB HF Space free tier still
+# leaves headroom, but we'd rather refuse to start a third than OOM
+# the worker mid-job. The guard below is intentionally conservative
+# and deliberately lazy - psutil is optional, we fall back to reading
+# /proc/meminfo on Linux (the HF case) and to a "best-effort" answer
+# everywhere else.
+
+PLAYWRIGHT_MIN_FREE_MB = int(os.environ.get("CMVIDEO_PLAYWRIGHT_MIN_FREE_MB", "600"))
+PLAYWRIGHT_MAX_CONCURRENCY = int(os.environ.get("CMVIDEO_PLAYWRIGHT_MAX_CONCURRENCY", "1"))
+_playwright_semaphore = threading.BoundedSemaphore(PLAYWRIGHT_MAX_CONCURRENCY)
+
+
+def _free_memory_mb() -> int | None:
+    """Best-effort estimate of usable free memory, in MiB. None if we
+    can't tell."""
+    try:
+        import psutil  # type: ignore[import-not-found]
+        return int(psutil.virtual_memory().available / (1024 * 1024))
+    except ImportError:
+        pass
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    kb = int(line.split()[1])
+                    return kb // 1024
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    return None
+
+
+def memory_status() -> dict[str, Any]:
+    """Diagnostic snapshot used by /api/limits."""
+    free_mb = _free_memory_mb()
+    return {
+        "free_mb": free_mb,
+        "playwright_min_free_mb": PLAYWRIGHT_MIN_FREE_MB,
+        "playwright_max_concurrency": PLAYWRIGHT_MAX_CONCURRENCY,
+        "playwright_can_start_now": (free_mb is None or free_mb >= PLAYWRIGHT_MIN_FREE_MB),
+    }
 
 # Which sites each non-yt-dlp tool *actually* covers. The dispatcher
 # uses these to skip a tool that has no chance of helping with a given
@@ -59,6 +108,45 @@ GALLERY_DL_DOMAINS = {
     "imgur.com", "i.imgur.com",
     "tiktok.com", "www.tiktok.com",
     "vk.com",
+}
+
+# lux's strongest sites (mostly East Asian video portals + a handful
+# of Western sites). yt-dlp covers most of these too; lux is a
+# fallback specifically for Bilibili / Douyin / Weibo where the
+# Chinese-side extractor logic in yt-dlp lags upstream changes.
+# Source: https://github.com/iawia002/lux#supported-sites
+LUX_DOMAINS = {
+    "bilibili.com", "www.bilibili.com", "b23.tv",
+    "douyin.com", "www.douyin.com", "v.douyin.com",
+    "iqiyi.com", "www.iqiyi.com",
+    "youku.com", "v.youku.com",
+    "weibo.com", "weibo.cn", "video.weibo.com",
+    "qq.com", "v.qq.com",
+    "huya.com",
+    "douyu.com",
+    "kuaishou.com",
+    "ixigua.com",
+    "miaopai.com",
+}
+
+# you-get's coverage overlaps yt-dlp heavily; it's mostly useful as a
+# tertiary fallback for niche Chinese / Japanese sites where yt-dlp
+# extractors broke and lux doesn't cover the URL shape.
+# Source: https://github.com/soimort/you-get#supported-sites
+YOU_GET_DOMAINS = {
+    "bilibili.com", "www.bilibili.com",
+    "iqiyi.com", "www.iqiyi.com",
+    "youku.com", "v.youku.com",
+    "weibo.com",
+    "qq.com", "v.qq.com",
+    "nicovideo.jp",
+    "tudou.com",
+    "le.com", "letv.com",
+    "sohu.com", "tv.sohu.com",
+    "baomihua.com",
+    "yinyuetai.com",
+    "ku6.com",
+    "panda.tv",
 }
 
 # Source: https://github.com/imputnet/cobalt-api/blob/main/api.cobalt.tools/services
@@ -503,6 +591,316 @@ def streamlink_download(
 
 
 # ---------------------------------------------------------------------------
+# lux adapter (Go binary, niche East-Asian portals)
+# ---------------------------------------------------------------------------
+def lux_available() -> bool:
+    return _resolve_tool("lux") is not None
+
+
+def lux_download(url: str, dst_dir: Path, *, timeout: int = 240) -> ExtractionResult:
+    """Download via lux. Raises ExtractionError on failure."""
+    bin_path = _resolve_tool("lux")
+    if not bin_path:
+        raise ExtractionError("lux not installed", terminal=True)
+
+    cmd = [
+        bin_path,
+        "-o", str(dst_dir),
+        "-O", "lux-out",
+        url,
+    ]
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise ExtractionError(f"lux timed out after {timeout}s", terminal=False) from exc
+
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip().splitlines()
+        last = msg[-1] if msg else f"lux exited {proc.returncode}"
+        raise ExtractionError(last[:300], terminal=_is_terminal(last))
+
+    files = sorted(
+        (p for p in dst_dir.rglob("*") if p.is_file() and p.suffix.lower() not in {".part", ".tmp"}),
+        key=lambda p: p.stat().st_size,
+    )
+    if not files:
+        raise ExtractionError("lux produced no output file")
+    primary = files[-1]
+    return ExtractionResult(
+        path=primary,
+        title=primary.stem[:200],
+        duration=None,
+        extractor="lux",
+        site=_domain_of(url),
+    )
+
+
+# ---------------------------------------------------------------------------
+# you-get adapter (Python, niche overlap with yt-dlp)
+# ---------------------------------------------------------------------------
+def you_get_available() -> bool:
+    return _resolve_tool("you-get") is not None
+
+
+def you_get_download(url: str, dst_dir: Path, *, timeout: int = 240) -> ExtractionResult:
+    """Download via you-get."""
+    bin_path = _resolve_tool("you-get")
+    if not bin_path:
+        raise ExtractionError("you-get not installed", terminal=True)
+
+    cmd = [
+        bin_path,
+        "--no-caption",
+        "--output-dir", str(dst_dir),
+        "--output-filename", "you-get-out",
+        url,
+    ]
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise ExtractionError(f"you-get timed out after {timeout}s", terminal=False) from exc
+
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip().splitlines()
+        last = msg[-1] if msg else f"you-get exited {proc.returncode}"
+        raise ExtractionError(last[:300], terminal=_is_terminal(last))
+
+    files = sorted(
+        (p for p in dst_dir.rglob("*") if p.is_file() and p.suffix.lower() not in {".part", ".tmp", ".xml"}),
+        key=lambda p: p.stat().st_size,
+    )
+    if not files:
+        raise ExtractionError("you-get produced no output file")
+    primary = files[-1]
+    return ExtractionResult(
+        path=primary,
+        title=primary.stem[:200],
+        duration=None,
+        extractor="you-get",
+        site=_domain_of(url),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Playwright adapter (universal last-resort browser-based capture)
+# ---------------------------------------------------------------------------
+# We import Playwright lazily so the module load cost stays at zero
+# until something actually needs it. Playwright + Chromium together
+# pull in roughly 250 MB compressed / 450 MB on disk once installed.
+PLAYWRIGHT_NAV_TIMEOUT_MS = 30_000
+PLAYWRIGHT_IDLE_DWELL_MS = 5_000
+PLAYWRIGHT_MAX_WALL_S = int(os.environ.get("CMVIDEO_PLAYWRIGHT_MAX_WALL_S", "120"))
+
+# Heuristic: which response URLs / content-types look like media
+# manifests we can hand to ffmpeg. Order matters - HLS/DASH first
+# because they tend to point at the canonical playable stream, raw
+# .mp4 second.
+_MEDIA_URL_HINTS = (".m3u8", ".mpd", ".mp4", ".webm", ".m4s", ".ts")
+_MEDIA_CT_HINTS = (
+    "application/vnd.apple.mpegurl",
+    "application/x-mpegurl",
+    "application/dash+xml",
+    "video/",
+)
+
+
+def playwright_available() -> bool:
+    """True if both the Python package and the Chromium binary are
+    installed. Chromium without the Python bindings is useless to us."""
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    # The Chromium binary lives under ms-playwright in HOME by default
+    # or under PLAYWRIGHT_BROWSERS_PATH if set. We just check that the
+    # `playwright` CLI reports it installed.
+    cli = _resolve_tool("playwright")
+    if not cli:
+        return False
+    try:
+        r = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=8)
+        if r.returncode != 0:
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+def _playwright_memory_check() -> None:
+    """Refuse to start a Chromium tab when free RAM is below the
+    configured floor. Returning normally means it's safe to proceed."""
+    free = _free_memory_mb()
+    if free is None:
+        return  # unknown, trust the caller
+    if free < PLAYWRIGHT_MIN_FREE_MB:
+        raise ExtractionError(
+            f"Refusing to launch Playwright: only {free} MB free "
+            f"(need {PLAYWRIGHT_MIN_FREE_MB} MB to be safe). Free up "
+            f"memory or use the desktop app."
+        )
+
+
+def playwright_download(
+    url: str,
+    dst_dir: Path,
+    *,
+    fmt: str = "mp4",
+    timeout: int = PLAYWRIGHT_MAX_WALL_S,
+) -> ExtractionResult:
+    """Universal-ish fallback: spin up a headless Chromium, navigate
+    to the page, sniff network responses for HLS/DASH manifests or
+    direct video URLs, then hand the best candidate to ffmpeg.
+
+    Will refuse to run if free RAM is below `PLAYWRIGHT_MIN_FREE_MB`
+    or if `PLAYWRIGHT_MAX_CONCURRENCY` browsers are already running.
+    Both knobs are env-var overridable.
+    """
+    if not playwright_available():
+        raise ExtractionError("Playwright + Chromium not installed", terminal=True)
+
+    _playwright_memory_check()
+
+    if not _playwright_semaphore.acquire(blocking=False):
+        raise ExtractionError(
+            "Another Playwright fallback is already running. Try again "
+            "in a few seconds.",
+            terminal=False,
+        )
+
+    try:
+        return _playwright_download_locked(url, dst_dir, fmt=fmt, timeout=timeout)
+    finally:
+        _playwright_semaphore.release()
+
+
+def _playwright_download_locked(
+    url: str,
+    dst_dir: Path,
+    *,
+    fmt: str,
+    timeout: int,
+) -> ExtractionResult:
+    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+
+    media_urls: list[tuple[str, str, int]] = []  # (url, content-type, response-bytes-hint)
+
+    def _on_response(resp):  # type: ignore[no-untyped-def]
+        try:
+            r_url = resp.url or ""
+            ct = (resp.headers.get("content-type") or "").lower()
+        except Exception:  # noqa: BLE001
+            return
+        url_lc = r_url.lower()
+        is_media_url = any(h in url_lc for h in _MEDIA_URL_HINTS)
+        is_media_ct = any(ct.startswith(h) or h in ct for h in _MEDIA_CT_HINTS)
+        if not (is_media_url or is_media_ct):
+            return
+        size = 0
+        try:
+            cl = resp.headers.get("content-length")
+            size = int(cl) if cl else 0
+        except Exception:  # noqa: BLE001
+            size = 0
+        media_urls.append((r_url, ct, size))
+
+    deadline = time.monotonic() + timeout
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",  # crucial inside Docker
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        try:
+            ctx = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 720},
+            )
+            page = ctx.new_page()
+            page.on("response", _on_response)
+
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=PLAYWRIGHT_NAV_TIMEOUT_MS)
+            except Exception as exc:  # noqa: BLE001
+                raise ExtractionError(f"Playwright navigation failed: {exc}") from exc
+
+            # Try clicking common "play" affordances. Many sites only
+            # request the manifest after a user gesture. Best-effort,
+            # we don't care if any individual click fails.
+            for selector in (
+                'button[aria-label*="lay" i]',
+                'button[aria-label*="layer" i]',
+                'button[title*="lay" i]',
+                'button:has-text("Play")',
+                '[role="button"]:has-text("Play")',
+                'video',
+            ):
+                if time.monotonic() > deadline:
+                    break
+                try:
+                    el = page.locator(selector).first
+                    el.click(timeout=1500)
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+
+            page.wait_for_timeout(min(PLAYWRIGHT_IDLE_DWELL_MS, max(0, int((deadline - time.monotonic()) * 1000))))
+        finally:
+            try:
+                browser.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    if not media_urls:
+        raise ExtractionError("Playwright saw no media manifests on this page")
+
+    # Score candidates: prefer HLS, then DASH, then mp4, then size hint.
+    def _score(item):
+        u, ct, sz = item
+        u_l = u.lower()
+        return (
+            ".m3u8" in u_l or "mpegurl" in ct,
+            ".mpd" in u_l or "dash" in ct,
+            ".mp4" in u_l or "video/mp4" in ct,
+            sz,
+        )
+
+    media_urls.sort(key=_score, reverse=True)
+    best_url = media_urls[0][0]
+    log.info("playwright candidates=%d, picked=%s", len(media_urls), best_url[:120])
+
+    out_file = dst_dir / f"playwright.{fmt}"
+    ff_cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-headers", f"User-Agent: Mozilla/5.0\\r\\n",
+        "-i", best_url,
+        "-t", str(max(60, timeout - 30)),  # cap the recorded segment
+        "-c", "copy",
+        str(out_file),
+    ]
+    try:
+        proc = subprocess.run(ff_cmd, check=False, capture_output=True, text=True, timeout=max(60, timeout))
+    except subprocess.TimeoutExpired as exc:
+        raise ExtractionError("Playwright + ffmpeg capture timed out") from exc
+    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
+        err = (proc.stderr or proc.stdout or "").strip()[-300:]
+        raise ExtractionError(f"ffmpeg refused the captured manifest: {err}")
+
+    return ExtractionResult(
+        path=out_file,
+        title=f"Captured via Playwright ({_domain_of(url)})",
+        duration=None,
+        extractor="playwright",
+        site=_domain_of(url),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 def extract_with_fallbacks(
@@ -511,7 +909,10 @@ def extract_with_fallbacks(
     *,
     fmt: str = "mp4",
     ydl_opts: dict[str, Any] | None = None,
-    enabled: Iterable[str] = ("yt-dlp", "gallery-dl", "cobalt", "streamlink"),
+    enabled: Iterable[str] = (
+        "yt-dlp", "gallery-dl", "cobalt",
+        "lux", "you-get", "streamlink", "playwright",
+    ),
     on_attempt: Callable[[str, str], None] | None = None,
 ) -> ExtractionResult:
     """Try each tool in order until one wins. Raises ExtractionError if
@@ -576,6 +977,51 @@ def extract_with_fallbacks(
             _emit("cobalt", exc.message)
             last_error = exc
 
+    if (
+        "lux" in enabled_set
+        and lux_available()
+        and (not domain or _ends_with_any(domain, LUX_DOMAINS))
+    ):
+        try:
+            r = lux_download(url, dst_dir)
+            r.attempts = attempts + ["lux: ok"]
+            return r
+        except ExtractionError as exc:
+            _emit("lux", exc.message)
+            last_error = exc
+
+    if (
+        "you-get" in enabled_set
+        and you_get_available()
+        and (not domain or _ends_with_any(domain, YOU_GET_DOMAINS))
+    ):
+        try:
+            r = you_get_download(url, dst_dir)
+            r.attempts = attempts + ["you-get: ok"]
+            return r
+        except ExtractionError as exc:
+            _emit("you-get", exc.message)
+            last_error = exc
+
+    # Playwright is the universal last resort. It's slow (~20-60s) and
+    # heavy (~300 MB Chromium tab), so we only invoke it if every
+    # cheaper tool has failed AND the URL clearly points at a public
+    # http(s) page. Live-stream URLs already routed to streamlink at
+    # the top of this function.
+    if (
+        "playwright" in enabled_set
+        and playwright_available()
+        and url.lower().startswith(("http://", "https://"))
+        and not is_live  # streamlink already handled this case
+    ):
+        try:
+            r = playwright_download(url, dst_dir, fmt=fmt)
+            r.attempts = attempts + ["playwright: ok"]
+            return r
+        except ExtractionError as exc:
+            _emit("playwright", exc.message)
+            last_error = exc
+
     msg = "All extractors failed."
     if last_error is not None:
         msg = f"{msg} Last error: {last_error.message}"
@@ -596,12 +1042,17 @@ def _ends_with_any(host: str, suffixes: Iterable[str]) -> bool:
 # ---------------------------------------------------------------------------
 def available_tools() -> dict[str, bool]:
     """Map of tool name -> is-actually-usable. Cobalt only counts as
-    available when an instance has been configured via env."""
+    available when an instance has been configured via env;
+    Playwright counts only when both the Python package and Chromium
+    are installed."""
     out = {
         "yt-dlp": False,
         "gallery-dl": gallery_dl_available(),
         "cobalt": cobalt_available(),
+        "lux": lux_available(),
+        "you-get": you_get_available(),
         "streamlink": streamlink_available(),
+        "playwright": playwright_available(),
     }
     try:
         import yt_dlp  # noqa: F401
@@ -619,20 +1070,15 @@ def tool_versions() -> dict[str, str]:
         versions["yt-dlp"] = getattr(yt_dlp, "__version__", "unknown")
     except ImportError:
         pass
-    gd_bin = _resolve_tool("gallery-dl")
-    if gd_bin:
+    for name in ("gallery-dl", "streamlink", "lux", "you-get", "playwright"):
+        bin_path = _resolve_tool(name)
+        if not bin_path:
+            continue
         try:
-            r = subprocess.run([gd_bin, "--version"], capture_output=True, text=True, timeout=5)
-            versions["gallery-dl"] = (r.stdout or r.stderr).strip().splitlines()[0]
+            r = subprocess.run([bin_path, "--version"], capture_output=True, text=True, timeout=5)
+            versions[name] = ((r.stdout or r.stderr).strip().splitlines() or ["installed"])[0][:80]
         except Exception:  # noqa: BLE001
-            versions["gallery-dl"] = "installed"
-    sl_bin = _resolve_tool("streamlink")
-    if sl_bin:
-        try:
-            r = subprocess.run([sl_bin, "--version"], capture_output=True, text=True, timeout=5)
-            versions["streamlink"] = (r.stdout or r.stderr).strip().splitlines()[0]
-        except Exception:  # noqa: BLE001
-            versions["streamlink"] = "installed"
+            versions[name] = "installed"
     if cobalt_available():
         versions["cobalt"] = COBALT_API_BASE
     else:

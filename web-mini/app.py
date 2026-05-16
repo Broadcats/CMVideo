@@ -918,4 +918,5 @@ async def api_limits():
         "full_app_url": "https://cmvideo.online",
         "extractors": _extractors.available_tools(),
         "extractor_versions": _extractors.tool_versions(),
+        "memory": _extractors.memory_status(),
     }

@@ -26,3 +26,16 @@ youtube-transcript-api==1.2.4
 # required.
 gallery-dl>=1.27.0
 streamlink>=6.7.0
+
+# Tertiary fallbacks for sites where yt-dlp + gallery-dl have failed.
+# you-get is pure Python and tiny (~3 MB).
+you-get>=0.4.1700
+# psutil normalises the memory introspection used by the Playwright
+# guard across distros where /proc/meminfo isn't reliable.
+psutil>=5.9.0
+# Playwright + Chromium is the universal "open the page in a real
+# browser" last resort. The Chromium binary itself is installed via
+# `playwright install chromium` in the Dockerfile so it lands inside
+# the image (~450 MB unpacked).
+playwright==1.59.0
+# lux is a Go binary, fetched directly in the Dockerfile.

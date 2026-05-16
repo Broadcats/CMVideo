@@ -138,9 +138,10 @@
   };
   var modeNoteEl = document.getElementById("mini-mode-note");
 
-  function getMode()   { var s = form.querySelector('input[name="mini-mode"]:checked'); return s ? s.value : "download"; }
-  function getFormat() { var s = form.querySelector('input[name="mini-fmt"]:checked');  return s ? s.value : "mp4"; }
-  function getFPS()    { var s = form.querySelector('input[name="mini-fps"]:checked');  return s ? s.value : "source"; }
+  function getMode()    { var s = form.querySelector('input[name="mini-mode"]:checked');    return s ? s.value : "download"; }
+  function getFormat()  { var s = form.querySelector('input[name="mini-fmt"]:checked');     return s ? s.value : "mp4"; }
+  function getFPS()     { var s = form.querySelector('input[name="mini-fps"]:checked');     return s ? s.value : "source"; }
+  function getQuality() { var s = form.querySelector('input[name="mini-quality"]:checked'); return s ? s.value : "standard"; }
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -168,14 +169,65 @@
   }
 
   /* ---- pill highlight + button-label sync ---- */
-  var fpsRow = document.getElementById("mini-fps-row");
+  var fpsRow      = document.getElementById("mini-fps-row");
+  var qualityRow  = document.getElementById("mini-quality-row");
+  var qualityNote = document.getElementById("mini-quality-note");
+
   function syncFpsRow() {
     if (!fpsRow) return;
     // MP3 has no frames; hide the fps row entirely when audio is selected.
-    fpsRow.classList.toggle("hidden", getFormat() === "mp3");
+    var hideForAudio = getFormat() === "mp3";
+    fpsRow.classList.toggle("hidden", hideForAudio);
+
+    // 1080p + 30/60 fps would re-encode at 1080p on shared CPU and
+    // blow our ffmpeg cap. Disable the override pills (and force
+    // "Source") whenever HD is picked so the user sees what's allowed
+    // without waiting for the backend to bounce the request.
+    var lockToSource = !hideForAudio && getQuality() === "hd";
+    Array.prototype.forEach.call(
+      form.querySelectorAll('input[name="mini-fps"]'),
+      function (i) {
+        var pill = i.closest(".pill");
+        var isOverride = i.value === "30" || i.value === "60";
+        if (lockToSource && isOverride) {
+          if (i.checked) {
+            i.checked = false;
+            var src = form.querySelector('input[name="mini-fps"][value="source"]');
+            if (src) {
+              src.checked = true;
+              var srcPill = src.closest(".pill");
+              if (srcPill) srcPill.classList.add("on");
+            }
+          }
+          i.disabled = true;
+          if (pill) {
+            pill.classList.remove("on");
+            pill.classList.add("disabled");
+            pill.setAttribute("title", "1080p uses Source fps only on the mini app.");
+          }
+        } else {
+          i.disabled = false;
+          if (pill) {
+            pill.classList.remove("disabled");
+            pill.removeAttribute("title");
+          }
+        }
+      }
+    );
   }
+
+  function syncQualityRow() {
+    if (qualityRow) qualityRow.classList.toggle("hidden", getFormat() === "mp3");
+    if (qualityNote) {
+      if (getQuality() === "hd" && getFormat() !== "mp3") qualityNote.removeAttribute("hidden");
+      else                                                qualityNote.setAttribute("hidden", "");
+    }
+  }
+
   Array.prototype.forEach.call(
-    form.querySelectorAll('input[name="mini-fmt"], input[name="mini-mode"], input[name="mini-fps"]'),
+    form.querySelectorAll(
+      'input[name="mini-fmt"], input[name="mini-mode"], input[name="mini-fps"], input[name="mini-quality"]'
+    ),
     function (input) {
       input.addEventListener("change", function () {
         var groupName = input.getAttribute("name");
@@ -186,12 +238,14 @@
             if (pill) pill.classList.toggle("on", i.checked);
           }
         );
-        if (groupName === "mini-mode") { syncBtnLabel(); syncModeNote(); }
-        if (groupName === "mini-fmt")  syncFpsRow();
+        if (groupName === "mini-mode")    { syncBtnLabel(); syncModeNote(); }
+        if (groupName === "mini-fmt")     { syncFpsRow(); syncQualityRow(); }
+        if (groupName === "mini-quality") { syncFpsRow(); syncQualityRow(); }
       });
     }
   );
   syncBtnLabel();
+  syncQualityRow();
   syncFpsRow();
   syncModeNote();
 
@@ -349,7 +403,10 @@
     var fd = new FormData();
     fd.append("format", fmt);
     fd.append("mode", mode);
-    if (fmt === "mp4") fd.append("fps", getFPS());
+    if (fmt === "mp4") {
+      fd.append("fps", getFPS());
+      fd.append("quality", getQuality());
+    }
     if (selectedFile) fd.append("file", selectedFile);
     else              fd.append("url", url);
 

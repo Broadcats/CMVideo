@@ -602,7 +602,11 @@
       );
     }
     if (res.status === 429) {
-      throw new Error("Hit the 5-jobs-per-hour mini-app cap. The desktop app has no caps.");
+      // Don't hardcode the cap number - the operator can tune
+      // CMVIDEO_RATE_LIMIT_PER_HOUR without touching this file.
+      // The /api/limits endpoint advertises the live value if a
+      // future UI wants to surface it.
+      throw new Error("Hit the per-hour mini-app cap. Try again later, or grab the desktop app below for unlimited jobs.");
     }
     if (res.status === 413) {
       throw new Error("That clip is over the mini-app size cap. Use the desktop app for full-length / full-quality runs.");

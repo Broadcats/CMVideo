@@ -3,6 +3,55 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.16.4-alpha] - 2026-05-16
+
+Rate-limit ease-up + env-var override.
+
+### Changed
+
+- **Default per-IP submit cap raised from `5/hour` to `20/hour`**
+  (4x). The original 5/hour was too tight for power users -
+  one full-length playlist could burn the whole budget. With
+  the owner-IP allowlist retired (the operator removed
+  `CMVIDEO_OWNER_IPS` from HF secrets), the public default now
+  has to actually be usable for the operator themselves, not
+  just defensive against worst-case abuse.
+- **`RATE_LIMIT_PER_HOUR` is now env-var driven**
+  (`CMVIDEO_RATE_LIMIT_PER_HOUR`). Format is whatever slowapi's
+  `Limiter.limit()` accepts: `<int>/<unit>` where unit is
+  `hour | minute | second | day`. Validated implicitly at
+  decorator parse time on app boot, so a malformed value
+  fails loud rather than silently. The HF Space operator can
+  now tune up or down without a redeploy.
+- The `;2/minute` burst guard layered on at the route
+  decorators is unchanged. So the per-hour cap can't be spent
+  in a single 30-second window even with the higher hourly
+  budget.
+
+### Frontend
+
+- `site/app.js mapHttpError` 429 message updated to be
+  number-agnostic ("Hit the per-hour mini-app cap. Try again
+  later, or grab the desktop app below for unlimited jobs.")
+  so future tuning of the env var doesn't drift the user-
+  visible cap message out of sync. The live cap value is
+  still advertised on `/api/limits.rate_limit` if a future UI
+  wants to surface it.
+- `site/index.html` "Mini caps" eyebrow text updated
+  cosmetically to `20 jobs/hour`.
+
+### Notes
+
+- Abuse mitigation hierarchy still intact: `RATE_LIMIT_PER_HOUR`
+  (slow signal) -> `;2/minute` burst guard (fast signal) ->
+  `JOB_MAX_PER_IP=1` (concurrency cap) -> `JOB_MAX_INFLIGHT=3`
+  (global box budget) -> `FAILURE_THRESHOLD=5 in 600s ->
+  300s cooldown` (failure-loop guard). All of these layer
+  independently; a misuser hitting any one gets stopped.
+- If 20/hour turns out to be too generous in the wild, drop
+  it via `CMVIDEO_RATE_LIMIT_PER_HOUR=10/hour` on the Space
+  - no redeploy needed.
+
 ## [0.4.16.3-alpha] - 2026-05-16
 
 Mobile-fix hotfix on top of v0.4.16.2-alpha.

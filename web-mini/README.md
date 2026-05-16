@@ -181,8 +181,15 @@ MAX_CENSOR_DURATION_SECONDS = 8 * 60      # bounded by free-CPU whisper
 MAX_VIDEO_HEIGHT = 720
 AUDIO_BITRATE_KBPS = "192"
 DOWNLOAD_TIMEOUT_SECONDS = 360
-RATE_LIMIT_PER_HOUR = "5/hour"
+RATE_LIMIT_PER_HOUR = "20/hour"   # default; override with CMVIDEO_RATE_LIMIT_PER_HOUR
 ```
 
 Lower = less abuse risk, less compute. Higher = better mini-app, but
 defeats the "encourage the full download" goal of this service.
+
+`RATE_LIMIT_PER_HOUR` is env-driven (`CMVIDEO_RATE_LIMIT_PER_HOUR`)
+so you can tune it on the HF Space settings page without a redeploy.
+Format is whatever slowapi accepts (`<int>/<unit>`, unit ∈ hour |
+minute | second | day). The route decorators layer a `;2/minute`
+burst guard on top so the per-hour budget can't be spent in a
+single 30-second window.

@@ -79,7 +79,23 @@ MAX_DOWNLOAD_FILESIZE_BYTES = QUALITY_DOWNLOAD_CAPS[DEFAULT_QUALITY]
 DOWNLOAD_TIMEOUT_SECONDS = 360
 CENSOR_TIMEOUT_SECONDS = 240
 
-RATE_LIMIT_PER_HOUR = "5/hour"
+# Per-IP submit cap on /api/process and /api/download. The
+# `;2/minute` burst guard is layered on at the route decorators
+# so the per-hour budget can't be spent in a single 30-second
+# window.
+#
+# History: started at 5/hour, which turned out to be too tight
+# for power users (a single full-length playlist would burn the
+# budget). Bumped to 20/hour with v0.4.16.4-alpha when the
+# owner-IP allowlist was retired - the public default now has
+# to actually be usable, not just defensive.
+#
+# Override with `CMVIDEO_RATE_LIMIT_PER_HOUR=NN/hour` env var
+# (e.g. `30/hour`). The format is whatever slowapi's
+# Limiter.limit() accepts; usually `<int>/<unit>` where unit is
+# hour|minute|second|day. Validated implicitly at decorator
+# parse time - a malformed value will raise on app boot.
+RATE_LIMIT_PER_HOUR = os.environ.get("CMVIDEO_RATE_LIMIT_PER_HOUR", "20/hour")
 
 ALLOWED_FORMATS = {"mp4", "mp3"}
 ALLOWED_MODES = {"download", "silence", "beep"}

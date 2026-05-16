@@ -4,7 +4,7 @@ uvicorn[standard]==0.30.6
 # extractors that gate on a real browser TLS fingerprint (XHamster,
 # SpankBang, a handful of other tubes) can succeed instead of failing
 # with "No impersonate target is available".
-yt-dlp[default,curl-cffi]==2026.3.17
+yt-dlp[default,curl-cffi]>=2026.3.17
 jinja2==3.1.4
 slowapi==0.1.9
 python-multipart==0.0.12

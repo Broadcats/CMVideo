@@ -17,6 +17,11 @@ WORKDIR /app
 
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
+# Always pull the freshest yt-dlp regardless of pip cache layers.
+# yt-dlp ships extractor fixes weekly; the floor pin in
+# requirements.txt is intentionally `>=` so this upgrade actually
+# moves forward on each rebuild.
+RUN pip install --no-cache-dir --upgrade 'yt-dlp[default,curl-cffi]'
 
 # Pre-fetch whisper-tiny.en so the first request doesn't pay the
 # ~75 MB model download tax. Bakes the model into the image at build

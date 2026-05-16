@@ -1,0 +1,97 @@
+name: Mini weekly rebuild
+
+# Weekly trigger that pushes web-mini/ to the Hugging Face Space so HF
+# rebuilds the Docker image. The Dockerfile pulls `--upgrade yt-dlp`
+# during build, so each rebuild ships the freshest extractors and
+# resolves whatever yt-dlp patched in the last week.
+#
+# Requires repo secret HF_TOKEN with **Write** access to the Space at
+# https://huggingface.co/Dandyfeet/cmvideo-mini
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC (about 1-2am US Eastern, evening AU).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you forcing a manual rebuild?"
+        required: false
+        default: "manual"
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install --quiet "huggingface_hub>=0.23"
+
+      - name: Verify token is present
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN secret is not set."
+            echo "Add a Write-scope token at https://github.com/Broadcats/CMVideo/settings/secrets/actions"
+            exit 1
+          fi
+          echo "HF_TOKEN found, length ${#HF_TOKEN}"
+
+      - name: Touch build stamp so HF actually rebuilds
+        run: |
+          # HF Spaces only rebuild when the repo content changes. The
+          # Dockerfile already runs `pip install --upgrade yt-dlp`, but
+          # only when a new image is built. We bump a comment so the
+          # upload diff is non-empty.
+          stamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          python3 - <<PY
+          from pathlib import Path
+          p = Path("web-mini/Dockerfile")
+          src = p.read_text(encoding="utf-8")
+          marker = "# weekly-rebuild-stamp:"
+          lines = [ln for ln in src.splitlines() if not ln.startswith(marker)]
+          lines.insert(0, f"{marker} ${{ github.run_id }}-$stamp")
+          p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print("stamped Dockerfile")
+          PY
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 scripts/deploy-mini.py --owner Dandyfeet --space cmvideo-mini
+
+      - name: Smoke test the rebuilt Space
+        run: |
+          # HF builds take 2-4 minutes. Poll /api/limits and assert
+          # the new caps + the build is actually serving traffic.
+          echo "Waiting up to 8 minutes for the Space to come back up..."
+          for i in $(seq 1 32); do
+            sleep 15
+            code=$(curl -sS -o /tmp/lim.json -w '%{http_code}' --max-time 8 \
+              https://dandyfeet-cmvideo-mini.hf.space/api/limits || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "Space is up:"
+              cat /tmp/lim.json
+              # Sanity-check the bumped caps actually deployed.
+              python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/lim.json"))
+          assert d["max_download_duration_seconds"] >= 3600, d
+          assert d["max_download_filesize_bytes"]   >= 800 * 1024 * 1024, d
+          print("caps OK")
+          PY
+              exit 0
+            fi
+            echo "  attempt $i: HTTP $code, retrying..."
+          done
+          echo "::error::Space did not come back up in 8 minutes. Check https://huggingface.co/spaces/Dandyfeet/cmvideo-mini"
+          exit 1

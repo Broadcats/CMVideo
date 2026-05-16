@@ -3,6 +3,135 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.14.3-alpha] - 2026-05-16
+
+Site widget: per-URL submit cooldown to stop users accidentally
+inducing rate-limit failures on throttle-happy sites (IG / FB /
+TT / X / Threads).
+
+### Added
+
+- **Same-URL cooldown in `site/app.js`.** The mini-app shares one
+  outbound IP across every visitor; sites like Instagram start
+  throttling after a handful of same-URL hits. The canonical bug:
+  a user pastes a reel and tests 720p -> 1080p -> MP3 in 60s, the
+  first call succeeds, the rest hit "rate-limit reached". Quality
+  has nothing to do with it; the source site simply blocked our
+  IP for that URL. New `checkSameUrlCooldown()` refuses same-URL
+  resubmits inside a small in-memory cooldown window:
+  * **15s** for the long tail of supported sites.
+  * **60s** for known throttle-heavy domains: instagram.com,
+    facebook.com / fb.watch, threads.net, tiktok.com,
+    x.com / twitter.com.
+  Lives in plain JS state (not localStorage) so a hard refresh
+  resets it - this is a guardrail, not a punishment. URL-only
+  flow; file uploads bypass entirely.
+- **Friendly cooldown message.** Tells the user *why* they're
+  being throttled by their own browser (so they understand why
+  the source site is throttling us) rather than just "wait":
+  > "You just submitted this URL. Wait Ns before retrying -
+  >  rapid resubmits trigger the source site's anti-scraping
+  >  limits and make every following attempt fail."
+- **URL normalization for cooldown matching.** Strips query
+  string + fragment + trailing slash + lowercases the host before
+  the lookup, so `instagram.com/reel/abc/?utm_source=ig_web` and
+  `https://www.instagram.com/reel/abc` count as the same URL.
+
+## [0.4.14.2-alpha] - 2026-05-16
+
+Mini-app: Instagram CDN allowlisting + readable ffmpeg error
+messages. Follow-up to 0.4.14.1's Instagram fast-path.
+
+### Fixed
+
+- **`cdninstagram.com` (and friends) added to the LLM tier's CDN
+  allowlist.** Previously the LLM extractor's anti-SSRF guard
+  refused to fetch `scontent-iad3-2.cdninstagram.com` (and every
+  other `scontent-*-*.cdninstagram.com` Meta CDN host) because
+  none of them suffix-matched the existing allowlist. Adding
+  `cdninstagram.com` and `instagram.com` to `_BUILTIN_CDN_SUFFIXES`
+  lets the LLM tier follow IG media URLs Playwright captures.
+- **ffmpeg error message extraction.** Playwright failures used
+  to surface as
+  `ffmpeg refused the captured manifest: fcyl6MjEsImJpdHJh...&ccb=17-1`
+  - i.e. just the truncated tail of whichever Instagram CDN URL
+  was being copied at the failure point. New
+  `_summarize_ffmpeg_error()` helper walks the stderr looking for
+  known diagnostic patterns (`HTTP error 403`,
+  `Connection refused`, `Server returned 403 Forbidden`, etc.)
+  and surfaces the first match. Falls back to the last short line
+  if nothing matches, never just the URL-spam tail.
+- **Hostile-domain user-facing error.** When every tier fails on
+  Instagram / Facebook / Threads, the user now sees:
+  > "Instagram blocked the download. Public reels / videos
+  > sometimes work, but logged-in-only, private-account, or newer
+  > posts won't extract without session cookies."
+  Instead of the raw stack-trace-tier last error, which is more
+  honest about *why* it failed (it's IG, not a CMVideo bug).
+
+## [0.4.14.1-alpha] - 2026-05-16
+
+Mini-app: fix the "stuck at 5%" stall on Instagram / Facebook /
+Threads URLs.
+
+### Fixed
+
+- **Auth-hostile domain fast-path.** Instagram, Facebook, and
+  Threads block unauthenticated scraping for most reel/video URLs.
+  The dispatcher used to walk the full fallback chain
+  (yt-dlp -> gallery-dl -> cobalt -> lux -> you-get -> playwright)
+  on these sites, with each tool failing in turn after its own
+  timeout. gallery-dl alone could sit on an IG reel for 180s
+  before giving up. Total user-visible wait: ~3-4 minutes parked
+  at "5%". New `AUTH_HOSTILE_DOMAINS` set short-circuits IG / FB /
+  Threads from yt-dlp directly to Playwright (which actually loads
+  the page in a real browser, so public reels work). Wait time
+  drops to ~30-60s and the dispatcher emits a clear log line
+  `dispatcher: hostile domain ...; skipping cli fallbacks` so the
+  reasoning is visible in failure traces.
+- **Forward-stepping progress bar during fallback.** The
+  per-attempt callback used to *reset* the pct to `max(5, pct//2)`
+  when a tool failed and we moved to the next one - which on a
+  doomed-to-fail chain looked like "5%" parked motionless for
+  minutes. Now each fallback steps the bar forward by 5-8 points
+  (capped at 60) so the user sees steady upward motion that
+  signals "the system is still doing things".
+
+## [0.4.14-alpha] - 2026-05-16
+
+Mini-app: owner-IP allowlist for unlimited maintainer testing on
+the deployed Hugging Face Space, without weakening abuse gates for
+anyone else.
+
+### Added
+
+- **`CMVIDEO_OWNER_IPS` env var.** Comma-separated list of IPs and
+  /CIDR ranges (mixed v4 + v6 fine) that bypass the per-IP rate
+  limits, the per-IP in-flight job cap, and the per-IP failure
+  cooldown. Empty / unset = nobody is privileged (default).
+  Example: `CMVIDEO_OWNER_IPS="203.0.113.42, 2001:db8::/64"`.
+- **`/api/limits` -> `hardening.owner_allowlist_size`** (count
+  only - never echoes the entries) and
+  **`hardening.owner_bypass_active`** (true if the caller's IP
+  matches). Hit `/api/limits` from your IP to confirm it's working.
+
+### Hardening notes
+
+- Owner IPs **still respect**:
+  * `JOB_MAX_INFLIGHT` (the global cap of 3) - so even maintainer
+    testing can't melt the box for everyone else.
+  * The kill-switch (`CMVIDEO_MINI_DISABLED`) - so you can still
+    panic-shutdown the service.
+  * The User-Agent gate - no point bypassing.
+  * Duration / size / quality caps - same: protects the box, and
+    protects you from accidentally queueing a 10 GB pull.
+- Slowapi rate limits are bypassed via a custom `key_func` that
+  hands each owner request a fresh random key, so the lookup
+  always finds an empty bucket. Costs ~microseconds per request.
+- Owner failures are not recorded into the cooldown deque (saves
+  memory and avoids the gate ever firing if `_is_owner_ip` later
+  returns false for any reason).
+
 ## [0.4.13.5-alpha] - 2026-05-16
 
 Mini-app: bump MP3 to top quality + per-candidate diagnostic

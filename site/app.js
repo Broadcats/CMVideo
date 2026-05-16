@@ -55,6 +55,77 @@
   var YT_URL_RE = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i;
   function extractYouTubeId(u) { var m = YT_URL_RE.exec(String(u||"")); return m ? m[1] : null; }
 
+  /* Per-URL submit cooldown.
+   *
+   * The mini-app shares one outbound IP across all visitors. Sites
+   * that rate-limit anonymous scrapers (Instagram in particular,
+   * also Facebook / Threads / Tiktok / X) start throttling after a
+   * handful of requests for the same URL in rapid succession. The
+   * canonical bug pattern: a user pastes a reel and tests
+   * 720p -> 1080p -> MP3 in 60 seconds, the first call succeeds,
+   * the rest fail with "rate-limit reached". Quality has nothing to
+   * do with it; the source site simply blocked our IP for that URL.
+   *
+   * To prevent the user from accidentally inducing this, we hold a
+   * tiny in-memory map of {normalized_url: last_submit_ts} and
+   * refuse same-URL resubmits inside the cooldown window. The
+   * window is short (15s default) and longer for known throttle-
+   * happy domains.
+   *
+   * Lives in plain JS state (not localStorage) so a hard refresh
+   * resets it - this is a guardrail, not a punishment. */
+  var THROTTLE_HEAVY_DOMAINS = [
+    "instagram.com", "facebook.com", "fb.watch", "threads.net",
+    "tiktok.com", "x.com", "twitter.com",
+  ];
+  var COOLDOWN_DEFAULT_MS = 15 * 1000;
+  var COOLDOWN_HOSTILE_MS = 60 * 1000;
+  var lastSubmitForUrl = Object.create(null);
+
+  function normalizeUrlForCooldown(u) {
+    /* We want "same reel" to count as same URL even if the user
+     * pasted ?utm_source=... or fragment differences. Strip
+     * query/fragment, lowercase host, drop trailing slash. */
+    try {
+      var parsed = new URL(String(u || ""));
+      var host = (parsed.hostname || "").toLowerCase();
+      var path = (parsed.pathname || "").replace(/\/+$/, "");
+      return host + path;
+    } catch (_) {
+      return String(u || "").trim().toLowerCase();
+    }
+  }
+
+  function cooldownMsFor(u) {
+    var host;
+    try { host = new URL(String(u || "")).hostname.toLowerCase(); }
+    catch (_) { return COOLDOWN_DEFAULT_MS; }
+    for (var i = 0; i < THROTTLE_HEAVY_DOMAINS.length; i++) {
+      var d = THROTTLE_HEAVY_DOMAINS[i];
+      if (host === d || host.endsWith("." + d)) return COOLDOWN_HOSTILE_MS;
+    }
+    return COOLDOWN_DEFAULT_MS;
+  }
+
+  function checkSameUrlCooldown(u) {
+    /* Returns 0 if the submit is allowed, or the seconds remaining
+     * if the cooldown is still active. */
+    var key = normalizeUrlForCooldown(u);
+    if (!key) return 0;
+    var now = Date.now();
+    var last = lastSubmitForUrl[key] || 0;
+    var window_ms = cooldownMsFor(u);
+    var elapsed = now - last;
+    if (elapsed >= window_ms) return 0;
+    return Math.ceil((window_ms - elapsed) / 1000);
+  }
+
+  function recordSubmitForUrl(u) {
+    var key = normalizeUrlForCooldown(u);
+    if (!key) return;
+    lastSubmitForUrl[key] = Date.now();
+  }
+
 
   var form        = document.getElementById("mini-form");
   if (!form) return;
@@ -362,6 +433,24 @@
       return;
     }
 
+    // Same-URL cooldown. Stops the test pattern of submitting the
+    // same URL 3x with different quality / format options inside a
+    // minute, which is the canonical way to get throttled by IG /
+    // FB / TT. Skipped entirely for file uploads (no source-site
+    // hit) and for empty URLs.
+    if (url && !selectedFile) {
+      var waitS = checkSameUrlCooldown(url);
+      if (waitS > 0) {
+        setStatus(
+          "You just submitted this URL. Wait " + waitS + "s before retrying \u2014 " +
+          "rapid resubmits trigger the source site's anti-scraping limits and " +
+          "make every following attempt fail.",
+          "error"
+        );
+        return;
+      }
+    }
+
     // Local pre-flight checks: file size for uploads, source duration
     // for URLs in censor mode. Cheaper than letting the backend reject
     // with a 413/504 after the user already waited for the cold-start.
@@ -379,6 +468,7 @@
     setBusy(true);
     setStatus("Submitting\u2026", "busy");
     setProgress(0, "Submitting\u2026", true);
+    if (url && !selectedFile) recordSubmitForUrl(url);
 
     // Censor mode + URL: ask the backend for duration before we
     // commit to the rate-limiter. If it's over 8 min we never burn a

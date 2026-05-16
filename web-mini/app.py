@@ -17,6 +17,7 @@ import ipaddress
 import logging
 import os
 import re
+import secrets
 import shutil
 import socket
 import tempfile
@@ -116,7 +117,68 @@ def _client_ip(request: Request) -> str:
     return get_remote_address(request) or "0.0.0.0"
 
 
-limiter = Limiter(key_func=_client_ip, default_limits=[])
+# ---------------------------------------------------------------------------
+# Owner-IP allowlist
+# ---------------------------------------------------------------------------
+# IPs that should bypass abuse-shaped gates: hourly + burst rate limits,
+# the per-IP job concurrency cap, and the per-IP failure cooldown.
+#
+# Owner IPs DO still respect:
+#   * JOB_MAX_INFLIGHT (global) - protects the box from melting even
+#     under maintainer testing.
+#   * The killswitch          - so a panic shutdown still applies.
+#   * The User-Agent gate     - no reason to ship empty UAs.
+#   * Duration / size caps    - same: protects the box, and protects
+#     the maintainer from accidentally queueing a 10 GB pull.
+#
+# Configure via the CMVIDEO_OWNER_IPS env var (CSV of IPs and/or CIDR
+# ranges, mixed v4 + v6 fine). Empty / unset = nobody is privileged.
+#
+# Example:
+#   CMVIDEO_OWNER_IPS="203.0.113.42, 2001:db8::/64, 198.51.100.0/24"
+_OWNER_IPS_RAW = os.environ.get("CMVIDEO_OWNER_IPS", "").strip()
+_OWNER_NETWORKS: list[ipaddress._BaseNetwork] = []
+for _entry in _OWNER_IPS_RAW.split(","):
+    _entry = _entry.strip()
+    if not _entry:
+        continue
+    try:
+        # `strict=False` lets you write `203.0.113.42` as well as
+        # `203.0.113.42/32` - both come out as a /32 network.
+        _OWNER_NETWORKS.append(ipaddress.ip_network(_entry, strict=False))
+    except ValueError:
+        log.warning("Ignoring invalid CMVIDEO_OWNER_IPS entry: %r", _entry)
+if _OWNER_NETWORKS:
+    log.info("Owner-IP allowlist active: %d entries", len(_OWNER_NETWORKS))
+
+
+def _is_owner_ip(ip_str: str) -> bool:
+    """True if `ip_str` matches one of the configured owner networks."""
+    if not _OWNER_NETWORKS or not ip_str:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+    except ValueError:
+        return False
+    return any(ip in net for net in _OWNER_NETWORKS)
+
+
+def _rate_limit_key(request: Request) -> str:
+    """slowapi key_func that returns a per-request unique key for
+    owner IPs (so they never share a bucket with anyone, including
+    themselves) and the normal client IP for everyone else.
+
+    The trick: slowapi rate-limits per key. By handing each owner
+    request a fresh random key, we ensure the lookup always finds an
+    empty bucket - effectively a no-op rate limit. The cost is one
+    `secrets.token_hex(8)` call per request (~microseconds)."""
+    ip = _client_ip(request)
+    if _is_owner_ip(ip):
+        return f"owner-bypass-{secrets.token_hex(8)}"
+    return ip
+
+
+limiter = Limiter(key_func=_rate_limit_key, default_limits=[])
 
 _WORDS_CACHE: Optional[set] = None
 
@@ -1093,16 +1155,18 @@ def _create_job(client_ip: str, fmt: str, tmpdir: Path) -> JobState:
         if len(_jobs) >= JOB_MAX_INFLIGHT:
             raise HTTPException(status_code=503, detail="Mini service is busy - try again in a minute.")
         # Per-IP cap: prevents one client from filling all 8 inflight
-        # slots and locking everyone else out.
-        live_for_ip = sum(
-            1 for j in _jobs.values()
-            if j._client_ip == client_ip and not j.ready and j.error is None
-        )
-        if live_for_ip >= JOB_MAX_PER_IP:
-            raise HTTPException(
-                status_code=429,
-                detail=f"You already have {JOB_MAX_PER_IP} jobs in flight. Wait for one to finish.",
+        # slots and locking everyone else out. Owner-IP allowlist
+        # skips this check (still subject to the global cap above).
+        if not _is_owner_ip(client_ip):
+            live_for_ip = sum(
+                1 for j in _jobs.values()
+                if j._client_ip == client_ip and not j.ready and j.error is None
             )
+            if live_for_ip >= JOB_MAX_PER_IP:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"You already have {JOB_MAX_PER_IP} jobs in flight. Wait for one to finish.",
+                )
         # token_urlsafe(24) is 32 bytes of entropy - the same shape as
         # uuid.uuid4().hex but pulled from os.urandom so the value is
         # deliberately unpredictable. Job IDs double as a bearer token
@@ -1220,11 +1284,16 @@ async def _run_pipeline_async(
                     _set_stage(job, "fetching", 95)
 
             def _on_attempt(tool, msg):  # type: ignore[no-untyped-def]
-                # When yt-dlp gives up and we fall through to other
-                # extractors, reset to a coarse-grained fetching pct
-                # so the bar starts climbing again instead of looking
-                # stuck at whatever yt-dlp got to.
-                _set_stage(job, "fetching", max(5, job.pct // 2))
+                # When one extractor gives up and we fall through to
+                # the next, *step the bar forward* by a few points
+                # rather than resetting backwards. The user shouldn't
+                # see "5%" parked motionless while we cycle through 3
+                # backup tools - they should see steady climb that
+                # signals "the system is doing things". Cap at 60 so
+                # there's still room for the actual download progress
+                # hook to take over once a tool starts succeeding.
+                step = 5 if tool == "yt-dlp" else 8
+                _set_stage(job, "fetching", min(60, max(job.pct, 5) + step))
 
             _set_stage(job, "fetching", 1)
             try:
@@ -1395,6 +1464,12 @@ _failures_lock = threading.Lock()
 def _record_failure(ip: str) -> None:
     if not ip:
         return
+    # Owner IPs don't accrue against the cooldown counter so the
+    # maintainer's own failed test pulls don't gradually lock them
+    # out. _check_cooldown also short-circuits on owner anyway, but
+    # this keeps the deque lean.
+    if _is_owner_ip(ip):
+        return
     now = time.monotonic()
     with _failures_lock:
         dq = _failures.setdefault(ip, collections.deque(maxlen=FAILURE_THRESHOLD * 4))
@@ -1408,6 +1483,11 @@ def _record_failure(ip: str) -> None:
 
 def _check_cooldown(ip: str) -> None:
     if not ip:
+        return
+    # Owner-IP allowlist: don't ever cool the maintainer down for
+    # their own testing failures. Doesn't bypass JOB_MAX_INFLIGHT or
+    # the killswitch, just the per-IP failure window.
+    if _is_owner_ip(ip):
         return
     now = time.monotonic()
     with _failures_lock:
@@ -1817,11 +1897,12 @@ def _llm_status_safe():
 
 
 @app.get("/api/limits", include_in_schema=False)
-async def api_limits():
+async def api_limits(request: Request):
     with _jobs_lock:
         live_jobs = sum(1 for j in _jobs.values() if not j.ready and j.error is None)
     with _failures_lock:
         cooled_ips = sum(1 for dq in _failures.values() if len(dq) >= FAILURE_THRESHOLD)
+    caller_ip = _client_ip(request)
     return {
         "max_download_duration_seconds": MAX_DOWNLOAD_DURATION_SECONDS,
         "max_download_filesize_bytes": MAX_DOWNLOAD_FILESIZE_BYTES,
@@ -1849,6 +1930,12 @@ async def api_limits():
             "ips_in_cooldown_now": cooled_ips,
             "info_cache_size": len(_info_cache),
             "info_cache_ttl_s": _INFO_CACHE_TTL_S,
+            # Owner-IP allowlist status. The count is exposed (so you
+            # can confirm the env var was parsed) but the entries
+            # themselves are not, to avoid leaking the maintainer's
+            # home IP if /api/limits is ever scraped.
+            "owner_allowlist_size": len(_OWNER_NETWORKS),
+            "owner_bypass_active": _is_owner_ip(caller_ip),
         },
         "yt_censor_enabled": True,
         "full_app_url": "https://cmvideo.online",

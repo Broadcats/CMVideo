@@ -87,7 +87,10 @@ _BUILTIN_CDN_SUFFIXES: tuple[str, ...] = (
     "kaltura.com", "kaltura.com.kapi", "kaltura.akamaized.net",
     "vidio.id",
     "twimg.com",  # Twitter video host
-    "fbcdn.net",  # Meta CDN
+    "fbcdn.net",  # Meta CDN (Facebook + cross-property)
+    "cdninstagram.com",  # Meta CDN dedicated to Instagram (scontent-*-*.cdninstagram.com)
+    "instagram.com",  # IG sometimes serves media from www.instagram.com itself
+    "fna.fbcdn.net",  # explicit fbcdn FNA (matches via fbcdn.net suffix anyway, listed for clarity)
     "redditmedia.com", "redd.it",
     "tiktokcdn.com", "muscdn.com", "tiktokv.com",
     "phncdn.com",  # MindGeek tubes (PH / RT / YP / Tube8)

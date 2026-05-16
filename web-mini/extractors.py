@@ -149,6 +149,28 @@ YOU_GET_DOMAINS = {
     "panda.tv",
 }
 
+# Auth-hostile sites that block unauthenticated scraping for most
+# reel/video URLs. The cheap CLI tools (gallery-dl, cobalt, lux,
+# you-get) almost always fail on these without session cookies, so
+# the dispatcher short-circuits them: yt-dlp first (still cheap to
+# try, occasionally works), then jump straight to Playwright (slow
+# but actually loads the page in a real browser, so public reels
+# work). Skipping the middle tiers cuts the user-visible wait from
+# ~3-4 minutes down to ~30-60 seconds.
+AUTH_HOSTILE_DOMAINS = {
+    "instagram.com", "www.instagram.com",
+    "facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch",
+    "threads.net", "www.threads.net",
+}
+
+# Per-tool soft timeout overrides for hostile domains. Without this
+# gallery-dl will sit on an IG URL for the full 180s before giving
+# up, even though a successful gallery-dl IG fetch (when it works)
+# completes in ~5s. Shortening the cap means users on hostile sites
+# fall through to Playwright sooner.
+HOSTILE_TOOL_TIMEOUT_S = 30
+
+
 # Source: https://github.com/imputnet/cobalt-api/blob/main/api.cobalt.tools/services
 COBALT_DOMAINS = {
     "twitter.com", "x.com",
@@ -1202,6 +1224,14 @@ def extract_with_fallbacks(
     is_live = _looks_live(url)
     attempts: list[str] = []
     last_error: ExtractionError | None = None
+    # Auth-hostile sites: skip the cheap CLI fallbacks (gallery-dl,
+    # cobalt, lux, you-get) that almost never work without cookies
+    # and go straight to Playwright after yt-dlp. Cuts the
+    # user-visible wait from ~3-4 minutes to ~30-60s on Instagram /
+    # Facebook / Threads URLs that yt-dlp can't crack.
+    is_hostile = bool(domain) and (
+        domain in AUTH_HOSTILE_DOMAINS or _ends_with_any(domain, AUTH_HOSTILE_DOMAINS)
+    )
 
     def _emit(tool: str, msg: str) -> None:
         attempts.append(f"{tool}: {msg[:120]}")
@@ -1233,55 +1263,63 @@ def extract_with_fallbacks(
             if exc.terminal:
                 raise ExtractionError(exc.message, attempts=attempts, terminal=True) from exc
 
-    if "gallery-dl" in enabled_set and (not domain or domain in GALLERY_DL_DOMAINS or _ends_with_any(domain, GALLERY_DL_DOMAINS)):
-        try:
-            r = gallery_dl_download(url, dst_dir, target_height=target_height)
-            r.attempts = attempts + [f"gallery-dl: ok"]
-            return r
-        except ExtractionError as exc:
-            _emit("gallery-dl", exc.message)
-            last_error = exc
-            if exc.terminal:
-                pass  # gallery-dl's "terminal" hints aren't authoritative for non-yt-dlp tools
+    # On auth-hostile domains, skip every cheap CLI fallback - they
+    # all fail without session cookies and just chew up the
+    # user-visible wait time. Playwright (next block) handles them.
+    if not is_hostile:
+        if "gallery-dl" in enabled_set and (not domain or domain in GALLERY_DL_DOMAINS or _ends_with_any(domain, GALLERY_DL_DOMAINS)):
+            try:
+                r = gallery_dl_download(url, dst_dir, target_height=target_height)
+                r.attempts = attempts + [f"gallery-dl: ok"]
+                return r
+            except ExtractionError as exc:
+                _emit("gallery-dl", exc.message)
+                last_error = exc
+                if exc.terminal:
+                    pass  # gallery-dl's "terminal" hints aren't authoritative for non-yt-dlp tools
 
-    if (
-        "cobalt" in enabled_set
-        and cobalt_available()
-        and (not domain or domain in COBALT_DOMAINS or _ends_with_any(domain, COBALT_DOMAINS))
-    ):
-        try:
-            r = cobalt_download(url, dst_dir, fmt=fmt, target_height=target_height)
-            r.attempts = attempts + [f"cobalt: ok"]
-            return r
-        except ExtractionError as exc:
-            _emit("cobalt", exc.message)
-            last_error = exc
+        if (
+            "cobalt" in enabled_set
+            and cobalt_available()
+            and (not domain or domain in COBALT_DOMAINS or _ends_with_any(domain, COBALT_DOMAINS))
+        ):
+            try:
+                r = cobalt_download(url, dst_dir, fmt=fmt, target_height=target_height)
+                r.attempts = attempts + [f"cobalt: ok"]
+                return r
+            except ExtractionError as exc:
+                _emit("cobalt", exc.message)
+                last_error = exc
 
-    if (
-        "lux" in enabled_set
-        and lux_available()
-        and (not domain or _ends_with_any(domain, LUX_DOMAINS))
-    ):
-        try:
-            r = lux_download(url, dst_dir, target_height=target_height)
-            r.attempts = attempts + ["lux: ok"]
-            return r
-        except ExtractionError as exc:
-            _emit("lux", exc.message)
-            last_error = exc
+        if (
+            "lux" in enabled_set
+            and lux_available()
+            and (not domain or _ends_with_any(domain, LUX_DOMAINS))
+        ):
+            try:
+                r = lux_download(url, dst_dir, target_height=target_height)
+                r.attempts = attempts + ["lux: ok"]
+                return r
+            except ExtractionError as exc:
+                _emit("lux", exc.message)
+                last_error = exc
 
-    if (
-        "you-get" in enabled_set
-        and you_get_available()
-        and (not domain or _ends_with_any(domain, YOU_GET_DOMAINS))
-    ):
-        try:
-            r = you_get_download(url, dst_dir, target_height=target_height)
-            r.attempts = attempts + ["you-get: ok"]
-            return r
-        except ExtractionError as exc:
-            _emit("you-get", exc.message)
-            last_error = exc
+        if (
+            "you-get" in enabled_set
+            and you_get_available()
+            and (not domain or _ends_with_any(domain, YOU_GET_DOMAINS))
+        ):
+            try:
+                r = you_get_download(url, dst_dir, target_height=target_height)
+                r.attempts = attempts + ["you-get: ok"]
+                return r
+            except ExtractionError as exc:
+                _emit("you-get", exc.message)
+                last_error = exc
+    else:
+        # Surface that we're skipping the CLI fallbacks so the
+        # operator can see why on a hostile-domain failure trace.
+        _emit("dispatcher", f"hostile domain {domain}; skipping cli fallbacks")
 
     # Playwright is the universal last resort. It's slow (~20-60s) and
     # heavy (~300 MB Chromium tab), so we only invoke it if every
@@ -1349,6 +1387,27 @@ def extract_with_fallbacks(
         except (ExtractionError, RuntimeError) as exc:
             _emit("llm", str(exc))
             last_error = ExtractionError(str(exc))
+
+    # Auth-hostile sites get a context-rich error message instead
+    # of just the raw last-tier failure - users hitting an IG /
+    # FB / Threads URL almost always need to know the cause is
+    # site-wide (login wall) not a CMVideo bug.
+    if is_hostile:
+        site_pretty = (
+            "Instagram" if "instagram" in (domain or "")
+            else "Facebook" if ("facebook" in (domain or "") or "fb.watch" in (domain or ""))
+            else "Threads" if "threads" in (domain or "")
+            else (domain or "this site")
+        )
+        msg = (
+            f"{site_pretty} blocked the download. Public reels / videos "
+            f"sometimes work, but logged-in-only, private-account, or "
+            f"newer posts won't extract without session cookies. "
+            f"The desktop app at cmvideo.online supports cookies."
+        )
+        if last_error is not None:
+            msg = f"{msg} (Last error: {last_error.message[:200]})"
+        raise ExtractionError(msg, attempts=attempts)
 
     msg = "All extractors failed."
     if last_error is not None:
@@ -1698,8 +1757,53 @@ def _ffmpeg_capture_url(
     except subprocess.TimeoutExpired:
         return False, "ffmpeg capture timed out"
     if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
-        return False, (proc.stderr or proc.stdout or "").strip()[-300:]
+        return False, _summarize_ffmpeg_error(proc.stderr or proc.stdout or "")
     return True, ""
+
+
+_FFMPEG_DIAGNOSTIC_PATTERNS = (
+    re.compile(r"HTTP error \d+\s+[^\r\n]+", re.IGNORECASE),
+    re.compile(r"Server returned \d+\s+[^\r\n]+", re.IGNORECASE),
+    re.compile(r"Connection (?:refused|reset|timed out)", re.IGNORECASE),
+    re.compile(r"Failed to open[^\r\n]+", re.IGNORECASE),
+    re.compile(r"Invalid data found[^\r\n]+", re.IGNORECASE),
+    re.compile(r"No such file or directory", re.IGNORECASE),
+    re.compile(r"Protocol not found", re.IGNORECASE),
+    re.compile(r"Cannot open[^\r\n]+", re.IGNORECASE),
+    re.compile(r"403 Forbidden|404 Not Found|410 Gone|429 Too Many", re.IGNORECASE),
+)
+
+
+def _summarize_ffmpeg_error(stderr: str) -> str:
+    """Pull a diagnostic substring out of ffmpeg's stderr.
+
+    Naively truncating to the last N chars lands inside whichever
+    long URL was being copied at the failure point - the user just
+    sees opaque URL fragments instead of the error reason. Instead
+    we walk known error patterns (HTTP status, connection failures,
+    decoder errors) and return the first match. Falls back to the
+    last non-empty *short* line so HLS-master URL spam doesn't
+    swallow the actual cause.
+    """
+    if not stderr:
+        return "ffmpeg failed (no stderr)"
+    text = stderr.strip()
+    # Pattern hit wins.
+    for pat in _FFMPEG_DIAGNOSTIC_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return m.group(0).strip()[:200]
+    # No pattern hit: find the last short-ish line (<= 200 chars) so
+    # we skip the multi-kilobyte URL line that triggered the failure
+    # but still surface whatever ffmpeg actually printed last.
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    short_lines = [ln for ln in lines if len(ln) <= 200]
+    if short_lines:
+        return short_lines[-1][:200]
+    # Everything's a giant URL line: fall back to a head-of-stderr
+    # snippet rather than the tail (the head usually has the error
+    # context, the tail is "from the URL we tried to open").
+    return text[:200]
 
 
 def _playwright_download_from_capture(

@@ -156,38 +156,102 @@ cp -a "${REPO_ROOT}/site/." .
 # -----------------------------------------------------------------------------
 # Auto-bump version stamps to the latest GitHub Release.
 # -----------------------------------------------------------------------------
-# index.html has hardcoded version strings that point at downloadable
-# binaries on GitHub Releases (eyebrow line, the "Get CMVideo X" h2,
-# the per-OS download URLs, the checksums link). We don't want to
-# require a manual sed pass on every deploy, so this stage rewrites
-# those stamps in the WORKTREE COPY of index.html only - the source
-# `site/index.html` stays unchanged, the substitution is purely a
-# deploy artefact.
+# index.html has two flavours of hardcoded version stamp:
 #
-# Resolves the latest tag via `gh release list --limit 1`. Falls
-# back to leaving the file alone if `gh` isn't installed or the
-# call fails - we'd rather ship a slightly stale version stamp
+#   1. COSMETIC display strings - the eyebrow line, the
+#      "Get CMVideo X" h2, the alpha tag in the legal footer,
+#      etc. These should always advertise the latest project tag
+#      (even if it's a tag-only release with no new binaries -
+#      e.g. mini / website / docs-only updates).
+#
+#   2. DOWNLOAD URLs + binary filenames - the per-OS dl-cards
+#      and the chmod / install snippet. These have to point at
+#      a release that actually has the AppImage / .exe / source
+#      tarball assets attached. Bumping these to a tag-only
+#      release would 404 every download button on the homepage.
+#
+# So we resolve TWO different versions:
+#
+#   LATEST_RELEASE       = whatever `gh release list --limit 1`
+#                          returns. Used for cosmetic display.
+#   LATEST_BINARY_RELEASE = most recent release whose asset list
+#                          contains the AppImage. Used for download
+#                          URL paths + filenames.
+#
+# When they're the same (the normal case after a binary release)
+# the rewrites collapse to a single global sed, identical to the
+# old behaviour. When they differ (we've cut a tag-only release
+# on top of a binary release) cosmetic stamps move forward but
+# download URLs stay pinned to the most recent release that
+# actually serves bytes.
+#
+# Falls back to leaving the file alone if `gh` isn't installed or
+# the call fails - we'd rather ship a slightly stale version stamp
 # than break the deploy.
 LATEST_RELEASE=""
+LATEST_BINARY_RELEASE=""
 if command -v gh >/dev/null 2>&1; then
     LATEST_RELEASE="$(gh release list --limit 1 -R Broadcats/CMVideo \
         --json tagName -q '.[0].tagName' 2>/dev/null | sed 's/^v//')"
+    # Walk the last 25 releases newest-first; pick the first one
+    # whose asset list contains an `*.AppImage`. 25 is a generous
+    # cap to cover repeated tag-only releases without paying a
+    # full-history scan; we've never had more than ~10 between
+    # binary releases historically.
+    LATEST_BINARY_RELEASE="$(gh release list --limit 25 -R Broadcats/CMVideo \
+        --json tagName,isDraft,isPrerelease -q '.[] | select(.isDraft|not) | .tagName' 2>/dev/null \
+        | while read -r tag; do
+            if [[ -n "${tag}" ]] \
+                && gh release view "${tag}" -R Broadcats/CMVideo \
+                    --json assets -q '.assets[].name' 2>/dev/null \
+                    | grep -q 'AppImage$'
+            then
+                printf '%s\n' "${tag}" | sed 's/^v//'
+                break
+            fi
+        done)"
+    # If the binary lookup fails for any reason, fall back to
+    # LATEST_RELEASE so we degrade gracefully (old behaviour).
+    if [[ -z "${LATEST_BINARY_RELEASE}" ]]; then
+        LATEST_BINARY_RELEASE="${LATEST_RELEASE}"
+    fi
 fi
 if [[ -n "${LATEST_RELEASE}" && -f index.html ]]; then
-    # Match every literal `vX.Y.Z-alpha` and `X.Y.Z-alpha` reference
-    # (the dl URLs, the eyebrow, the checksums link) and rewrite to
-    # the latest. Skips obvious historic markers like `0.4.0-alpha`
-    # that appear in the licence-history line.
+    # Detect the dominant existing version stamp in the file.
+    # We use the most-frequent occurrence to identify the version
+    # that needs replacing, then run targeted seds in dependency
+    # order: filename / URL paths first (they're the strict subset
+    # the cosmetic substitution must not stomp on), cosmetic last.
     OLD_VER="$(grep -oE 'v?0\.4\.[0-9]+(\.[0-9]+)?-alpha' index.html \
         | sort | uniq -c | sort -rn | awk 'NR==1{print $2}' | sed 's/^v//')"
-    if [[ -n "${OLD_VER}" && "${OLD_VER}" != "${LATEST_RELEASE}" ]]; then
-        echo "[sync-gh-pages] Rewriting index.html version stamps: ${OLD_VER} -> ${LATEST_RELEASE}"
-        # Both bare and v-prefixed forms; sed is fine with the literal
-        # period in the pattern because we're matching specific old
-        # versions, not regex.
-        sed -i "s/${OLD_VER}/${LATEST_RELEASE}/g" index.html
+    if [[ -n "${OLD_VER}" ]]; then
+        if [[ "${LATEST_BINARY_RELEASE}" != "${OLD_VER}" ]]; then
+            echo "[sync-gh-pages] Rewriting download URLs: ${OLD_VER} -> ${LATEST_BINARY_RELEASE}"
+            # Pass A: every `releases/download/v${OLD_VER}/` path becomes
+            # `releases/download/v${LATEST_BINARY_RELEASE}/` so the GH
+            # asset URL resolves. Pass B: every `CMVideo-${OLD_VER}-`
+            # filename prefix bumps to match (covers both the dl-card
+            # hrefs and the visible chmod / install snippet).
+            sed -i \
+                -e "s|releases/download/v${OLD_VER}/|releases/download/v${LATEST_BINARY_RELEASE}/|g" \
+                -e "s|CMVideo-${OLD_VER}-|CMVideo-${LATEST_BINARY_RELEASE}-|g" \
+                index.html
+        else
+            echo "[sync-gh-pages] Download URLs already at v${LATEST_BINARY_RELEASE}, no rewrite needed"
+        fi
+        if [[ "${LATEST_RELEASE}" != "${OLD_VER}" ]]; then
+            echo "[sync-gh-pages] Rewriting cosmetic version stamps: ${OLD_VER} -> ${LATEST_RELEASE}"
+            # Pass C: every remaining `${OLD_VER}` (the eyebrow,
+            # the alpha tag in legal copy, etc.) becomes the latest
+            # tag. Pass A/B above already moved the binary refs to
+            # LATEST_BINARY_RELEASE, so this only touches cosmetic
+            # text now.
+            sed -i "s/${OLD_VER}/${LATEST_RELEASE}/g" index.html
+        else
+            echo "[sync-gh-pages] Cosmetic stamps already at v${LATEST_RELEASE}, no rewrite needed"
+        fi
     else
-        echo "[sync-gh-pages] index.html already at v${LATEST_RELEASE}, no rewrite needed"
+        echo "[sync-gh-pages] index.html has no detectable version stamps to rewrite"
     fi
 else
     echo "[sync-gh-pages] Skipping version-stamp rewrite (gh CLI missing or no release found)"

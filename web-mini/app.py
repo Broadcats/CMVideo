@@ -43,15 +43,20 @@ import mini_censor
 # ---------------------------------------------------------------------------
 # Caps. The "mini" pitch only holds if these stay tight.
 # ---------------------------------------------------------------------------
-MAX_DOWNLOAD_DURATION_SECONDS = 30 * 60          # URL download only
-MAX_DOWNLOAD_FILESIZE_BYTES = 200 * 1024 * 1024  # URL download only
+MAX_DOWNLOAD_DURATION_SECONDS = 60 * 60          # URL download only (1 hour)
+MAX_DOWNLOAD_FILESIZE_BYTES = 800 * 1024 * 1024  # URL download only
 MAX_CENSOR_DURATION_SECONDS = 8 * 60             # transcription is slow on free CPU
 MAX_CENSOR_FILESIZE_BYTES = 100 * 1024 * 1024    # cap upload + output
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024             # multipart body size
 MAX_VIDEO_HEIGHT = 720
 AUDIO_BITRATE_KBPS = "192"
 
-DOWNLOAD_TIMEOUT_SECONDS = 120
+# 1-hour 720p AVC files land around 600-800 MB. From the HF Space's
+# datacenter peering that pulls in roughly 60-180s depending on
+# origin throttling, so we budget 6 minutes - tight enough that a
+# stuck connection still gives up promptly, generous enough to
+# actually finish the new 1-hour cap on a slow source.
+DOWNLOAD_TIMEOUT_SECONDS = 360
 CENSOR_TIMEOUT_SECONDS = 240
 
 RATE_LIMIT_PER_HOUR = "5/hour"
@@ -704,7 +709,7 @@ async def healthz():
 
 
 @app.post("/api/info")
-@limiter.limit("30/hour")
+@limiter.limit("120/hour")
 async def api_info(request: Request, body: InfoRequest):
     url = _validate_url(body.url)
     try:
@@ -850,7 +855,7 @@ class YTCensorRequest(BaseModel):
 
 
 @app.post("/api/yt-censor")
-@limiter.limit("30/hour")
+@limiter.limit("120/hour")
 async def api_yt_censor(request: Request, body: YTCensorRequest):
     """Return mute intervals + video_id for a YouTube URL so the
     frontend can embed the official iframe player and overlay

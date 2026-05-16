@@ -21,7 +21,7 @@ This service is intentionally limited so it can stay free:
 | Cap | Value |
 |---|---|
 | Max duration per clip | 30 min |
-| Max output filesize   | 200 MB |
+| Max output filesize   | 800 MB |
 | Max video resolution  | 720p MP4 |
 | Max audio bitrate     | 192 kbps MP3 |
 | Per-IP rate limit     | 5 downloads / hour |

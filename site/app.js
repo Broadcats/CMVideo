@@ -44,7 +44,7 @@
 
   /* ---------- (2) Mini widget ---------- */
 
-  var MINI_API_BASE = "https://dandyfeet-cmvideo-mini-v2.hf.space";
+  var MINI_API_BASE = "https://dandyfeet-cmvideo-mini.hf.space";
 
   // YouTube URLs take a separate, fully-legal path: we fetch the
   // transcript via the backend (no video download), then embed the

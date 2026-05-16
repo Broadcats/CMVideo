@@ -159,6 +159,20 @@ YOU_GET_DOMAINS = {
 # but actually loads the page in a real browser, so public reels
 # work). Skipping the middle tiers cuts the user-visible wait from
 # ~3-4 minutes down to ~30-60 seconds.
+# Defence-in-depth allowlist for tool-supplied identifiers we hand
+# back to the same tool as a CLI argument (lux's `-stream <id>`,
+# you-get's `--format <tag>`). These values come from parsing the
+# tool's own enumeration output and *should* always be tame
+# alphanumerics, but if upstream changed their output format and
+# we ever surfaced a value starting with `-`, the next argv slot
+# would interpret it as a fresh CLI flag (a classic argv-injection
+# pattern). Reject anything outside the conservative tag charset,
+# AND require the first character to be alphanumeric so a
+# `-cookie=...` / `--something` shaped value can never sneak
+# through even though `-` is otherwise legal mid-tag (`fmt-720p`).
+_SAFE_TOOL_TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+
+
 AUTH_HOSTILE_DOMAINS = {
     "instagram.com", "www.instagram.com",
     "facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch",
@@ -517,6 +531,7 @@ def cobalt_download(
     api_base: str | None = None,
     api_key: str | None = None,
     target_height: int = 720,
+    max_filesize: int | None = None,
 ) -> ExtractionResult:
     """Resolve a media URL through a Cobalt instance and stream it to
     disk. Cobalt v10+ takes a POST to the instance root and returns
@@ -581,13 +596,53 @@ def cobalt_download(
         safe_name = f"{safe_name}.{fmt}"
     dst = dst_dir / safe_name
 
+    # Streaming byte cap. A malicious or compromised Cobalt instance
+    # could hand us a `media_url` pointing at an arbitrarily large
+    # response (terabyte-scale) and watch the HF Space exhaust disk
+    # before the connection drops. Cap to the per-job size cap (or
+    # the default if the caller didn't pass one) and abort the
+    # write the moment we cross it. We Content-Length-check first
+    # for the cheap path, then enforce the cap during the stream
+    # since servers can lie about (or omit) the header.
     fetch = urllib.request.Request(
         media_url,
         headers={"User-Agent": COBALT_USER_AGENT},
     )
+    cap = int(max_filesize) if max_filesize and max_filesize > 0 else (2 * 1024 * 1024 * 1024)
     try:
-        with urllib.request.urlopen(fetch, timeout=timeout) as resp, dst.open("wb") as out:
-            shutil.copyfileobj(resp, out, length=1 << 20)
+        with urllib.request.urlopen(fetch, timeout=timeout) as resp:
+            advertised = resp.headers.get("Content-Length")
+            if advertised:
+                try:
+                    if int(advertised) > cap:
+                        raise ExtractionError(
+                            f"Cobalt media exceeds {cap // (1024*1024)} MB cap "
+                            f"(advertised {int(advertised) // (1024*1024)} MB)",
+                            terminal=True,
+                        )
+                except ValueError:
+                    pass  # malformed header - fall through to stream-time cap
+            written = 0
+            chunk = 1 << 20
+            with dst.open("wb") as out:
+                while True:
+                    buf = resp.read(chunk)
+                    if not buf:
+                        break
+                    written += len(buf)
+                    if written > cap:
+                        out.close()
+                        try:
+                            dst.unlink()
+                        except OSError:
+                            pass
+                        raise ExtractionError(
+                            f"Cobalt media exceeded {cap // (1024*1024)} MB cap mid-stream",
+                            terminal=True,
+                        )
+                    out.write(buf)
+    except ExtractionError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise ExtractionError(f"Cobalt media fetch failed: {exc}") from exc
 
@@ -765,6 +820,15 @@ def lux_download(
         "-o", str(dst_dir),
         "-O", "lux-out",
     ]
+    # Defense-in-depth: stream IDs come from parsing lux's own
+    # output, so they should always be tame, but the parser
+    # tolerates upstream format changes which could surface a
+    # value starting with "-" that the next argv slot would treat
+    # as a fresh CLI flag (e.g. "--cookie=...", "-i ..."). Reject
+    # anything outside the conservative tag charset.
+    if stream_id and not _SAFE_TOOL_TAG_RE.match(stream_id):
+        log.warning("lux: rejecting unsafe stream_id=%r; falling through to default", stream_id)
+        stream_id = ""
     if stream_id:
         cmd += ["-stream", stream_id]
         log.info("lux: picked stream=%s for cap=%d", stream_id, target_height)
@@ -886,6 +950,13 @@ def you_get_download(
         "--output-dir", str(dst_dir),
         "--output-filename", "you-get-out",
     ]
+    # Defense-in-depth: same reasoning as the lux stream_id check.
+    # Format tags come from parsing you-get's own output and could
+    # in principle surface a "-flag"-shaped value if upstream
+    # format changed.
+    if fmt_tag and not _SAFE_TOOL_TAG_RE.match(fmt_tag):
+        log.warning("you-get: rejecting unsafe fmt_tag=%r; falling through to default", fmt_tag)
+        fmt_tag = ""
     if fmt_tag:
         cmd += ["--format", fmt_tag]
         log.info("you-get: picked format=%s for cap=%d", fmt_tag, target_height)
@@ -1228,6 +1299,7 @@ def extract_with_fallbacks(
     ),
     on_attempt: Callable[[str, str], None] | None = None,
     target_height: int = 720,
+    max_filesize: int | None = None,
 ) -> ExtractionResult:
     """Try each tool in order until one wins. Raises ExtractionError if
     every applicable tool is exhausted."""
@@ -1296,7 +1368,12 @@ def extract_with_fallbacks(
             and (not domain or domain in COBALT_DOMAINS or _ends_with_any(domain, COBALT_DOMAINS))
         ):
             try:
-                r = cobalt_download(url, dst_dir, fmt=fmt, target_height=target_height)
+                r = cobalt_download(
+                    url, dst_dir,
+                    fmt=fmt,
+                    target_height=target_height,
+                    max_filesize=max_filesize,
+                )
                 r.attempts = attempts + [f"cobalt: ok"]
                 return r
             except ExtractionError as exc:
@@ -1972,14 +2049,19 @@ def tool_versions() -> dict[str, str]:
             versions[name] = ((r.stdout or r.stderr).strip().splitlines() or ["installed"])[0][:80]
         except Exception:  # noqa: BLE001
             versions[name] = "installed"
+    # Cobalt + LLM endpoints can be self-hosted internal URLs or
+    # fingerprint the provider; we surface "configured" instead of
+    # the raw URL so /api/limits doesn't volunteer that detail to
+    # anonymous callers. Operators can still confirm a value was
+    # parsed - they just have to read their own env vars.
     if cobalt_available():
-        versions["cobalt"] = COBALT_API_BASE
+        versions["cobalt"] = "configured"
     else:
         versions["cobalt"] = "not configured (set COBALT_API_BASE)"
     try:
         _llm = _import_llm_extract()
         if _llm.llm_available():
-            versions["llm"] = f"{_llm.LLM_MODEL} @ {_llm.LLM_BASE_URL}"
+            versions["llm"] = f"{_llm.LLM_MODEL} (configured)"
         else:
             versions["llm"] = "not configured (set CMVIDEO_LLM_BASE_URL + _API_KEY)"
     except ImportError:

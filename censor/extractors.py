@@ -544,6 +544,16 @@ def streamlink_download(
     # streamlink for HLS streams, which is what Twitch / Kick / YT-live
     # all serve.
     bin_path = _resolve_tool("streamlink") or "streamlink"
+    # Resolve ffmpeg the same way as every other tool in this module.
+    # Previously this was a bare "ffmpeg" string which relied on
+    # whatever the OS's PATH lookup returned at exec time. In bundled
+    # AppImage / Windows builds `app.py:_bootstrap_bundle_paths()`
+    # prepends the bundled tool dir to PATH so the result is the
+    # same in practice, but going through `_resolve_tool` makes the
+    # resolution explicit + consistent with the rest of the chain
+    # (less surprise on dev installs, and the resolved absolute
+    # path bypasses one layer of late PATH resolution).
+    ffmpeg_bin = _resolve_tool("ffmpeg") or "ffmpeg"
     cmd = [
         bin_path,
         "--quiet",
@@ -553,7 +563,7 @@ def streamlink_download(
         "best",
     ]
     ff = [
-        "ffmpeg",
+        ffmpeg_bin,
         "-loglevel", "error",
         "-y",
         "-i", "pipe:0",

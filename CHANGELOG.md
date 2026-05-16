@@ -3,6 +3,125 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.16-alpha] - 2026-05-16
+
+Security maintenance pass across the mini-app, desktop config
+store, and static site. Findings discovered during a structured
+audit; nothing here is in-the-wild exploited, but each item moves
+the codebase a measurable step forward in the threat model.
+
+### Mini-app (high)
+
+- **`X-Forwarded-For` parsing now resists header forgery.** The
+  previous implementation always took the leftmost entry, so any
+  caller could send `X-Forwarded-For: <victim>` and inherit the
+  victim's rate-limit bucket. With the owner-IP allowlist
+  granting unlimited jobs to listed IPs, that turned a single
+  HTTP header into an unauthenticated "skip every gate" key.
+  `_client_ip` now picks the (n+1)th-from-rightmost entry, where
+  n = `CMVIDEO_TRUSTED_PROXY_HOPS` (default 1 for HF Spaces' edge
+  alone). Forged left-side hops are dropped, the real client IP
+  is what reaches the rate limiter, and the owner-IP bypass is
+  spoof-proof at the edge HF controls. Bump the env var to 2 if
+  you ever front the Space with a second trusted proxy
+  (Cloudflare etc).
+
+### Mini-app (medium)
+
+- **`/api/limits` no longer leaks the LLM endpoint or Cobalt API
+  base URL.** `tool_versions()` previously returned
+  `versions["cobalt"] = COBALT_API_BASE` and
+  `versions["llm"] = f"{model} @ {LLM_BASE_URL}"`. For
+  self-hosted instances those URLs can be internal hostnames or
+  fingerprint the provider (Groq vs Cerebras vs OpenAI); both
+  are now redacted to `"configured"`. `llm_status()` drops
+  `base_url` from its payload entirely.
+- **Cobalt media-URL fetch now enforces a streaming byte cap.**
+  Previously `cobalt_download` did `urllib.urlopen` +
+  `shutil.copyfileobj` with no upper bound, so a malicious or
+  compromised Cobalt instance could hand back a `media_url`
+  pointing at an arbitrarily large response and watch the HF
+  Space exhaust ephemeral disk. New code threads `max_filesize`
+  from the dispatcher (defaults to the per-quality-tier cap),
+  rejects up-front when `Content-Length` exceeds the cap, and
+  aborts mid-stream the moment the running counter crosses it.
+  Cleans up the partial file on abort.
+- **CORS allowlist now production-only.** `localhost:8080` /
+  `localhost:5500` etc. are gated behind
+  `CMVIDEO_DEV_CORS=1` so the deployed Space doesn't volunteer
+  dev origins to the browser. No exploit path on its own (browser
+  SOP still applies), just a tighter live response.
+
+### Mini-app (low)
+
+- **lux `-stream` and you-get `--format` IDs now validated
+  against `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`.** Defence-in-depth
+  against argv-injection. The values come from parsing the
+  tool's own enumeration output and *should* always be tame
+  alphanumerics, but if upstream ever changed format and
+  surfaced something starting with `-`, the next argv slot
+  would treat it as a fresh CLI flag (`--cookie=...`,
+  `-i ...`, etc.). Anything that fails the regex falls through
+  to the tool's default behaviour with a warning log.
+
+### Desktop (medium)
+
+- **`streamlink_download` resolves `ffmpeg` through `_resolve_tool`
+  instead of using a bare `"ffmpeg"` string.** In bundled
+  AppImage / Windows builds `_bootstrap_bundle_paths()` prepends
+  the bundled tool dir to `PATH`, so the actual binary picked
+  was already correct - this change just makes resolution
+  explicit and consistent with every other tool in the chain.
+  Reduces the "what did `subprocess.Popen` find on `PATH` at
+  exec time" surprise on dev installs.
+
+### Desktop (low)
+
+- **`config.json` now gets owner-only ACLs on Windows.** POSIX
+  has had `0o600` since 0.4.x; Windows used to inherit whatever
+  ACL `%APPDATA%\\CMVideo` had, which on a fresh user profile
+  is "Users group readable through inheritance". `save_config`
+  now applies an `icacls /inheritance:r /grant <user>:(F)`
+  pattern equivalent to POSIX 0o600. Best-effort: if `icacls`
+  is missing or fails, the save still succeeds (the file is
+  still under `%APPDATA%`, not `C:\\`). Matters for the
+  ElevenLabs API key stored in plaintext in this file.
+
+### Site (low)
+
+- **Removed dead YouTube iframe-API code** (`loadYouTubeIframeAPI`,
+  `runYouTubeCensorFlow`, `renderEmbedPlayer`, mute scheduler).
+  The iframe path was never wired into the submit flow - YT
+  censor mode redirects to the desktop app and YT download mode
+  goes through the regular `/api/process` pipeline. Keeping the
+  unused code in the bundle expanded the attack surface for no
+  benefit (a third-party script source, global `YT.Player`
+  scope, an intervalled timer left running). The
+  `https://www.youtube.com/iframe_api` script is no longer
+  loaded from the homepage. If the iframe path is ever revived,
+  restore from git history at v0.4.15.3-alpha. The CSP allowlist
+  is unchanged (still includes youtube.com for the embedded
+  hero player).
+
+### Audit notes
+
+Two findings were investigated and confirmed as **false positives**
+- not shipping fixes:
+
+- The `response: Response = ...` annotation in
+  `security_headers` middleware was flagged as a runtime
+  `NameError`. Function-local annotations are NOT evaluated at
+  runtime in CPython (PEP 526 only stores them at module / class
+  level). The annotation is parsed but never looked up, so the
+  middleware works correctly. Type-checker concern only.
+- `SlowAPIMiddleware` was flagged as missing. It's only required
+  when you want `default_limits` to apply globally without
+  decorators. With `app.state.limiter = limiter`, the
+  `RateLimitExceeded` exception handler registered, and per-
+  endpoint `@limiter.limit(...)` decorators on every public
+  endpoint, the rate-limit enforcement path is fully wired and
+  the middleware is unnecessary.
+
 ## [0.4.15.3-alpha] - 2026-05-16
 
 Mini-app: stop hard-blocking YouTube downloads; route YT through

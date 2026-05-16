@@ -51,6 +51,47 @@ def load_config() -> dict:
     return {}
 
 
+def _harden_windows_acl(target: Path) -> None:
+    """Restrict the Windows ACL on `target` to the current user only.
+
+    On POSIX we already create the file with mode 0o600, which is the
+    canonical "owner-only" pattern. Windows uses ACLs instead of mode
+    bits, and Python's `os.open(..., 0o600)` is a no-op on Windows -
+    so without this helper a config.json with an ElevenLabs API key
+    inherits whatever ACL `%APPDATA%\\CMVideo` already had, which on
+    a fresh user profile is usually "Users" group readable through
+    inheritance.
+
+    Strategy: shell out to `icacls` to remove inheritance and grant
+    full control to the current user only. If `icacls` is missing or
+    fails we leave the default ACL alone (it's still under
+    `%APPDATA%`, not world-readable C:\\). This is best-effort
+    hardening, not a hard guarantee - swallowing failures keeps a
+    config save from breaking just because the ACL change errored.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    import subprocess  # local import - keeps POSIX import-time cost at zero
+    user = os.environ.get("USERNAME", "")
+    if not user:
+        return
+    try:
+        # /inheritance:r removes inherited permissions, then we grant
+        # the current user full control. Together that yields an ACL
+        # equivalent to POSIX 0o600 (owner-only RWX).
+        subprocess.run(
+            ["icacls", str(target), "/inheritance:r", "/grant", f"{user}:(F)"],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # icacls missing on stripped-down Windows installs, or the
+        # call timed out; either way we don't want config save to
+        # fail because of a hardening upgrade.
+        pass
+
+
 def save_config(data: dict) -> None:
     """Atomically write the config with strict permissions.
 
@@ -60,6 +101,11 @@ def save_config(data: dict) -> None:
     other local users, even for the brief window between create and
     chmod. The parent dir is also clamped to 0o700 - no point making
     the file unreadable if someone can still ``ls`` the directory.
+
+    On Windows we apply an equivalent ACL via `icacls` (remove
+    inheritance, grant full control to the current user only).
+    Best-effort: if the ACL call fails the config still saves.
+
     Write failures are swallowed: the app still works without a
     persisted config.
     """
@@ -72,6 +118,10 @@ def save_config(data: dict) -> None:
                 os.chmod(d, 0o700)
             except OSError:
                 pass
+        else:
+            # Tighten the parent dir's ACL on Windows the same way we
+            # do for the file itself. `icacls` accepts directories.
+            _harden_windows_acl(d)
         target = config_path()
         tmp = d / "config.json.tmp"
         payload = json.dumps(data, indent=2).encode("utf-8")
@@ -94,6 +144,16 @@ def save_config(data: dict) -> None:
                 raise
         else:
             tmp.write_bytes(payload)
+            # Apply ACL to the temp file BEFORE replacing the target,
+            # so the final file inherits the tightened ACL even on
+            # the (brief) window where rename hasn't happened yet.
+            _harden_windows_acl(tmp)
         tmp.replace(target)
+        if not is_posix:
+            # Ensure the renamed-into-place file also has the
+            # tightened ACL (replace() should preserve the ACL we set
+            # on tmp, but we re-apply defensively in case some
+            # filesystems don't propagate it).
+            _harden_windows_acl(target)
     except OSError:
         pass

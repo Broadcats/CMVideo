@@ -94,27 +94,76 @@ log = logging.getLogger("cmvideo-mini")
 # ---------------------------------------------------------------------------
 # App boilerplate
 # ---------------------------------------------------------------------------
-def _client_ip(request: Request) -> str:
-    """Resolve the real client IP behind HF Spaces' reverse proxy.
+# Trusted-proxy depth. `X-Forwarded-For` looks like
+#     client, proxy1, proxy2, ..., last-trusted-proxy
+# and entries are appended *left to right* as the request passes
+# through hops. The number of TRUSTED hops on the right (added by
+# infrastructure we control: the HF Spaces edge, plus optionally
+# Cloudflare or another front) determines which entry is the real
+# client. Picking the leftmost entry is wrong on the public
+# internet because anyone can prepend a forged `X-Forwarded-For:
+# 1.2.3.4` header and impersonate that IP - bypassing the
+# owner-IP allowlist (unlimited jobs!), per-IP rate limits, and
+# the per-IP failure cooldown. Take the (n+1)th-from-the-right
+# entry when there are at least that many; fall back to the
+# leftmost entry (best-effort) when the chain is shorter than
+# expected (i.e. the request came in directly).
+#
+# Default = 1 (HF Spaces edge alone). If you ever front this
+# Space with another trusted proxy (Cloudflare, your own L7),
+# bump to 2.
+_TRUSTED_PROXY_HOPS = max(0, int(os.environ.get("CMVIDEO_TRUSTED_PROXY_HOPS", "1") or "1"))
 
-    `slowapi.util.get_remote_address` reads `request.client.host`, which
-    on HF Spaces is always the platform's edge proxy - so every visitor
-    on Earth shared the same rate-limit bucket. The proxy populates
-    `X-Forwarded-For` with the chain `client, proxy1, proxy2, ...`;
-    we take the left-most entry (the original client) and fall back to
-    the socket peer for direct/unproxied access."""
+
+def _client_ip(request: Request) -> str:
+    """Resolve the real client IP behind HF Spaces' reverse proxy
+    in a way that resists spoofing.
+
+    `slowapi.util.get_remote_address` reads `request.client.host`,
+    which on HF Spaces is always the platform's edge proxy - so
+    every visitor on Earth shared the same rate-limit bucket. The
+    proxy populates `X-Forwarded-For` with the chain
+    `client, proxy1, proxy2, ...`. We trust the rightmost
+    `_TRUSTED_PROXY_HOPS` entries as added by our infrastructure
+    and pick the entry just before them. If the chain is shorter
+    than expected (no proxy in front, or fewer hops than
+    configured), we fall back to the leftmost entry as a
+    best-effort signal.
+
+    Why this matters: the previous "always pick leftmost"
+    behaviour let any caller forge an `X-Forwarded-For: <victim>`
+    header and inherit `<victim>`'s rate-limit bucket. Combined
+    with the owner-IP allowlist (which grants unlimited jobs to
+    listed IPs), that turned a header into an unauthenticated
+    "skip all rate limits" key. The fix makes header forgery
+    impossible at the edge HF controls."""
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
-        first = xff.split(",")[0].strip()
-        # Tolerate IPv6 with brackets / zone IDs by feeding ipaddress
-        # only the bit it'll accept; if parsing fails we still return
-        # the raw string so the limiter buckets on something.
-        if first:
-            try:
-                ipaddress.ip_address(first.split("%", 1)[0])
-            except ValueError:
-                pass
-            return first
+        # Split, strip empties, and pick the (n+1)th-from-rightmost
+        # so an adversary that prepends entries on the left is
+        # ignored. With CMVIDEO_TRUSTED_PROXY_HOPS=1 (default,
+        # HF-Spaces-only): chain `attacker_forgery, real_client,
+        # hf_edge` -> rightmost-1 -> `real_client`. Forgery
+        # pre-pended further left simply gets dropped.
+        chain = [c.strip() for c in xff.split(",")]
+        chain = [c for c in chain if c]
+        if chain:
+            # Index from the right. e.g. hops=1, len=3 -> chain[1]
+            # = "real_client". hops=1, len=1 -> fall through to the
+            # leftmost (chain[0]) so a request that arrived
+            # without a proxy still buckets on something.
+            idx = len(chain) - 1 - _TRUSTED_PROXY_HOPS
+            candidate = chain[idx] if idx >= 0 else chain[0]
+            # Tolerate IPv6 with brackets / zone IDs by feeding
+            # ipaddress only the bit it'll accept; if parsing fails
+            # we still return the raw string so the limiter buckets
+            # on something.
+            if candidate:
+                try:
+                    ipaddress.ip_address(candidate.split("%", 1)[0])
+                except ValueError:
+                    pass
+                return candidate
     return get_remote_address(request) or "0.0.0.0"
 
 
@@ -211,18 +260,32 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS: cmvideo.online embeds the widget in its hero and calls this
-# Space cross-origin. The Space's own / endpoint is fallback for direct
-# visitors and is same-origin from there.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://cmvideo.online",
-        "https://www.cmvideo.online",
+# Space cross-origin. The Space's own / endpoint is fallback for
+# direct visitors and is same-origin from there.
+#
+# Production allowlist is just the two cmvideo.online hostnames.
+# Localhost dev origins are gated behind CMVIDEO_DEV_CORS=1 so the
+# production HF Space doesn't volunteer them - they're not a real
+# vector (no creds in the request, browser still enforces SOP) but
+# it's neat to keep the live origin list tight, and one less footgun
+# for anyone running a malicious local server that wanted to read
+# cross-origin responses they could already trigger themselves.
+_CORS_ORIGINS = [
+    "https://cmvideo.online",
+    "https://www.cmvideo.online",
+]
+if os.environ.get("CMVIDEO_DEV_CORS", "").strip() == "1":
+    _CORS_ORIGINS += [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:5500",
         "http://127.0.0.1:5500",
-    ],
+    ]
+    log.info("CORS dev mode: localhost origins are allowed")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
     expose_headers=["Content-Disposition"],
@@ -920,6 +983,7 @@ def _do_download(
             ydl_opts=opts,
             on_attempt=_wrap_attempt,
             target_height=int(height or MAX_VIDEO_HEIGHT),
+            max_filesize=max_filesize,
         )
     except _extractors.ExtractionError as exc:
         # Surface as a yt-dlp DownloadError-shaped exception so the

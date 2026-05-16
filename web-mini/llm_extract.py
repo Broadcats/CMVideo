@@ -121,10 +121,17 @@ def llm_available() -> bool:
 
 
 def llm_status() -> dict[str, Any]:
-    """Diagnostic snapshot used by /api/limits."""
+    """Diagnostic snapshot used by /api/limits.
+
+    Deliberately does NOT echo `LLM_BASE_URL`. The base URL can
+    point at a self-hosted endpoint (internal hostname) or
+    fingerprint the provider (Groq vs Cerebras vs OpenAI etc.) -
+    neither of which we want to volunteer to anonymous callers
+    of /api/limits. Returning `configured: true/false` is enough
+    for the operator to verify the env var was parsed."""
     return {
         "enabled": llm_available(),
-        "base_url": LLM_BASE_URL or None,
+        "configured": bool(LLM_BASE_URL),
         "model": LLM_MODEL if llm_available() else None,
         "max_html_chars": LLM_MAX_HTML,
         "timeout_s": LLM_TIMEOUT,

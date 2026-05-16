@@ -122,6 +122,35 @@ def main() -> int:
         ignore_patterns=[f"{p}/**" for p in IGNORE_PATTERNS] + list(IGNORE_PATTERNS),
     )
 
+    # 3. Squash git history when the Space's storage is getting close
+    #    to the free-tier 1 GB cap. Free Spaces accumulate git history
+    #    on every deploy, and even small files re-stored across 30+
+    #    commits add up. `super_squash_history` collapses every
+    #    commit into one and reclaims storage. Cheap, idempotent,
+    #    safe to run every deploy.
+    try:
+        info = api.repo_info(repo_id=repo_id, repo_type="space")
+        used = getattr(info, "used_storage", None) or getattr(
+            info, "usedStorage", None
+        )
+        # used_storage is in bytes when the API returns it. We squash
+        # at 700 MB to leave generous headroom under the 1 GB cap.
+        SQUASH_THRESHOLD = 700 * 1024 * 1024
+        if isinstance(used, (int, float)) and used > SQUASH_THRESHOLD:
+            print(
+                f"[deploy-mini] Space storage at {used / 1e9:.2f} GB - "
+                "squashing git history to reclaim space..."
+            )
+            api.super_squash_history(repo_id=repo_id, repo_type="space")
+            print("[deploy-mini] History squashed.")
+        elif isinstance(used, (int, float)):
+            print(f"[deploy-mini] Space storage: {used / 1e6:.0f} MB / 1 GB cap")
+    except Exception as exc:  # noqa: BLE001 - storage check is best-effort
+        # Older huggingface_hub versions may not expose used_storage
+        # or super_squash_history. We still uploaded successfully so
+        # don't fail the whole deploy.
+        print(f"[deploy-mini] (storage check skipped: {exc})")
+
     direct_url = f"https://{args.owner.lower()}-{args.space}.hf.space"
     page_url = f"https://huggingface.co/spaces/{repo_id}"
     print()

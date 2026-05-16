@@ -73,6 +73,7 @@ pyinstaller \
     --windowed \
     --paths "$HERE" \
     --collect-all tkinterdnd2 \
+    --collect-all customtkinter \
     --collect-all faster_whisper \
     --collect-all yt_dlp \
     --collect-all ctranslate2 \

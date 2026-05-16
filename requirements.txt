@@ -2,6 +2,12 @@ faster-whisper>=1.0.0
 tkinterdnd2>=0.4.0
 yt-dlp>=2025.1.0
 
+# Modern dark/rounded UI toolkit on top of Tk. We compose it with
+# tkinterdnd2 via the documented `CTkDnD` wrapper. App still launches
+# without it (falls back to ttk widgets), but the website-matched look
+# only ships when this is installed.
+customtkinter>=5.2.0
+
 # Multi-extractor fallback chain. yt-dlp is universal; the others
 # fill in gaps where yt-dlp's extractors are wedged or upstream-broken
 # (Twitter / X, Reddit, Tumblr, Bilibili, live streams). See

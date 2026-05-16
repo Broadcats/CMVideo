@@ -3,6 +3,43 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.6-alpha] - 2026-05-16
+
+UI overhaul to match the website, livestream-style ElevenLabs TTS
+voices, the website wordmark baked into the desktop header, and a small
+security audit on cmvideo.online.
+
+### Added
+
+- **Brand wordmark in the header.** The "Clean My V[camera]deo"
+  wordmark from cmvideo.online is pre-rendered to transparent PNGs in
+  `assets/wordmark/` and loaded at startup. Falls back to the icon +
+  text combo when the assets aren't bundled.
+- **Six ElevenLabs livestream voices** in the Fun voice list (Brian,
+  Adam, Sam, Rachel, Antoni, Domi). Right-click the URL field -> "Set
+  ElevenLabs API key..." to enable. Synth results are cached on disk
+  per voice + word so repeat runs never touch the network. Failures
+  fall back transparently to the espeak Klatt voices.
+
+### Changed
+
+- **CustomTkinter for the entire UI.** Drop-downs (Format, Quality,
+  Fun voice, File size), radios (Silence/Beep/Fun), checkboxes, the
+  primary action button, and the progress bar are all CTk widgets now,
+  matching the website's dark/rounded palette. Drag-and-drop survives
+  via the `CTkDnD` recipe; the legacy ttk fallback ships if
+  CustomTkinter is missing on the host.
+- **Site security headers.** `index.html` now sets `Permissions-Policy`
+  and `X-Content-Type-Options` via meta. The two `innerHTML` writes in
+  `app.js` were replaced with `createElement` + `textContent`
+  defense-in-depth (no XSS surface today, but no future regression
+  surface either).
+
+### Fixed
+
+- Fun voice combo's `(needs API key)` decoration now updates live when
+  the user pastes a key into Settings, no app restart required.
+
 ## [0.4.5-alpha] - 2026-05-16
 
 Brand polish, a new **FUN** section in the desktop app, and two new

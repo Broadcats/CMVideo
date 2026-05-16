@@ -56,6 +56,17 @@ import tkinter.font as tkfont
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
+# CustomTkinter is the website-matched dark/rounded UI toolkit. It's a
+# soft dependency: when missing we silently fall back to the legacy
+# ttk-only widgets so the app still launches in editor / dev shells
+# that haven't installed it yet.
+try:
+    import customtkinter as ctk  # type: ignore[import-not-found]
+    _CTK_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    ctk = None  # type: ignore[assignment]
+    _CTK_AVAILABLE = False
+
 from censor import funtts, pipeline
 from censor.audio import SUPPORTED_INPUT_EXTS
 from censor.config_store import load_config, save_config
@@ -221,9 +232,253 @@ def _pick_font(families: list[str], size: int, weight: str = "normal") -> tkfont
     return tkfont.Font(size=size, weight=weight)
 
 
+if _CTK_AVAILABLE:
+    # Apply website-matched palette + dark mode globally before any CTk
+    # widget gets instantiated.
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")  # we override via fg_color/hover_color
+
+
+def _ctk_font(f):  # type: ignore[no-untyped-def]
+    """Convert a tk Font to a CTk-friendly tuple. Pass-through if already
+    tuple/None/CTkFont. CTk rejects tkinter.font.Font instances, so we
+    extract `family`, `size`, `weight` and hand them across as a tuple."""
+    if f is None:
+        return None
+    if isinstance(f, tuple):
+        return f
+    try:
+        family = f.cget("family")
+        size = int(f.cget("size"))
+        weight = f.cget("weight") or "normal"
+        return (family, size, weight)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# --- CTk widget shims --------------------------------------------------
+# CustomTkinter widgets don't share the ttk API. These tiny helpers let
+# the rest of CensorApp stay agnostic: they emit a CTk widget when CTk
+# is present (smooth dark dropdown, rounded checkbox, progress bar with
+# a soft bar, etc.) and a ttk widget otherwise.
+
+class _CTkComboBoxShim:
+    """Wraps `ctk.CTkComboBox` to look like `ttk.Combobox` to the rest
+    of the app: supports `.bind('<<ComboboxSelected>>', cb)` and
+    `.current(idx)`, plus the usual `set/get/configure`."""
+
+    def __init__(self, parent, *, textvariable=None, values, state="readonly",
+                 width=12, font=None):  # type: ignore[no-untyped-def]
+        self._values: list[str] = list(values)
+        self._cb: list = []
+        self._var = textvariable
+        char_w = 8  # approx average px per char at 11pt Inter
+        ctk_kwargs = dict(
+            values=self._values,
+            state=state,
+            width=max(60, width * char_w + 28),
+            height=30,
+            corner_radius=8,
+            border_width=1,
+            border_color=Theme.BORDER,
+            fg_color=Theme.SURFACE,
+            button_color=Theme.SURFACE_HI,
+            button_hover_color=Theme.ACCENT_LO,
+            text_color=Theme.TEXT,
+            dropdown_fg_color=Theme.SURFACE,
+            dropdown_hover_color=Theme.ACCENT,
+            dropdown_text_color=Theme.TEXT,
+            font=_ctk_font(font),
+            command=self._on_command,
+        )
+        if textvariable is not None:
+            ctk_kwargs["variable"] = textvariable
+        self._widget = ctk.CTkComboBox(parent, **ctk_kwargs)  # type: ignore[union-attr]
+
+    def _on_command(self, choice: str) -> None:
+        for cb in self._cb:
+            try:
+                cb(None)
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ttk-compatible surface ------------------------------------------------
+    def bind(self, event: str, callback) -> None:  # type: ignore[no-untyped-def]
+        if event == "<<ComboboxSelected>>":
+            self._cb.append(callback)
+            return
+        self._widget.bind(event, callback)
+
+    def current(self, idx: int | None = None):  # type: ignore[no-untyped-def]
+        if idx is None:
+            try:
+                return self._values.index(self._widget.get())
+            except ValueError:
+                return -1
+        if 0 <= idx < len(self._values):
+            self._widget.set(self._values[idx])
+
+    def set(self, value: str) -> None:
+        self._widget.set(value)
+
+    def get(self) -> str:
+        return self._widget.get()
+
+    def pack(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._widget.pack(*args, **kwargs)
+
+    def grid(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._widget.grid(*args, **kwargs)
+
+    def configure(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        if "values" in kwargs:
+            self._values = list(kwargs["values"])
+        self._widget.configure(**kwargs)
+
+    def state(self, _states):  # type: ignore[no-untyped-def]
+        # ttk.state(["disabled"]) / state(["!disabled"]) compatibility
+        for s in _states:
+            if s == "disabled":
+                self._widget.configure(state="disabled")
+            elif s in ("!disabled", "readonly"):
+                self._widget.configure(state="readonly")
+
+
+def _make_combobox(parent, *, textvariable=None, values, state="readonly",
+                   width=12, font=None):  # type: ignore[no-untyped-def]
+    if _CTK_AVAILABLE:
+        return _CTkComboBoxShim(
+            parent,
+            textvariable=textvariable,
+            values=values,
+            state=state,
+            width=width,
+            font=font,
+        )
+    kwargs = dict(
+        values=list(values),
+        state=state,
+        width=width,
+        style="Dark.TCombobox",
+    )
+    if textvariable is not None:
+        kwargs["textvariable"] = textvariable
+    return ttk.Combobox(parent, **kwargs)
+
+
+def _make_check(parent, *, text, variable, font=None):  # type: ignore[no-untyped-def]
+    if _CTK_AVAILABLE:
+        return ctk.CTkCheckBox(  # type: ignore[union-attr]
+            parent,
+            text=text,
+            variable=variable,
+            fg_color=Theme.ACCENT,
+            hover_color=Theme.ACCENT_LO,
+            border_color=Theme.BORDER_HI,
+            text_color=Theme.TEXT,
+            checkmark_color="#ffffff",
+            corner_radius=4,
+            border_width=2,
+            font=_ctk_font(font),
+        )
+    return ttk.Checkbutton(
+        parent,
+        text=text,
+        variable=variable,
+        style="Dark.TCheckbutton",
+    )
+
+
+def _make_radio(parent, *, text, variable, value, font=None):  # type: ignore[no-untyped-def]
+    if _CTK_AVAILABLE:
+        return ctk.CTkRadioButton(  # type: ignore[union-attr]
+            parent,
+            text=text,
+            variable=variable,
+            value=value,
+            fg_color=Theme.ACCENT,
+            hover_color=Theme.ACCENT_LO,
+            border_color=Theme.BORDER_HI,
+            text_color=Theme.TEXT,
+            font=_ctk_font(font),
+        )
+    return ttk.Radiobutton(
+        parent,
+        text=text,
+        variable=variable,
+        value=value,
+        style="Dark.TRadiobutton",
+    )
+
+
+def _make_progress(parent, *, length=400):  # type: ignore[no-untyped-def]
+    if _CTK_AVAILABLE:
+        bar = ctk.CTkProgressBar(  # type: ignore[union-attr]
+            parent,
+            mode="determinate",
+            height=10,
+            corner_radius=6,
+            width=length,
+            fg_color=Theme.SURFACE,
+            progress_color=Theme.ACCENT,
+        )
+        bar.set(0)
+        # ttk.Progressbar exposes ["value"] and configure(value=...).
+        # Provide a tiny shim so the rest of the app doesn't care.
+
+        class _BarShim:
+            def __init__(self, w):  # type: ignore[no-untyped-def]
+                self._w = w
+
+            def __setitem__(self, k, v):  # type: ignore[no-untyped-def]
+                if k in ("value", "amount"):
+                    try:
+                        v = float(v) / 100.0
+                    except (TypeError, ValueError):
+                        v = 0.0
+                    self._w.set(max(0.0, min(1.0, v)))
+
+            def pack(self, *a, **kw):  # type: ignore[no-untyped-def]
+                return self._w.pack(*a, **kw)
+
+            def grid(self, *a, **kw):  # type: ignore[no-untyped-def]
+                return self._w.grid(*a, **kw)
+
+            def configure(self, **kw):  # type: ignore[no-untyped-def]
+                if "value" in kw:
+                    self.__setitem__("value", kw.pop("value"))
+                if kw:
+                    self._w.configure(**kw)
+
+            def winfo_exists(self):  # type: ignore[no-untyped-def]
+                return self._w.winfo_exists()
+
+        return _BarShim(bar)
+    return ttk.Progressbar(
+        parent, mode="determinate", length=length
+    )
+
+
+# Compose CTk and tkinterdnd2 by combining their root classes. The
+# DnDWrapper just monkey-patches the root with `tk_dnd_version` and a
+# `drop_target_register` method, so the order doesn't matter as long as
+# we bring up CTk first and then ask tkinterdnd2 to bind into it.
+if _CTK_AVAILABLE and _DND_AVAILABLE:
+    class _CTkDnDRoot(ctk.CTk, TkinterDnD.DnDWrapper):  # type: ignore[misc]
+        """CustomTkinter root that also speaks tkinterdnd2 protocol."""
+
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            ctk.CTk.__init__(self, *args, **kwargs)
+            self.TkdndVersion = TkinterDnD._require(self)
+
+
 class CensorApp:
     def __init__(self) -> None:
-        if _DND_AVAILABLE:
+        if _CTK_AVAILABLE and _DND_AVAILABLE:
+            self.root = _CTkDnDRoot()  # type: ignore[assignment]
+        elif _CTK_AVAILABLE:
+            self.root = ctk.CTk()  # type: ignore[assignment]
+        elif _DND_AVAILABLE:
             self.root: tk.Tk = TkinterDnD.Tk()  # type: ignore[assignment]
         else:
             self.root = tk.Tk()
@@ -282,6 +537,15 @@ class CensorApp:
         if not isinstance(_fv, str) or _fv not in funtts.fun_voice_ids():
             _fv = funtts.DEFAULT_FUN_VOICE_ID
         self._fun_voice_id = _fv
+
+        # ElevenLabs livestream voices stay disabled until the user
+        # supplies an API key via the URL right-click menu. Stored in
+        # config.json (file mode 0o600 on POSIX) so the key isn't
+        # leaked into command-line history or env exports.
+        _ek = self._config.get("elevenlabs_api_key") or ""
+        self._elevenlabs_api_key: str = (
+            _ek if isinstance(_ek, str) else ""
+        ).strip()
 
         _dsp = self._config.get("downsize_preset") or "none"
         if _dsp not in ("none", "small", "medium", "large"):
@@ -611,28 +875,50 @@ class CensorApp:
         brand_row = tk.Frame(title_holder, bg=Theme.BG)
         brand_row.pack(anchor="w", fill="x")
         self._brand_image: tk.PhotoImage | None = None
-        # Prefer the largest crisp icon we ship; fall back to smaller
-        # ones if the bundle layout differs.
-        for _name in ("icon-64.png", "icon-128.png", "icon.png"):
-            _logo = HERE / _name
-            if _logo.is_file():
+        # Prefer the rendered wordmark (matches website); fall back to
+        # the icon + plain text combo if the wordmark assets don't ship.
+        for _name in (
+            "assets/wordmark/wordmark-384.png",
+            "assets/wordmark/wordmark-256.png",
+            "assets/wordmark/wordmark-512.png",
+        ):
+            _wm = HERE / _name
+            if _wm.is_file():
                 try:
-                    self._brand_image = tk.PhotoImage(file=str(_logo))
-                    if _name == "icon.png":
-                        # 256px is too tall in the header; scale down.
-                        self._brand_image = self._brand_image.subsample(4, 4)
-                    elif _name == "icon-128.png":
-                        self._brand_image = self._brand_image.subsample(2, 2)
+                    img = tk.PhotoImage(file=str(_wm))
+                    # 256 = ~41px tall, 384 = ~50px, 512 = ~60px. The
+                    # header is ~46px comfortable height, so subsample
+                    # the larger ones.
+                    if "wordmark-512" in _name:
+                        img = img.subsample(2, 2)
+                    elif "wordmark-384" in _name and img.height() > 52:
+                        # subsample(2,2) would shrink too far; keep 1:1
+                        pass
+                    self._brand_image = img
                     break
                 except tk.TclError:
                     self._brand_image = None
+        if self._brand_image is None:
+            for _name in ("icon-64.png", "icon-128.png", "icon.png"):
+                _logo = HERE / _name
+                if _logo.is_file():
+                    try:
+                        self._brand_image = tk.PhotoImage(file=str(_logo))
+                        if _name == "icon.png":
+                            self._brand_image = self._brand_image.subsample(4, 4)
+                        elif _name == "icon-128.png":
+                            self._brand_image = self._brand_image.subsample(2, 2)
+                        break
+                    except tk.TclError:
+                        self._brand_image = None
         if self._brand_image is not None:
             tk.Label(
                 brand_row, image=self._brand_image, bg=Theme.BG
             ).pack(side="left", padx=(0, 12))
-        ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
-            side="left", anchor="w"
-        )
+        else:
+            ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
+                side="left", anchor="w"
+            )
         ttk.Label(title_holder, text=APP_TAGLINE, style="Tagline.TLabel").pack(
             anchor="w", pady=(2, 0)
         )
@@ -819,13 +1105,13 @@ class CensorApp:
             row, text="Format", bg=Theme.BG, fg=Theme.TEXT_MUTED, font=self.font_drop_sub
         )
         self.format_label.pack(side="left", padx=(0, 4))
-        self.format_combo = ttk.Combobox(
+        self.format_combo = _make_combobox(
             row,
             textvariable=self.download_format_var,
             values=list(SUPPORTED_DOWNLOAD_FORMATS),
             state="readonly",
             width=6,
-            style="Dark.TCombobox",
+            font=self.font_body,
         )
         self.format_combo.pack(side="left", padx=(0, 8))
 
@@ -834,13 +1120,13 @@ class CensorApp:
             row, text="Quality", bg=Theme.BG, fg=Theme.TEXT_MUTED, font=self.font_drop_sub
         )
         self.quality_label.pack(side="left", padx=(0, 4))
-        self.quality_combo = ttk.Combobox(
+        self.quality_combo = _make_combobox(
             row,
             textvariable=self.quality_var,
             values=list(VIDEO_QUALITY_LABELS),
             state="readonly",
             width=12,
-            style="Dark.TCombobox",
+            font=self.font_body,
         )
         self.quality_combo.pack(side="left")
         # When the user picks a new quality, remember it against the
@@ -865,11 +1151,11 @@ class CensorApp:
         # to config.json and reloaded on the next launch (if the file
         # still exists). Off by default - users who care about scope
         # don't accidentally leak a session token into their config.
-        self.remember_cookies_check = ttk.Checkbutton(
+        self.remember_cookies_check = _make_check(
             self.cookies_row,
             text="Remember",
             variable=self.remember_cookies,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         )
         self.remember_cookies_check.pack(side="right", padx=(0, 8), pady=(4, 0))
         self.cookies_clear_btn = tk.Button(
@@ -965,45 +1251,45 @@ class CensorApp:
         opts_inner.pack(fill="x", padx=18, pady=16, anchor="n")
 
         ttk.Label(opts_inner, text="REMOVE", style="Section.TLabel").pack(anchor="w")
-        ttk.Checkbutton(
+        _make_check(
             opts_inner,
             text="Swears",
             variable=self.remove_swears,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         ).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(
+        _make_check(
             opts_inner,
             text="Racial slurs",
             variable=self.remove_slurs,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         ).pack(anchor="w", pady=(2, 12))
 
         self.replace_label = ttk.Label(
             opts_inner, text="REPLACE WITH", style="Section.TLabel"
         )
         self.replace_label.pack(anchor="w")
-        self.silence_radio = ttk.Radiobutton(
+        self.silence_radio = _make_radio(
             opts_inner,
             text="Silence",
             variable=self.mode,
             value="silence",
-            style="Dark.TRadiobutton",
+            font=self.font_body,
         )
         self.silence_radio.pack(anchor="w", pady=(6, 0))
-        self.beep_radio = ttk.Radiobutton(
+        self.beep_radio = _make_radio(
             opts_inner,
             text="Beep tone",
             variable=self.mode,
             value="beep",
-            style="Dark.TRadiobutton",
+            font=self.font_body,
         )
         self.beep_radio.pack(anchor="w", pady=(2, 0))
-        self.fun_radio = ttk.Radiobutton(
+        self.fun_radio = _make_radio(
             opts_inner,
             text="Fun (retro robotic TTS saying PG words)",
             variable=self.mode,
             value="fun",
-            style="Dark.TRadiobutton",
+            font=self.font_body,
         )
         self.fun_radio.pack(anchor="w", pady=(2, 12))
 
@@ -1018,11 +1304,14 @@ class CensorApp:
             fv_row, text="Fun voice", style="OptionLabel.TLabel"
         )
         self.fun_voice_label.pack(side="left", padx=(0, 8))
-        self.fun_voice_combo = ttk.Combobox(
+        self.fun_voice_combo = _make_combobox(
             fv_row,
-            width=24,
-            values=funtts.fun_voice_labels(),
+            values=funtts.fun_voice_labels(
+                elevenlabs_key=bool(self._elevenlabs_api_key)
+            ),
             state="readonly",
+            width=32,
+            font=self.font_body,
         )
         self.fun_voice_combo.pack(side="left")
         self.fun_voice_combo.bind(
@@ -1035,26 +1324,40 @@ class CensorApp:
         except tk.TclError:
             pass
 
-        self.retro_audio_check = ttk.Checkbutton(
+        # Privacy note for online TTS voices. Sits right under the
+        # voice picker so it can never be missed.
+        self.fun_voice_privacy = ttk.Label(
+            opts_inner,
+            text=(
+                "Online TTS sends only the substitute words "
+                "(fudge, darn, ...) to ElevenLabs - never your audio."
+            ),
+            style="OptionLabelDim.TLabel",
+            wraplength=460,
+            justify="left",
+        )
+        self.fun_voice_privacy.pack(anchor="w", pady=(4, 0))
+
+        self.retro_audio_check = _make_check(
             opts_inner,
             text="Retro audio (lo-fi crunch on the audio track)",
             variable=self.retro_audio_var,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         )
         self.retro_audio_check.pack(anchor="w", pady=(6, 12))
 
         ttk.Label(opts_inner, text="EXTRAS", style="Section.TLabel").pack(anchor="w")
-        ttk.Checkbutton(
+        _make_check(
             opts_inner,
             text="Save transcript (.txt)",
             variable=self.save_transcript,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         ).pack(anchor="w", pady=(6, 0))
-        ttk.Checkbutton(
+        _make_check(
             opts_inner,
             text="Fuzzy matching (catches fucks, fuuuck, phuck, f*ck, kunt...)",
             variable=self.fuzzy_matching,
-            style="Dark.TCheckbutton",
+            font=self.font_body,
         ).pack(anchor="w", pady=(2, 12))
 
         ttk.Label(opts_inner, text="OUTPUT", style="Section.TLabel").pack(anchor="w")
@@ -1064,12 +1367,13 @@ class CensorApp:
             ds_row, text="File size", style="OptionLabel.TLabel"
         )
         self.downsize_label.pack(side="left", padx=(0, 8))
-        self.downsize_combo = ttk.Combobox(
+        self.downsize_combo = _make_combobox(
             ds_row,
-            width=14,
             textvariable=self.downsize_label_var,
             values=[lab for lab, _ in _DOWNSIZE_CHOICES],
             state="readonly",
+            width=18,
+            font=self.font_body,
         )
         self.downsize_combo.pack(side="left")
 
@@ -1125,6 +1429,20 @@ class CensorApp:
         self._url_menu.add_command(
             label="Get browser extension...", command=self._show_cookies_help
         )
+        # ElevenLabs livestream-style TTS voices (Brian / Adam / Sam /
+        # ...). User supplies their own API key here; the key is stored
+        # in config.json (mode 0o600 on POSIX). Removing it falls back
+        # to the espeak-ng Klatt voices.
+        self._url_menu.add_separator()
+        self._url_menu.add_command(
+            label="Set ElevenLabs API key...",
+            command=self._set_elevenlabs_api_key,
+        )
+        self._url_menu.add_command(
+            label="Clear ElevenLabs API key",
+            command=self._clear_elevenlabs_api_key,
+            state="disabled",
+        )
         # Power-user hooks for sites with no official yt-dlp support.
         # Surfaces the per-user plugin folder + a friendly explainer
         # for paywalled platforms (OnlyFans, Fansly, etc.) where neither
@@ -1179,6 +1497,11 @@ class CensorApp:
         try:
             state = "normal" if self._cookies_file is not None else "disabled"
             self._url_menu.entryconfig("Clear cookies file", state=state)
+        except tk.TclError:
+            pass
+        try:
+            ek_state = "normal" if self._elevenlabs_api_key else "disabled"
+            self._url_menu.entryconfig("Clear ElevenLabs API key", state=ek_state)
         except tk.TclError:
             pass
         # Do NOT call grab_release() here - tk_popup manages its own grab
@@ -1244,38 +1567,49 @@ class CensorApp:
         self.status_label.pack(side="bottom", fill="x", pady=(2, 0))
 
         # Progress bar above the status
-        self.progress = ttk.Progressbar(
-            parent,
-            style="Dark.Horizontal.TProgressbar",
-            mode="determinate",
-            maximum=100.0,
-            value=0,
-        )
+        self.progress = _make_progress(parent, length=400)
         self.progress.pack(side="bottom", fill="x", pady=(0, 4))
 
-        # Primary action button. tk.Button gives reliable colour control
-        # on Linux where ttk.Button often ignores theme overrides.
-        self.action_btn = tk.Button(
-            parent,
-            text="Censor",
-            bg=Theme.BORDER,
-            fg=Theme.TEXT_MUTED,
-            activebackground=Theme.ACCENT_LO,
-            activeforeground="white",
-            disabledforeground=Theme.TEXT_DIM,
-            highlightthickness=0,
-            font=self.font_button,
-            relief="flat",
-            bd=0,
-            padx=24,
-            pady=12,
-            cursor="arrow",
-            state="disabled",
-            command=self._on_action,
-        )
-        self.action_btn.pack(side="bottom", fill="x", pady=(8, 10))
-        self.action_btn.bind("<Enter>", self._on_btn_hover)
-        self.action_btn.bind("<Leave>", self._on_btn_leave)
+        # Primary action button. CTk gives us a website-matched rounded
+        # button with smooth hover; tk.Button is the fallback if CTk
+        # isn't installed.
+        if _CTK_AVAILABLE:
+            self.action_btn = ctk.CTkButton(  # type: ignore[union-attr]
+                parent,
+                text="Censor",
+                command=self._on_action,
+                fg_color=Theme.BORDER,
+                hover_color=Theme.ACCENT,
+                text_color=Theme.TEXT_MUTED,
+                text_color_disabled=Theme.TEXT_DIM,
+                corner_radius=12,
+                height=46,
+                font=_ctk_font(self.font_button),
+                state="disabled",
+            )
+            self.action_btn.pack(side="bottom", fill="x", pady=(8, 10))
+        else:
+            self.action_btn = tk.Button(
+                parent,
+                text="Censor",
+                bg=Theme.BORDER,
+                fg=Theme.TEXT_MUTED,
+                activebackground=Theme.ACCENT_LO,
+                activeforeground="white",
+                disabledforeground=Theme.TEXT_DIM,
+                highlightthickness=0,
+                font=self.font_button,
+                relief="flat",
+                bd=0,
+                padx=24,
+                pady=12,
+                cursor="arrow",
+                state="disabled",
+                command=self._on_action,
+            )
+            self.action_btn.pack(side="bottom", fill="x", pady=(8, 10))
+            self.action_btn.bind("<Enter>", self._on_btn_hover)
+            self.action_btn.bind("<Leave>", self._on_btn_leave)
 
     def _build_footer(self, parent: tk.Frame) -> None:
         """Copyright + divider, pinned at the very bottom."""
@@ -1391,11 +1725,14 @@ class CensorApp:
         if not hasattr(self, "silence_radio"):
             return
         censoring = self.remove_swears.get() or self.remove_slurs.get()
-        state = "!disabled" if censoring else "disabled"
         try:
-            self.silence_radio.state([state])
-            self.beep_radio.state([state])
-            self.fun_radio.state([state])
+            for radio in (self.silence_radio, self.beep_radio, self.fun_radio):
+                if hasattr(radio, "state"):
+                    # ttk.Radiobutton path
+                    radio.state(["!disabled"] if censoring else ["disabled"])
+                else:
+                    # CTk path
+                    radio.configure(state="normal" if censoring else "disabled")
             self.replace_label.configure(
                 style="Section.TLabel" if censoring else "SectionDim.TLabel"
             )
@@ -1609,6 +1946,80 @@ class CensorApp:
         self._cookies_file = None
         self._refresh_cookies_display()
         self._persist_cookies_pref()
+
+    # ---------- ElevenLabs API key (online TTS) ----------
+
+    def _set_elevenlabs_api_key(self) -> None:
+        """Prompt for an ElevenLabs API key and persist it.
+
+        The key is stored in config.json; on POSIX `save_config()`
+        sets the file mode to 0o600 so a casual ``cat`` won't leak it
+        to other users on the box.
+        """
+        if self._worker and self._worker.is_alive():
+            return
+        prompt = (
+            "Paste your ElevenLabs API key (starts with 'sk_'). "
+            "Leave blank to clear."
+        )
+        # CTkInputDialog (smooth) when CTk is available, else simpledialog.
+        new_key: str | None
+        if _CTK_AVAILABLE:
+            dialog = ctk.CTkInputDialog(  # type: ignore[union-attr]
+                title="ElevenLabs API key",
+                text=prompt,
+            )
+            new_key = dialog.get_input()
+        else:
+            from tkinter import simpledialog
+            new_key = simpledialog.askstring(
+                "ElevenLabs API key", prompt, parent=self.root, show="*"
+            )
+        if new_key is None:
+            return  # user cancelled
+        new_key = new_key.strip()
+        self._elevenlabs_api_key = new_key
+        self._config["elevenlabs_api_key"] = new_key
+        save_config(self._config)
+        # Re-decorate the Fun voice combo so the `(needs API key)`
+        # suffix appears / disappears immediately.
+        self._refresh_fun_voice_options()
+        msg = (
+            "ElevenLabs API key saved. Pick a livestream voice "
+            "(Brian / Adam / ...) in the Fun voice list."
+            if new_key
+            else "ElevenLabs API key cleared."
+        )
+        self.status_var.set(msg)
+
+    def _clear_elevenlabs_api_key(self) -> None:
+        """Forget the stored ElevenLabs API key."""
+        if self._worker and self._worker.is_alive():
+            return
+        if not self._elevenlabs_api_key:
+            return
+        self._elevenlabs_api_key = ""
+        self._config["elevenlabs_api_key"] = ""
+        save_config(self._config)
+        self._refresh_fun_voice_options()
+        self.status_var.set("ElevenLabs API key cleared.")
+
+    def _refresh_fun_voice_options(self) -> None:
+        """Update the Fun voice picker labels to reflect API-key state."""
+        if not hasattr(self, "fun_voice_combo"):
+            return
+        try:
+            self.fun_voice_combo.configure(
+                values=funtts.fun_voice_labels(
+                    elevenlabs_key=bool(self._elevenlabs_api_key)
+                )
+            )
+            # Restore the user's selected voice by index.
+            self.fun_voice_combo.current(
+                funtts.fun_voice_index_for_id(self._fun_voice_id)
+            )
+        except tk.TclError:
+            pass
 
     def _refresh_cookies_display(self) -> None:
         """Show or hide the cookies strip under the URL row depending on
@@ -1956,7 +2367,7 @@ class CensorApp:
         )
         if current == "Open Folder" and not has_source:
             return
-        self.action_btn.config(text=self._intended_action_label())
+        self.action_btn.configure(text=self._intended_action_label())
 
     # ---------- Resize handling ----------
 
@@ -2014,37 +2425,66 @@ class CensorApp:
         self.drop_card.config(highlightbackground=color)
 
     def _enable_action_btn(self, label: str = "Censor") -> None:
-        self.action_btn.config(
-            state="normal",
-            text=label,
-            bg=Theme.ACCENT,
-            fg="white",
-            cursor="hand2",
-        )
+        if _CTK_AVAILABLE:
+            self.action_btn.configure(
+                state="normal",
+                text=label,
+                fg_color=Theme.ACCENT,
+                hover_color=Theme.ACCENT_HI,
+                text_color="white",
+            )
+        else:
+            self.action_btn.config(
+                state="normal",
+                text=label,
+                bg=Theme.ACCENT,
+                fg="white",
+                cursor="hand2",
+            )
 
     def _disable_action_btn(self, label: str = "Censor") -> None:
-        self.action_btn.config(
-            state="disabled",
-            text=label,
-            bg=Theme.BORDER,
-            fg=Theme.TEXT_MUTED,
-            cursor="arrow",
-        )
+        if _CTK_AVAILABLE:
+            self.action_btn.configure(
+                state="disabled",
+                text=label,
+                fg_color=Theme.BORDER,
+                text_color=Theme.TEXT_MUTED,
+            )
+        else:
+            self.action_btn.config(
+                state="disabled",
+                text=label,
+                bg=Theme.BORDER,
+                fg=Theme.TEXT_MUTED,
+                cursor="arrow",
+            )
 
     def _set_action_working(self, label: str = "Working...") -> None:
-        self.action_btn.config(
-            state="disabled",
-            text=label,
-            bg=Theme.SURFACE_HI,
-            fg=Theme.TEXT_MUTED,
-            cursor="watch",
-        )
+        if _CTK_AVAILABLE:
+            self.action_btn.configure(
+                state="disabled",
+                text=label,
+                fg_color=Theme.SURFACE_HI,
+                text_color=Theme.TEXT_MUTED,
+            )
+        else:
+            self.action_btn.config(
+                state="disabled",
+                text=label,
+                bg=Theme.SURFACE_HI,
+                fg=Theme.TEXT_MUTED,
+                cursor="watch",
+            )
 
     def _on_btn_hover(self, _event) -> None:  # type: ignore[no-untyped-def]
+        if _CTK_AVAILABLE:
+            return  # CTk handles hover internally
         if self.action_btn.cget("state") == "normal":
             self.action_btn.config(bg=Theme.ACCENT_HI)
 
     def _on_btn_leave(self, _event) -> None:  # type: ignore[no-untyped-def]
+        if _CTK_AVAILABLE:
+            return  # CTk handles hover internally
         if self.action_btn.cget("state") == "normal":
             self.action_btn.config(bg=Theme.ACCENT)
 
@@ -2272,6 +2712,7 @@ class CensorApp:
             # local-file jobs since `download.download` isn't called.
             cookies_file=self._cookies_file,
             fun_voice=self._fun_voice_id,
+            elevenlabs_api_key=self._elevenlabs_api_key or None,
             downsize_preset=self._downsize_key(),
             retro_audio=self.retro_audio_var.get(),
             model_size=_safe_whisper_model_size(

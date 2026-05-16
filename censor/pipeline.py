@@ -50,6 +50,10 @@ class CensorOptions:
     # `cookiefile`. Used to authenticate against login-gated sites.
     # Ignored for local-file jobs.
     cookies_file: Path | None = None
+    # Optional ElevenLabs API key. When set + fun_voice is an
+    # ``eleven_*`` id, fun-mode TTS uses ElevenLabs livestream voices
+    # with on-disk caching, falling back silently to espeak on errors.
+    elevenlabs_api_key: str | None = None
 
 
 @dataclass
@@ -310,6 +314,8 @@ def run(
                         word,
                         clip_path,
                         voice=funtts.espeak_voice_for_choice(options.fun_voice),
+                        voice_id=options.fun_voice,
+                        elevenlabs_api_key=options.elevenlabs_api_key,
                     )
                     clips.append((s, e, clip_path))
                     if intervals and i % 4 == 0:

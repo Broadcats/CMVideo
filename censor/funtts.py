@@ -13,19 +13,30 @@ clips on top of the silenced original through a single ffmpeg pass.
 
 from __future__ import annotations
 
+import logging
 import random
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
+
+from . import elevenlabs_tts
+
+_log = logging.getLogger(__name__)
 
 
 # Klatt formant variants give that classic talking-computer timbre.
 # `+klatt5` is a low/male voice which fits casual swears best.
 _DEFAULT_VOICE = "en+klatt5"
 
-# Ten Fun-mode voices: (id stored in config / CensorOptions, UI label,
-# espeak-ng `-v` argument).
+# Six livestream-style ElevenLabs voices first (so they're the
+# recommended pick when an API key is set), then the espeak fallbacks.
+# Each row: (id stored in config / CensorOptions, UI label, espeak-ng
+# `-v` argument used as fallback if the online voice fails).
 FUN_VOICES: tuple[tuple[str, str, str], ...] = (
+    # Online (ElevenLabs) - the espeak voice is only used if synth fails.
+    *tuple((cid, label, "en+klatt5") for cid, label, _ in elevenlabs_tts.ELEVENLABS_VOICES),
+    # Offline (espeak-ng).
     ("klatt5", "Classic Klatt", "en+klatt5"),
     ("klatt6", "Bright Klatt", "en+klatt6"),
     ("klatt4", "Deep Klatt", "en+klatt4"),
@@ -38,12 +49,26 @@ FUN_VOICES: tuple[tuple[str, str, str], ...] = (
     ("wmids", "West Midlands", "en-gb-x-gbcwmd"),
 )
 
-DEFAULT_FUN_VOICE_ID: str = FUN_VOICES[0][0]
+# Default = first offline voice (Classic Klatt). Online voices need a
+# user-supplied API key, so we don't make them the default.
+DEFAULT_FUN_VOICE_ID: str = "klatt5"
 
 
-def fun_voice_labels() -> list[str]:
-    """Human-readable labels in FUN_VOICES order."""
-    return [label for _, label, _ in FUN_VOICES]
+def fun_voice_labels(elevenlabs_key: bool = False) -> list[str]:
+    """Human-readable labels in FUN_VOICES order.
+
+    When ``elevenlabs_key`` is False the online voices get a "(needs
+    API key)" suffix so users know why they fall back to the offline
+    voice. The labels stay otherwise identical so the index <-> id
+    helpers below keep working unchanged.
+    """
+    out: list[str] = []
+    for vid, label, _ in FUN_VOICES:
+        if vid.startswith("eleven_") and not elevenlabs_key:
+            out.append(f"{label} (needs API key)")
+        else:
+            out.append(label)
+    return out
 
 
 def fun_voice_ids() -> list[str]:
@@ -138,12 +163,36 @@ def generate_tts(
     voice: str = _DEFAULT_VOICE,
     speed: str = _DEFAULT_SPEED,
     amplitude: str = _DEFAULT_AMPLITUDE,
+    *,
+    voice_id: Optional[str] = None,
+    elevenlabs_api_key: Optional[str] = None,
 ) -> None:
     """Render `word` to a WAV at `output_path`.
 
-    Raises RuntimeError if no TTS engine is installed, or if espeak-ng
-    fails for some reason (e.g. invalid voice).
+    When ``voice_id`` matches an ElevenLabs voice and an API key is
+    supplied, we route through the online TTS service (with on-disk
+    caching). On *any* failure of the online path we silently fall back
+    to espeak-ng with ``voice``, so the job still completes even if the
+    user has no internet, the key is invalid, or ElevenLabs has hiccups.
+
+    Raises RuntimeError only when both paths fail (e.g. espeak-ng not
+    installed and the online call also failed).
     """
+    if voice_id and voice_id.startswith("eleven_") and elevenlabs_api_key:
+        try:
+            elevenlabs_tts.synthesize(
+                text=word,
+                internal_voice_id=voice_id,
+                api_key=elevenlabs_api_key,
+                output_path=output_path,
+            )
+            return
+        except elevenlabs_tts.ElevenLabsError as e:
+            _log.warning(
+                "ElevenLabs synth for %r failed (%s); falling back to espeak.",
+                word, e,
+            )
+
     engine = _engine()
     if engine is None:
         raise RuntimeError(INSTALL_HINT)
@@ -162,8 +211,12 @@ def generate_tts(
         # with the plain Klatt-less English voice so the feature still
         # works (just sounds a touch less Sam-y).
         if voice != "en":
-            return generate_tts(word, output_path, voice="en", speed=speed,
-                                amplitude=amplitude)
+            return generate_tts(
+                word, output_path, voice="en", speed=speed,
+                amplitude=amplitude,
+                voice_id=voice_id,
+                elevenlabs_api_key=None,  # already failed; don't loop
+            )
         raise RuntimeError(
             f"TTS failed for {word!r}:\n{proc.stderr.strip() or proc.stdout.strip()}"
         )

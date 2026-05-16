@@ -518,7 +518,13 @@ def _init_yt_cookies() -> Optional[str]:
 
 YT_COOKIES_FILE = _init_yt_cookies()
 
-def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict:
+def _ydl_common_opts(
+    tmpdir: Path,
+    max_duration: int,
+    max_filesize: int,
+    *,
+    progress_hook=None,
+) -> dict:
     opts = {
         "outtmpl": str(tmpdir / "%(title).80s.%(ext)s"),
         "noplaylist": True,
@@ -538,6 +544,8 @@ def _ydl_common_opts(tmpdir: Path, max_duration: int, max_filesize: int) -> dict
     }
     if YT_COOKIES_FILE:
         opts["cookiefile"] = YT_COOKIES_FILE
+    if progress_hook is not None:
+        opts["progress_hooks"] = [progress_hook]
     return opts
 
 
@@ -562,12 +570,27 @@ def _video_format_selector(fps: str = "source") -> str:
     )
 
 
-def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesize: int, fps: str = "source") -> Path:
+def _do_download(
+    url: str,
+    fmt: str,
+    tmpdir: Path,
+    max_duration: int,
+    max_filesize: int,
+    fps: str = "source",
+    *,
+    progress_hook=None,
+    on_attempt=None,
+) -> Path:
     """Try yt-dlp first; if it fails with a recoverable error, fall
     through to gallery-dl / Cobalt / streamlink. Caps are enforced
     inside the yt-dlp options so the cheap path never even starts a
-    download that would obviously bust them."""
-    opts = _ydl_common_opts(tmpdir, max_duration, max_filesize)
+    download that would obviously bust them.
+
+    `progress_hook` is yt-dlp's own callback shape (a dict with
+    ``status``, ``downloaded_bytes``, ``total_bytes``, ...). Callers
+    use it to drive the job-state progress bar.
+    """
+    opts = _ydl_common_opts(tmpdir, max_duration, max_filesize, progress_hook=progress_hook)
     if fmt == "mp4":
         opts.update({
             "format": _video_format_selector(fps),
@@ -588,13 +611,21 @@ def _do_download(url: str, fmt: str, tmpdir: Path, max_duration: int, max_filesi
             ],
         })
 
+    def _wrap_attempt(tool, msg):  # type: ignore[no-untyped-def]
+        log.info("extractor[%s]: %s", tool, msg[:200])
+        if on_attempt is not None:
+            try:
+                on_attempt(tool, msg)
+            except Exception:  # noqa: BLE001
+                pass
+
     try:
         result = _extractors.extract_with_fallbacks(
             url,
             tmpdir,
             fmt=fmt,
             ydl_opts=opts,
-            on_attempt=lambda tool, msg: log.info("extractor[%s]: %s", tool, msg[:200]),
+            on_attempt=_wrap_attempt,
         )
     except _extractors.ExtractionError as exc:
         # Surface as a yt-dlp DownloadError-shaped exception so the
@@ -645,7 +676,16 @@ def _do_info(url: str) -> dict:
 
 
 # ---- censor pipeline ------------------------------------------------------
-def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path, fps: str = "source") -> Path:
+def _do_censor(
+    src: Path,
+    fmt: str,
+    mode: str,
+    tmpdir: Path,
+    fps: str = "source",
+    *,
+    on_transcribe_progress=None,
+    on_render_progress=None,
+) -> Path:
     duration = mini_censor.probe_duration(src)
     if duration > MAX_CENSOR_DURATION_SECONDS + 5:
         raise RuntimeError(
@@ -653,9 +693,17 @@ def _do_censor(src: Path, fmt: str, mode: str, tmpdir: Path, fps: str = "source"
             f"on the mini version (this clip is {int(duration // 60)} min). Use the full app."
         )
     words = _wordlist_tokens()
-    intervals = mini_censor.find_intervals(src, words)
+    intervals = mini_censor.find_intervals(
+        src, words,
+        progress=on_transcribe_progress,
+        total_duration=duration,
+    )
     dst = tmpdir / f"censored.{fmt}"
-    mini_censor.render(src, dst, intervals, mode=mode, fmt=fmt, fps=fps)
+    mini_censor.render(
+        src, dst, intervals, mode=mode, fmt=fmt, fps=fps,
+        progress=on_render_progress,
+        total_duration=duration,
+    )
     return dst
 
 
@@ -728,6 +776,238 @@ async def healthz():
     return {"ok": True, "words": len(_wordlist_tokens()), "yt_cookies": bool(YT_COOKIES_FILE)}
 
 
+# ---------------------------------------------------------------------------
+# Async job model
+#
+# `/api/process` historically ran the whole pipeline inside the HTTP
+# request, which meant the client had nothing to poll - hence "Pulling
+# MP4... typically 10-60 sec." sitting on screen until the response
+# either arrived or timed out. The job model below moves the pipeline
+# into a background coroutine and exposes:
+#
+#   POST /api/process?async=1           -> {"job_id": "..."}
+#   GET  /api/jobs/{id}                 -> {"stage", "pct", "ready",
+#                                           "error", "filename"}
+#   GET  /api/jobs/{id}/file            -> the finished file (then
+#                                          cleans the tmpdir up)
+#
+# State lives in-process (dict + lock). HF Spaces gives us 1 worker so
+# this is fine; a multi-worker deployment would need Redis. Jobs are
+# garbage-collected after JOB_TTL_SECONDS regardless of fetch state to
+# stop a forgotten upload from squatting on disk forever.
+# ---------------------------------------------------------------------------
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+
+JOB_TTL_SECONDS = 30 * 60   # 30 min - longest a finished job sits unfetched
+JOB_MAX_INFLIGHT = 8        # cap concurrent in-flight jobs to bound memory
+
+
+@dataclass
+class JobState:
+    job_id: str
+    created_at: float = field(default_factory=lambda: time.monotonic())
+    stage: str = "queued"           # queued / fetching / transcribing / rendering / ready / error
+    pct: int = 0                    # 0..100 within the current stage
+    ready: bool = False
+    error: Optional[str] = None     # client-friendly message; full traceback stays in logs
+    filename: str = ""              # suggested download name, populated when ready
+    _tmpdir: Optional[Path] = None
+    _out_path: Optional[Path] = None
+    _media_type: str = "application/octet-stream"
+    _format: str = "mp4"
+    _client_ip: str = ""
+
+
+_jobs_lock = threading.Lock()
+_jobs: dict[str, JobState] = {}
+
+
+def _gc_jobs() -> None:
+    """Drop jobs older than the TTL. Best-effort - holds the lock for
+    a couple of microseconds."""
+    cutoff = time.monotonic() - JOB_TTL_SECONDS
+    expired: list[JobState] = []
+    with _jobs_lock:
+        for jid, j in list(_jobs.items()):
+            if j.created_at < cutoff:
+                expired.append(j)
+                _jobs.pop(jid, None)
+    for j in expired:
+        if j._tmpdir and j._tmpdir.exists():
+            shutil.rmtree(j._tmpdir, ignore_errors=True)
+
+
+def _create_job(client_ip: str, fmt: str, tmpdir: Path) -> JobState:
+    _gc_jobs()
+    with _jobs_lock:
+        if len(_jobs) >= JOB_MAX_INFLIGHT:
+            raise HTTPException(status_code=503, detail="Mini service is busy - try again in a minute.")
+        job = JobState(
+            job_id=uuid.uuid4().hex,
+            _client_ip=client_ip,
+            _format=fmt,
+            _tmpdir=tmpdir,
+            _media_type=_media_type(fmt),
+        )
+        _jobs[job.job_id] = job
+        return job
+
+
+def _get_job(job_id: str) -> JobState:
+    with _jobs_lock:
+        j = _jobs.get(job_id)
+    if j is None:
+        raise HTTPException(status_code=404, detail="That job has expired or never existed.")
+    return j
+
+
+def _set_stage(job: JobState, stage: str, pct: int = 0) -> None:
+    job.stage = stage
+    job.pct = max(0, min(100, int(pct)))
+
+
+async def _run_pipeline_async(
+    job: JobState,
+    *,
+    md: str,
+    fmt: str,
+    fps_choice: str,
+    have_url: bool,
+    clean_url: Optional[str],
+    saved_upload: Optional[Path],
+) -> None:
+    """Background pipeline that drives the JobState. Called via
+    `asyncio.create_task` from `/api/process?async=1`.
+
+    Mirrors the synchronous code path in `api_process` but tags each
+    stage so the client can render a progress bar."""
+    tmpdir = job._tmpdir
+    assert tmpdir is not None
+    src: Optional[Path] = None
+    try:
+        if have_url:
+            assert clean_url is not None
+            max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
+            max_size = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+
+            def _yt_progress(d):  # type: ignore[no-untyped-def]
+                # yt-dlp invokes this from its worker threads. We
+                # only care about `downloading` updates - the rest is
+                # noise (`postprocessing`, `finished`, ...).
+                if not isinstance(d, dict):
+                    return
+                if d.get("status") == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    done = d.get("downloaded_bytes") or 0
+                    if total and total > 0:
+                        pct = int(done * 100 / total)
+                        # During download, we span pct 0..90 of the
+                        # `fetching` stage. The last 10% is reserved
+                        # for the post-processor / extractor wrap-up.
+                        _set_stage(job, "fetching", min(90, pct))
+                    else:
+                        # No content-length; bump slowly so the bar
+                        # still moves.
+                        _set_stage(job, "fetching", min(85, max(job.pct, 5) + 1))
+                elif d.get("status") == "finished":
+                    _set_stage(job, "fetching", 95)
+
+            def _on_attempt(tool, msg):  # type: ignore[no-untyped-def]
+                # When yt-dlp gives up and we fall through to other
+                # extractors, reset to a coarse-grained fetching pct
+                # so the bar starts climbing again instead of looking
+                # stuck at whatever yt-dlp got to.
+                _set_stage(job, "fetching", max(5, job.pct // 2))
+
+            _set_stage(job, "fetching", 1)
+            try:
+                src = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _do_download,
+                        clean_url, fmt, tmpdir, max_dur, max_size, fps_choice,
+                        progress_hook=_yt_progress,
+                        on_attempt=_on_attempt,
+                    ),
+                    timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                job.error = f"Source download exceeded the {DOWNLOAD_TIMEOUT_SECONDS}s mini-app cap."
+                job.stage = "error"
+                return
+            except yt_dlp.utils.DownloadError as e:
+                msg = str(e).splitlines()[-1]
+                if "max-filesize" in msg.lower():
+                    job.error = f"Source exceeds the {max_size // (1024 * 1024)} MB mini-app cap."
+                else:
+                    job.error = _friendly_ydl_error(e)
+                job.stage = "error"
+                return
+            _set_stage(job, "fetching", 100)
+        else:
+            # Upload was already saved to disk synchronously by the
+            # request handler before the job kicked off (uploads can
+            # be huge and we want backpressure to flow through the
+            # HTTP layer, not into a background queue).
+            assert saved_upload is not None
+            src = saved_upload
+
+        if md == "download":
+            out_path = src
+        else:
+            def _on_transcribe(pct):  # type: ignore[no-untyped-def]
+                _set_stage(job, "transcribing", pct)
+
+            def _on_render(pct):  # type: ignore[no-untyped-def]
+                _set_stage(job, "rendering", pct)
+
+            _set_stage(job, "transcribing", 0)
+            try:
+                out_path = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _do_censor, src, fmt, md, tmpdir, fps_choice,
+                        on_transcribe_progress=_on_transcribe,
+                        on_render_progress=_on_render,
+                    ),
+                    timeout=CENSOR_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                job.error = (
+                    f"Censoring exceeded the {CENSOR_TIMEOUT_SECONDS}s mini-app cap. "
+                    "Try a shorter clip or use the desktop app."
+                )
+                job.stage = "error"
+                return
+            except RuntimeError as e:
+                job.error = str(e)
+                job.stage = "error"
+                return
+            _set_stage(job, "rendering", 100)
+
+        # Final filesize gate (catches outputs that grew during re-encode).
+        size = out_path.stat().st_size
+        active_cap = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+        if size > active_cap:
+            job.error = f"Output exceeds the {active_cap // (1024 * 1024)} MB cap."
+            job.stage = "error"
+            return
+
+        stem = src.stem if md == "download" else f"{src.stem}-{md}"
+        job.filename = _safe_name(stem, fmt)
+        job._out_path = out_path
+        _set_stage(job, "ready", 100)
+        job.ready = True
+    except HTTPException as exc:
+        job.error = exc.detail if isinstance(exc.detail, str) else "Job failed."
+        job.stage = "error"
+    except Exception:  # noqa: BLE001
+        log.exception("background job failed: %s", job.job_id)
+        job.error = "Mini app hit an internal error. Try again or use the desktop app."
+        job.stage = "error"
+
+
 @app.post("/api/info")
 @limiter.limit("120/hour")
 async def api_info(request: Request, body: InfoRequest):
@@ -793,6 +1073,42 @@ async def api_process(
         if cl and cl > MAX_UPLOAD_BYTES + (1 << 20):
             raise HTTPException(status_code=413, detail=f"Upload over the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB cap.")
 
+    # Async branch: when the client sends `?async=1`, we run the
+    # pipeline in a background task and return a job id immediately
+    # so the frontend can poll for progress. The synchronous path
+    # below is preserved for backwards-compat with anyone still
+    # POST'ing /api/process and waiting for the file in the response.
+    want_async = (request.query_params.get("async") or "").strip() in {"1", "true", "yes"}
+    if want_async:
+        tmpdir = Path(tempfile.mkdtemp(prefix="cmvm_"))
+        clean_url: Optional[str] = None
+        saved_upload: Optional[Path] = None
+        try:
+            if have_url:
+                clean_url = _validate_url(url)
+            else:
+                saved_upload = await _save_upload(file, tmpdir)
+                if saved_upload.stat().st_size > MAX_CENSOR_FILESIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload exceeds the {MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024)} MB cap.",
+                    )
+            job = _create_job(_client_ip(request), fmt, tmpdir)
+            asyncio.create_task(_run_pipeline_async(
+                job,
+                md=md, fmt=fmt, fps_choice=fps_choice,
+                have_url=have_url, clean_url=clean_url,
+                saved_upload=saved_upload,
+            ))
+            return JSONResponse({"job_id": job.job_id})
+        except HTTPException:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise
+        except Exception:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            log.exception("async dispatch failed")
+            raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
+
     tmpdir = Path(tempfile.mkdtemp(prefix="cmvm_"))
     try:
         # 1) Get the source media into tmpdir.
@@ -856,6 +1172,67 @@ async def api_process(
         # message that doesn't leak paths or library internals.
         log.exception("process failed")
         raise HTTPException(status_code=500, detail="Mini app hit an internal error. Try again or use the desktop app.")
+
+
+# ---- async job polling ---------------------------------------------------
+
+# Human-friendly stage labels for the frontend to render. Kept here
+# (next to the routes that surface them) so the wording is easy to
+# tweak without going hunting for it.
+_STAGE_LABELS = {
+    "queued":       "Queued...",
+    "fetching":     "Pulling source...",
+    "transcribing": "Transcribing...",
+    "rendering":    "Rendering...",
+    "ready":        "Ready",
+    "error":        "Failed",
+}
+
+
+@app.get("/api/jobs/{job_id}")
+async def api_job_state(job_id: str):
+    """Return the current state of a background job. The client polls
+    this every ~700 ms while a job is in-flight so it can render a
+    progress bar."""
+    j = _get_job(job_id)
+    return {
+        "job_id": j.job_id,
+        "stage": j.stage,
+        "stage_label": _STAGE_LABELS.get(j.stage, j.stage),
+        "pct": int(j.pct),
+        "ready": bool(j.ready),
+        "error": j.error,
+        "filename": j.filename,
+    }
+
+
+@app.get("/api/jobs/{job_id}/file")
+async def api_job_file(job_id: str):
+    """Stream the finished file. Cleaning up happens in a background
+    task so the client doesn't sit on a closed socket while shutil
+    walks tmpdir."""
+    j = _get_job(job_id)
+    if j.error:
+        raise HTTPException(status_code=400, detail=j.error)
+    if not j.ready or j._out_path is None or not j._out_path.exists():
+        raise HTTPException(status_code=409, detail="Job is not ready yet.")
+    out = j._out_path
+    tmpdir = j._tmpdir
+    media_type = j._media_type
+    filename = j.filename or _safe_name("cmvideo-mini", j._format)
+
+    def _cleanup() -> None:
+        with _jobs_lock:
+            _jobs.pop(job_id, None)
+        if tmpdir and tmpdir.exists():
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return FileResponse(
+        path=str(out),
+        media_type=media_type,
+        filename=filename,
+        background=BackgroundTask(_cleanup),
+    )
 
 
 @app.post("/api/download", include_in_schema=False)

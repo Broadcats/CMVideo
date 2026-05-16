@@ -3,6 +3,37 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.9-alpha] - 2026-05-16
+
+Mini-service overhaul: real progress bar + a fix for the "stuck on
+'Pulling MP4...' forever" reports on hot-link-protected sites.
+
+### Added
+
+- **Async job model + progress bar in the mini.** `POST /api/process`
+  now accepts `?async=1` and returns `{job_id}`; the frontend polls
+  `GET /api/jobs/{id}` (`stage`, `pct`, `ready`, `error`) every 700 ms
+  and renders a real progress bar with stage labels (`Pulling
+  source...` -> `Transcribing audio...` -> `Rendering output...`).
+  yt-dlp's progress hook drives the fetch stage, faster-whisper's
+  segment timestamps drive transcription, and ffmpeg's
+  `-progress pipe:1` drives rendering. The synchronous endpoint is
+  preserved for backwards compatibility.
+
+### Fixed
+
+- **403 from hot-linked CDNs (thisvid.com, the *.tube family, most
+  porn-CDN dragnet vendors).** The Playwright extractor was
+  capturing the manifest URL but throwing away the request headers
+  Chromium sent, so ffmpeg's follow-up GET arrived without the
+  Referer / Cookie / Origin the CDN was checking and got rejected.
+  We now snapshot per-candidate request headers AND the page's
+  cookie jar, then replay them with `-user_agent / -referer /
+  -headers / Cookie:`. Same fix applies to the LLM-assisted tier.
+- Playwright tier now retries the next two highest-scored
+  candidates if the primary 403s/404s, which catches sites that
+  serve a tracking-pixel mp4 ahead of the real manifest.
+
 ## [0.4.8-alpha] - 2026-05-16
 
 UI hotfix on top of 0.4.7. The wordmark has full breathing room,

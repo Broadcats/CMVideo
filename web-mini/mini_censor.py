@@ -13,6 +13,7 @@ import logging
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,9 +78,22 @@ def _normalize(token: str) -> str:
     return _TOKEN_STRIP_RE.sub("", token).lower()
 
 
-def find_intervals(media_path: Path, words: set) -> list:
+def find_intervals(
+    media_path: Path,
+    words: set,
+    *,
+    progress=None,
+    total_duration: float | None = None,
+) -> list:
     """Transcribe `media_path` and return a list of Interval()s for
-    every word whose normalised form is in `words`."""
+    every word whose normalised form is in `words`.
+
+    `progress`, when provided, is called as ``progress(pct: int)``
+    after every transcribed segment, where ``pct`` is the fraction of
+    `total_duration` covered so far rounded to 0-100. Errors raised by
+    the callback are swallowed - it's there to drive a UI progress
+    bar, not to influence transcription.
+    """
     if not words:
         return []
     model = _load_model()
@@ -92,13 +106,24 @@ def find_intervals(media_path: Path, words: set) -> list:
         temperature=0.0,
     )
     hits = []
+
+    def _emit(pct: int) -> None:
+        if progress is None:
+            return
+        try:
+            progress(max(0, min(100, int(pct))))
+        except Exception:  # noqa: BLE001
+            pass
+
     for seg in segments:
-        if not seg.words:
-            continue
-        for w in seg.words:
-            norm = _normalize(w.word)
-            if norm and norm in words:
-                hits.append(Interval(start=float(w.start), end=float(w.end), word=norm))
+        if seg.words:
+            for w in seg.words:
+                norm = _normalize(w.word)
+                if norm and norm in words:
+                    hits.append(Interval(start=float(w.start), end=float(w.end), word=norm))
+        if total_duration and total_duration > 0:
+            _emit(round((float(getattr(seg, "end", 0.0)) / total_duration) * 100))
+    _emit(100)
     log.info("Found %d censor intervals in %s", len(hits), media_path.name)
     return hits
 
@@ -130,7 +155,17 @@ def _enable_expr(intervals) -> str:
     return "+".join(parts)
 
 
-def render(src: Path, dst: Path, intervals, mode: str, fmt: str, fps: str = "source") -> None:
+def render(
+    src: Path,
+    dst: Path,
+    intervals,
+    mode: str,
+    fmt: str,
+    fps: str = "source",
+    *,
+    progress=None,
+    total_duration: float | None = None,
+) -> None:
     """Re-encode `src` to `dst` applying `mode` ('silence' or 'beep')
     to every interval. `fmt` is the requested output extension
     ('mp4' or 'mp3'). `fps` is one of 'source' (passthrough),
@@ -206,23 +241,95 @@ def render(src: Path, dst: Path, intervals, mode: str, fmt: str, fps: str = "sou
     else:
         raise ValueError(f"Unknown mode: {mode!r}")
 
+    # Wire a progress pipe when the caller wants live updates and we
+    # know the duration. ffmpeg writes `out_time_ms=NNN` etc. to the
+    # given file descriptor; we parse it line-by-line and emit pct.
+    use_progress = progress is not None and total_duration and total_duration > 0
+    if use_progress:
+        cmd = [cmd[0], "-progress", "pipe:1", "-nostats"] + cmd[1:]
+
     log.info("ffmpeg: %s", " ".join(cmd))
+
+    if not use_progress:
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=FFMPEG_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            log.error("ffmpeg timed out after %ds", FFMPEG_TIMEOUT_SECONDS)
+            raise RuntimeError(
+                f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s. "
+                "Try a shorter clip, or use the desktop app for unbounded jobs."
+            )
+        if res.returncode != 0:
+            log.error("ffmpeg failed (%d):\n%s", res.returncode, res.stderr[-2000:])
+            raise RuntimeError(f"ffmpeg returned {res.returncode}: {res.stderr.splitlines()[-1] if res.stderr else 'no output'}")
+        return
+
+    # Live-progress branch.
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    err_tail: list[str] = []
+    deadline = time.monotonic() + FFMPEG_TIMEOUT_SECONDS
+    last_pct = -1
     try:
-        res = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=FFMPEG_TIMEOUT_SECONDS,
-        )
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            if time.monotonic() > deadline:
+                proc.kill()
+                raise RuntimeError(
+                    f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s. "
+                    "Try a shorter clip, or use the desktop app for unbounded jobs."
+                )
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("out_time_ms="):
+                try:
+                    out_us = int(line.split("=", 1)[1])
+                except ValueError:
+                    continue
+                pct = int((out_us / 1_000_000.0 / float(total_duration)) * 100)
+                pct = max(0, min(99, pct))  # let "done" hit 100
+                if pct != last_pct:
+                    last_pct = pct
+                    try:
+                        progress(pct)
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif line == "progress=end":
+                try:
+                    progress(100)
+                except Exception:  # noqa: BLE001
+                    pass
+        rc = proc.wait(timeout=max(0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        log.error("ffmpeg timed out after %ds", FFMPEG_TIMEOUT_SECONDS)
+        proc.kill()
         raise RuntimeError(
             f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s. "
             "Try a shorter clip, or use the desktop app for unbounded jobs."
         )
-    if res.returncode != 0:
-        log.error("ffmpeg failed (%d):\n%s", res.returncode, res.stderr[-2000:])
-        raise RuntimeError(f"ffmpeg returned {res.returncode}: {res.stderr.splitlines()[-1] if res.stderr else 'no output'}")
+    finally:
+        try:
+            if proc.stderr is not None:
+                err_tail.append(proc.stderr.read() or "")
+        except Exception:  # noqa: BLE001
+            pass
+    if rc != 0:
+        msg = "\n".join(err_tail)[-2000:]
+        log.error("ffmpeg failed (%d):\n%s", rc, msg)
+        raise RuntimeError(
+            f"ffmpeg returned {rc}: "
+            f"{(msg.splitlines() or ['no output'])[-1]}"
+        )
 
 
 def probe_duration(path: Path) -> float:

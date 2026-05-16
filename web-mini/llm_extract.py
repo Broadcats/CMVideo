@@ -139,6 +139,10 @@ class NetReq:
     status: int
     content_type: str
     size: int = 0
+    # Request headers Chromium sent for THIS specific request. These
+    # are the headers ffmpeg has to replay if we hand it `url` later -
+    # without the right Referer / Cookie the CDN tends to 403.
+    request_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -149,6 +153,15 @@ class PageCapture:
     page_html: str           # HEAD content, capped at LLM_MAX_HTML
     network_log: list[NetReq] = field(default_factory=list)
     media_candidates: list[tuple[str, str, int]] = field(default_factory=list)
+    # Per-candidate request headers, keyed by media URL. Same as the
+    # corresponding NetReq.request_headers, surfaced separately so the
+    # consumer doesn't have to scan network_log to find them.
+    candidate_headers: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Cookies the page was using when we collected the manifest. Each
+    # entry is a playwright-shaped dict (`name`, `value`, `domain`,
+    # `path`, ...). ffmpeg gets a flattened `Cookie:` header built from
+    # the ones whose domain matches the media URL.
+    cookies: list[dict] = field(default_factory=list)
     duration_seconds: float = 0.0
 
 
@@ -166,6 +179,8 @@ def capture_page(
     network_log: list[NetReq] = []
     media_candidates: list[tuple[str, str, int]] = []
 
+    candidate_headers: dict[str, dict[str, str]] = {}
+
     def _on_response(resp):  # type: ignore[no-untyped-def]
         try:
             r_url = resp.url or ""
@@ -181,8 +196,26 @@ def capture_page(
         # to the LLM. Skip noise like data: / blob:.
         if r_url.startswith(("data:", "blob:", "chrome-extension:")):
             return
+        # Pull the request headers Chromium actually sent. We only
+        # need a small subset - Referer, User-Agent, Origin, Cookie -
+        # but capture more in case some sites use exotic ones.
+        req_hdrs: dict[str, str] = {}
+        try:
+            if req is not None:
+                for k, v in (req.headers or {}).items():
+                    if not isinstance(k, str) or not isinstance(v, str):
+                        continue
+                    lk = k.lower()
+                    if lk in (
+                        "referer", "user-agent", "origin", "cookie",
+                        "accept", "accept-language", "x-requested-with",
+                    ):
+                        req_hdrs[k] = v
+        except Exception:  # noqa: BLE001
+            req_hdrs = {}
+
         if len(network_log) < 200:
-            network_log.append(NetReq(r_url, method, status, ct, size))
+            network_log.append(NetReq(r_url, method, status, ct, size, req_hdrs))
 
         # Track media-looking candidates separately for the
         # heuristic Playwright tier.
@@ -191,6 +224,11 @@ def capture_page(
         media_ct = any(h in ct for h in ("mpegurl", "dash+xml", "video/"))
         if media_url or media_ct:
             media_candidates.append((r_url, ct, size))
+            # Stash the headers under the candidate URL so consumers
+            # can build an ffmpeg `-headers` block without scanning
+            # the whole network log again.
+            if req_hdrs:
+                candidate_headers[r_url] = req_hdrs
 
     t0 = time.monotonic()
     with sync_playwright() as p:
@@ -233,6 +271,13 @@ def capture_page(
             html = page.content()[:LLM_MAX_HTML]
             title = page.title() or ""
             final = page.url or url
+            # Snapshot cookies BEFORE the context is closed. We grab
+            # the full jar; the consumer filters by domain when it
+            # builds the ffmpeg `Cookie:` header.
+            try:
+                cookies_snapshot = list(ctx.cookies()) or []
+            except Exception:  # noqa: BLE001
+                cookies_snapshot = []
         finally:
             try:
                 browser.close()
@@ -246,6 +291,8 @@ def capture_page(
         page_html=html,
         network_log=network_log,
         media_candidates=media_candidates,
+        candidate_headers=candidate_headers,
+        cookies=cookies_snapshot,
         duration_seconds=time.monotonic() - t0,
     )
 
@@ -521,28 +568,37 @@ def llm_extract(
     safe_url = validate_decision(decision, capture)
 
     out_file = dst_dir / f"llm-extract.{fmt}"
-    ff_cmd = ["ffmpeg", "-y", "-loglevel", "error"]
-    # Forward LLM-suggested headers if any (Referer is the common
-    # one).
-    if decision.headers:
-        hdr_str = "\\r\\n".join(f"{k}: {v}" for k, v in decision.headers.items())
-        ff_cmd += ["-headers", f"{hdr_str}\\r\\n"]
-    ff_cmd += [
-        "-i", safe_url,
-        "-t", str(max(60, timeout - 30)),
-        "-c", "copy",
-        str(out_file),
-    ]
-    try:
-        proc = subprocess.run(
-            ff_cmd, check=False, capture_output=True, text=True,
-            timeout=max(60, timeout),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("ffmpeg capture timed out on LLM-picked URL") from exc
+    # Merge LLM-suggested headers with whatever Chromium captured for
+    # this URL: LLM wins on Referer / User-Agent (it had context to
+    # reason about), Chromium wins on the bag of opaque tokens (X-Foo
+    # auth headers etc.) since the LLM never saw them. Cookies come
+    # from the page-context snapshot.
+    captured = dict((capture.candidate_headers or {}).get(safe_url) or {})
+    merged: dict[str, str] = {}
+    for k, v in captured.items():
+        merged[k] = v
+    for k, v in (decision.headers or {}).items():
+        merged[k] = v
+    cookies = list(getattr(capture, "cookies", []) or [])
 
-    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
-        err = (proc.stderr or proc.stdout or "").strip()[-300:]
+    # Defer to the shared ffmpeg helper in extractors.py so the cookie
+    # / referer / user-agent handling is identical to the heuristic
+    # Playwright tier. We import lazily to avoid the circular import
+    # that would happen at module-load time (extractors.py imports
+    # llm_extract via _import_llm_extract() at call time).
+    import extractors as _extractors  # type: ignore[import-not-found]
+    _ffmpeg_capture_url = _extractors._ffmpeg_capture_url
+    ok, err = _ffmpeg_capture_url(
+        safe_url,
+        out_file,
+        request_headers=merged,
+        cookies=cookies,
+        duration_cap=timeout - 30,
+        timeout=max(60, timeout),
+    )
+    if not ok:
+        if err == "ffmpeg capture timed out":
+            raise RuntimeError("ffmpeg capture timed out on LLM-picked URL")
         raise RuntimeError(f"ffmpeg refused the LLM-picked URL: {err}")
 
     return out_file, decision

@@ -783,11 +783,13 @@ def _playwright_download_locked(
     from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
 
     media_urls: list[tuple[str, str, int]] = []  # (url, content-type, response-bytes-hint)
+    candidate_hdrs: dict[str, dict[str, str]] = {}
 
     def _on_response(resp):  # type: ignore[no-untyped-def]
         try:
             r_url = resp.url or ""
             ct = (resp.headers.get("content-type") or "").lower()
+            req = resp.request
         except Exception:  # noqa: BLE001
             return
         url_lc = r_url.lower()
@@ -802,6 +804,24 @@ def _playwright_download_locked(
         except Exception:  # noqa: BLE001
             size = 0
         media_urls.append((r_url, ct, size))
+        # Capture the request headers Chromium sent for this exact
+        # media URL. Without these, ffmpeg gets a 403 from any CDN
+        # that checks Referer (thisvid, the *.tube family, etc.).
+        try:
+            if req is not None:
+                hdrs: dict[str, str] = {}
+                for k, v in (req.headers or {}).items():
+                    if not isinstance(k, str) or not isinstance(v, str):
+                        continue
+                    if k.lower() in (
+                        "referer", "user-agent", "origin", "cookie",
+                        "accept", "accept-language", "x-requested-with",
+                    ):
+                        hdrs[k] = v
+                if hdrs:
+                    candidate_hdrs[r_url] = hdrs
+        except Exception:  # noqa: BLE001
+            pass
 
     deadline = time.monotonic() + timeout
     with sync_playwright() as p:
@@ -850,6 +870,13 @@ def _playwright_download_locked(
                     continue
 
             page.wait_for_timeout(min(PLAYWRIGHT_IDLE_DWELL_MS, max(0, int((deadline - time.monotonic()) * 1000))))
+            # Snapshot cookies before tearing the context down. Same
+            # rationale as the LLM tier: CDNs that gate hot-linking
+            # often want session cookies in addition to Referer.
+            try:
+                cookies_snapshot: list[dict] = list(ctx.cookies()) or []
+            except Exception:  # noqa: BLE001
+                cookies_snapshot = []
         finally:
             try:
                 browser.close()
@@ -875,20 +902,35 @@ def _playwright_download_locked(
     log.info("playwright candidates=%d, picked=%s", len(media_urls), best_url[:120])
 
     out_file = dst_dir / f"playwright.{fmt}"
-    ff_cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-headers", f"User-Agent: Mozilla/5.0\\r\\n",
-        "-i", best_url,
-        "-t", str(max(60, timeout - 30)),  # cap the recorded segment
-        "-c", "copy",
-        str(out_file),
-    ]
-    try:
-        proc = subprocess.run(ff_cmd, check=False, capture_output=True, text=True, timeout=max(60, timeout))
-    except subprocess.TimeoutExpired as exc:
-        raise ExtractionError("Playwright + ffmpeg capture timed out") from exc
-    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
-        err = (proc.stderr or proc.stdout or "").strip()[-300:]
+    headers = dict(candidate_hdrs.get(best_url) or {})
+    ok, err = _ffmpeg_capture_url(
+        best_url,
+        out_file,
+        request_headers=headers,
+        cookies=cookies_snapshot,
+        duration_cap=timeout - 30,
+        timeout=max(60, timeout),
+    )
+    if not ok:
+        for alt_url, _ct, _sz in media_urls[1:3]:
+            if alt_url == best_url:
+                continue
+            log.info("playwright primary candidate failed; retrying %s", alt_url[:120])
+            alt_headers = dict(candidate_hdrs.get(alt_url) or headers)
+            ok, err = _ffmpeg_capture_url(
+                alt_url,
+                out_file,
+                request_headers=alt_headers,
+                cookies=cookies_snapshot,
+                duration_cap=timeout - 30,
+                timeout=max(60, timeout),
+            )
+            if ok:
+                best_url = alt_url
+                break
+    if not ok:
+        if err == "ffmpeg capture timed out":
+            raise ExtractionError("Playwright + ffmpeg capture timed out")
         raise ExtractionError(f"ffmpeg refused the captured manifest: {err}")
 
     return ExtractionResult(
@@ -1075,6 +1117,121 @@ def extract_with_fallbacks(
     raise ExtractionError(msg, attempts=attempts)
 
 
+def _build_cookie_header(cookies: list[dict] | None, target_url: str) -> str:
+    """Flatten a Playwright-shaped cookie list into a single
+    ``Cookie:`` header value matching `target_url`'s host. Returns
+    an empty string when there's nothing to send.
+
+    We deliberately don't try to be RFC-perfect here: same-site rules,
+    host-only flags, secure/path matching all just devolve to "send
+    the cookies whose domain looks like a suffix of the target host".
+    That matches what ffmpeg can use and what every CDN we've seen
+    accepts.
+    """
+    if not cookies:
+        return ""
+    try:
+        from urllib.parse import urlparse  # local import to keep top-level cheap
+        host = (urlparse(target_url).hostname or "").lower()
+    except Exception:  # noqa: BLE001
+        return ""
+    if not host:
+        return ""
+    pairs: list[str] = []
+    seen: set[str] = set()
+    for c in cookies:
+        try:
+            name = str(c.get("name") or "")
+            value = str(c.get("value") or "")
+            domain = str(c.get("domain") or "").lower().lstrip(".")
+        except Exception:  # noqa: BLE001
+            continue
+        if not name or not value or not domain:
+            continue
+        # Domain match: target host equals or ends with the cookie's
+        # registered domain (the same thing browsers do when picking
+        # which cookies to attach to an outgoing request).
+        if not (host == domain or host.endswith("." + domain)):
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        pairs.append(f"{name}={value}")
+    return "; ".join(pairs)
+
+
+def _ffmpeg_capture_url(
+    media_url: str,
+    out_file: Path,
+    *,
+    request_headers: dict[str, str] | None = None,
+    cookies: list[dict] | None = None,
+    duration_cap: int,
+    timeout: int,
+) -> tuple[bool, str]:
+    """Pull `media_url` to `out_file` with ffmpeg, replaying the
+    Referer / User-Agent / Cookie that Chromium sent so CDNs that
+    enforce hot-linking protection (thisvid, the *.tube tubes, most
+    porn-CDN dragnet vendors) don't 403 us.
+
+    Returns ``(success, last_stderr_tail)``. Caller decides whether
+    to raise.
+    """
+    headers = dict(request_headers or {})
+    # Pull out the special-cased ones so we can use ffmpeg's dedicated
+    # flags - they're more robust than stuffing everything into
+    # `-headers` and they survive HLS segment redirects.
+    user_agent = ""
+    referer = ""
+    for k in list(headers.keys()):
+        lk = k.lower()
+        if lk == "user-agent":
+            user_agent = headers.pop(k)
+        elif lk == "referer":
+            referer = headers.pop(k)
+        elif lk == "cookie":
+            # We rebuild Cookie from the snapshot below so we don't
+            # ship a stale single-shot cookie header that's missing
+            # whatever the page set during dwell.
+            headers.pop(k)
+
+    cookie_header = _build_cookie_header(cookies, media_url)
+
+    ff_cmd: list[str] = ["ffmpeg", "-y", "-loglevel", "error"]
+    if user_agent:
+        ff_cmd += ["-user_agent", user_agent]
+    else:
+        ff_cmd += ["-user_agent", (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )]
+    if referer:
+        ff_cmd += ["-referer", referer]
+    extra_lines: list[str] = []
+    for k, v in headers.items():
+        if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip():
+            extra_lines.append(f"{k.strip()}: {v.strip()}")
+    if cookie_header:
+        extra_lines.append(f"Cookie: {cookie_header}")
+    if extra_lines:
+        ff_cmd += ["-headers", "\\r\\n".join(extra_lines) + "\\r\\n"]
+    ff_cmd += [
+        "-i", media_url,
+        "-t", str(max(60, duration_cap)),
+        "-c", "copy",
+        str(out_file),
+    ]
+    try:
+        proc = subprocess.run(
+            ff_cmd, check=False, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "ffmpeg capture timed out"
+    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
+        return False, (proc.stderr or proc.stdout or "").strip()[-300:]
+    return True, ""
+
+
 def _playwright_download_from_capture(
     capture, dst_dir: Path, *, fmt: str
 ) -> ExtractionResult:
@@ -1099,24 +1256,40 @@ def _playwright_download_from_capture(
     best_url = media[0][0]
     log.info("playwright candidates=%d, picked=%s", len(media), best_url[:120])
 
+    candidate_hdrs = getattr(capture, "candidate_headers", {}) or {}
+    cookies = getattr(capture, "cookies", []) or []
+    headers = dict(candidate_hdrs.get(best_url) or {})
+
     out_file = dst_dir / f"playwright.{fmt}"
-    ff_cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-headers", "User-Agent: Mozilla/5.0\\r\\n",
-        "-i", best_url,
-        "-t", str(max(60, PLAYWRIGHT_MAX_WALL_S - 30)),
-        "-c", "copy",
-        str(out_file),
-    ]
-    try:
-        proc = subprocess.run(
-            ff_cmd, check=False, capture_output=True, text=True,
-            timeout=PLAYWRIGHT_MAX_WALL_S,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ExtractionError("Playwright + ffmpeg capture timed out") from exc
-    if proc.returncode != 0 or not out_file.exists() or out_file.stat().st_size == 0:
-        err = (proc.stderr or proc.stdout or "").strip()[-300:]
+    ok, err = _ffmpeg_capture_url(
+        best_url,
+        out_file,
+        request_headers=headers,
+        cookies=cookies,
+        duration_cap=PLAYWRIGHT_MAX_WALL_S - 30,
+        timeout=PLAYWRIGHT_MAX_WALL_S,
+    )
+    if not ok:
+        # If the highest-scored candidate failed, try the next one or
+        # two before giving up. CDNs sometimes serve a tracking-pixel
+        # mp4 ahead of the real manifest.
+        for alt_url, _ct, _sz in media[1:3]:
+            if alt_url == best_url:
+                continue
+            log.info("playwright primary candidate failed; retrying %s", alt_url[:120])
+            alt_headers = dict(candidate_hdrs.get(alt_url) or headers)
+            ok, err = _ffmpeg_capture_url(
+                alt_url,
+                out_file,
+                request_headers=alt_headers,
+                cookies=cookies,
+                duration_cap=PLAYWRIGHT_MAX_WALL_S - 30,
+                timeout=PLAYWRIGHT_MAX_WALL_S,
+            )
+            if ok:
+                best_url = alt_url
+                break
+    if not ok:
         raise ExtractionError(f"ffmpeg refused the captured manifest: {err}")
 
     return ExtractionResult(

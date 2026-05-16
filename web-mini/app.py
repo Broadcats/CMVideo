@@ -26,10 +26,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+import requests
 import yt_dlp
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -1067,6 +1068,116 @@ def _do_info(url: str) -> dict:
     }
 
 
+def _resolve_direct_format(url: str, fmt: str, quality: str) -> Optional[dict]:
+    """Resolve `url` to a single direct-streamable HTTP format suitable
+    for the y2mate-style fast-path download.
+
+    Returns a dict with `url`, `headers`, `ext`, `filesize`, `title`,
+    `extractor`, `mime_type` if such a format exists, else None
+    (signaling the caller should fall back to the server-pull
+    `/api/process` pipeline).
+
+    Eligibility constraints (any failure -> return None):
+      * `fmt` must be `mp4`. MP3 always needs ffmpeg post-processing
+        and can't be served by the streaming fast-path.
+      * The chosen format must be a SINGLE file containing both video
+        and audio tracks. Sites that serve separated streams
+        (YouTube above ~360p, most DASH-only sites) require a merge
+        which the fast-path can't do.
+      * Format protocol must be plain `http` / `https`. HLS / DASH
+        / m3u8 / mpd / fragment lists need server-side fragment
+        assembly.
+      * Format extension must be `mp4` (browser-native, no
+        transmux needed). webm / mkv / etc. would play in the
+        browser but the user asked for `.mp4` so we fall back to
+        the server pipeline which can re-mux.
+      * Format height must not exceed the requested quality cap.
+        (We deliberately don't bump UP to a higher merged stream
+        if available - the user's quality choice is a ceiling.)
+
+    The format selection is deliberately conservative: the fast-path
+    is meant to be a no-cost win where it works, not a clever
+    quality selector. If the best merged direct MP4 is significantly
+    below what the user asked for, the caller can still fall back to
+    `/api/process` and get the higher-quality merged result the slow
+    way."""
+    if fmt != "mp4":
+        return None
+    target_height = QUALITY_HEIGHTS.get(quality, MAX_VIDEO_HEIGHT)
+
+    info_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "skip_download": True,
+        "socket_timeout": 15,
+        "extractor_args": YDL_EXTRACTOR_ARGS,
+        "http_headers": {"User-Agent": YDL_USER_AGENT},
+    }
+    if YT_COOKIES_FILE:
+        info_opts["cookiefile"] = YT_COOKIES_FILE
+    try:
+        with yt_dlp.YoutubeDL(info_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception:
+        return None
+    if info is None:
+        return None
+
+    formats = info.get("formats") or []
+    candidates = []
+    for f in formats:
+        if not isinstance(f, dict):
+            continue
+        if not f.get("url"):
+            continue
+        # Must be a complete file (both tracks present, single file).
+        if f.get("vcodec") in (None, "none"):
+            continue
+        if f.get("acodec") in (None, "none"):
+            continue
+        # No fragment/segment lists - those need merging.
+        if f.get("fragments"):
+            continue
+        proto = (f.get("protocol") or "").lower()
+        if proto not in ("https", "http"):
+            continue
+        if f.get("ext") != "mp4":
+            continue
+        height = f.get("height") or 0
+        if height > target_height:
+            continue
+        candidates.append(f)
+
+    if not candidates:
+        return None
+
+    # Highest height first, then highest tbr (total bitrate) as a
+    # quality tie-breaker, then biggest known filesize.
+    candidates.sort(
+        key=lambda f: (
+            f.get("height") or 0,
+            f.get("tbr") or 0,
+            f.get("filesize") or f.get("filesize_approx") or 0,
+        ),
+        reverse=True,
+    )
+    best = candidates[0]
+    headers = dict(best.get("http_headers") or {})
+    headers.setdefault("User-Agent", YDL_USER_AGENT)
+
+    return {
+        "url": best["url"],
+        "headers": headers,
+        "ext": "mp4",
+        "filesize": best.get("filesize") or best.get("filesize_approx"),
+        "title": (info.get("title") or "Untitled")[:200],
+        "extractor": info.get("extractor_key"),
+        "mime_type": "video/mp4",
+        "height": best.get("height") or 0,
+    }
+
+
 # ---- censor pipeline ------------------------------------------------------
 def _do_censor(
     src: Path,
@@ -1214,6 +1325,33 @@ JOB_MAX_PER_IP = int(os.environ.get("CMVIDEO_JOB_MAX_PER_IP", "1"))
 FAILURE_THRESHOLD = int(os.environ.get("CMVIDEO_FAILURE_THRESHOLD", "5"))
 FAILURE_WINDOW_S = int(os.environ.get("CMVIDEO_FAILURE_WINDOW_S", "600"))
 FAILURE_COOLDOWN_S = int(os.environ.get("CMVIDEO_FAILURE_COOLDOWN_S", "300"))
+
+# ---------------------------------------------------------------------------
+# Streaming fast-path knobs. The y2mate-style direct-stream endpoints
+# (`/api/stream-download` + `/api/stream/{token}`) bypass the server-pull
+# pipeline entirely: yt-dlp resolves the upstream URL, the server opens
+# a streaming HTTP request, and bytes flow straight through to the
+# browser. No disk usage, no filesize cap (server isn't holding the
+# file), no total-time timeout (only an upstream-stall liveness check).
+#
+# Tokens are one-shot and short-lived: the POST endpoint mints a
+# token containing the resolved URL + headers, the matching GET
+# endpoint pops the token and starts streaming. Tokens stop being
+# valid 5 min after issue OR after first GET, whichever's first.
+# ---------------------------------------------------------------------------
+STREAM_TOKEN_TTL_S = int(os.environ.get("CMVIDEO_STREAM_TOKEN_TTL_S", "300"))
+# Per-chunk read timeout. If upstream stops sending bytes for this
+# long the stream is killed. NOT a total-time cap - a multi-hour
+# download is fine as long as bytes keep flowing.
+STREAM_READ_TIMEOUT_S = int(os.environ.get("CMVIDEO_STREAM_READ_TIMEOUT_S", "60"))
+STREAM_CONNECT_TIMEOUT_S = int(os.environ.get("CMVIDEO_STREAM_CONNECT_TIMEOUT_S", "30"))
+# Concurrent streams per IP. Streams are cheap (no CPU - just
+# byte-shuffling) so this can be more generous than JOB_MAX_PER_IP.
+STREAM_MAX_PER_IP = int(os.environ.get("CMVIDEO_STREAM_MAX_PER_IP", "3"))
+# Chunk size for the iter_content / yield loop. 128 KB is a sane
+# trade-off: small enough that the per-chunk timeout catches stalls
+# quickly, large enough that we're not making a syscall per packet.
+STREAM_CHUNK_BYTES = 128 * 1024
 
 
 @dataclass
@@ -2034,6 +2172,247 @@ async def api_download_compat(request: Request, body: DownloadCompatRequest):
         fps="source",
         quality=DEFAULT_QUALITY,
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming fast-path: y2mate-style server-as-passthrough-proxy.
+#
+# Why this exists:
+#   The server-pull pipeline (/api/process) downloads the entire
+#   source to disk, then serves the file. That works for censoring
+#   (where we have to muxer-touch every byte anyway), but for raw
+#   downloads it's pure waste: the server pays disk I/O, the
+#   DOWNLOAD_TIMEOUT_SECONDS=360 cap kicks in on long videos before
+#   any byte reaches the user, and total bandwidth gets spent twice
+#   (once upstream -> server, once server -> client).
+#
+#   The fast-path skips the disk: yt-dlp resolves the upstream URL,
+#   the server opens a streaming HTTP connection, and bytes flow
+#   straight through to the browser. No filesize cap. No total-time
+#   timeout. Just a per-chunk read-timeout liveness check so a hung
+#   upstream doesn't pin the slot forever.
+#
+# Two-step flow (init + serve) instead of a single GET because:
+#   * The init endpoint runs the full request validation /
+#     killswitch / cooldown / rate-limit gate. The user's URL never
+#     reaches the actual stream endpoint as a query param.
+#   * Tokens are short-lived AND one-shot: even if a token leaks
+#     it's worthless after first use or 5 min, whichever comes first.
+#   * Frontend can detect a "needs_processing" 422 and gracefully
+#     fall back to /api/process - whereas a direct GET that 422'd
+#     would just navigate the user to an error page.
+# ---------------------------------------------------------------------------
+_stream_tokens: dict = {}              # token -> (resolved, ip, expires_at)
+_stream_tokens_lock = threading.Lock()
+_active_streams: dict = {}             # ip -> count of in-flight streams
+_active_streams_lock = threading.Lock()
+
+
+def _purge_expired_stream_tokens() -> None:
+    """Drop tokens whose TTL has elapsed. Called opportunistically
+    inside the issue + redeem paths so we never need a background
+    sweeper. With STREAM_TOKEN_TTL_S=300 and one-shot redemption,
+    the dict effectively self-trims."""
+    now = time.time()
+    with _stream_tokens_lock:
+        dead = [t for t, v in _stream_tokens.items() if v[2] <= now]
+        for t in dead:
+            _stream_tokens.pop(t, None)
+
+
+class StreamDownloadRequest(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2048)
+    format: str = Field(..., min_length=1, max_length=8)
+    quality: str = Field(default=DEFAULT_QUALITY, min_length=1, max_length=16)
+
+
+@app.post("/api/stream-download")
+@limiter.limit(f"{RATE_LIMIT_PER_HOUR};5/minute")
+async def api_stream_download_init(request: Request, body: StreamDownloadRequest):
+    """Probe whether `body.url` can be served via the streaming
+    fast-path; if yes, mint a one-shot token the browser can GET.
+
+    Returns:
+      200 `{stream_url, filename, filesize, height}` if eligible.
+        The browser should navigate to `stream_url` (a relative
+        path on this same Space) to start the download.
+      422 `{reason: "needs_processing", fallback: "/api/process"}`
+        if the URL needs server-side merging / re-encoding /
+        fragment assembly. The frontend should fall back to the
+        regular async pipeline.
+      Standard 4xx/5xx for validation + abuse gates.
+    """
+    _enforce_killswitch()
+    _enforce_ua(request)
+    _check_cooldown(_client_ip(request))
+
+    fmt = (body.format or "").lower().strip()
+    quality_choice = (body.quality or DEFAULT_QUALITY).lower().strip()
+    if fmt not in ALLOWED_FORMATS:
+        raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
+    if quality_choice not in ALLOWED_QUALITY:
+        raise HTTPException(status_code=400, detail="Quality must be 'standard' or 'hd'.")
+
+    clean_url = _validate_url(body.url)
+
+    try:
+        resolved = await asyncio.wait_for(
+            asyncio.to_thread(_resolve_direct_format, clean_url, fmt, quality_choice),
+            timeout=25,
+        )
+    except asyncio.TimeoutError:
+        _record_failure(_client_ip(request))
+        raise HTTPException(status_code=504, detail="Source took too long to respond.")
+    except Exception:
+        # Any extractor exception -> not eligible. Don't leak details.
+        log.exception("stream-download resolve failed")
+        resolved = None
+
+    if not resolved:
+        # Frontend's cue to retry against /api/process. NOT a
+        # failure - this is the expected branch for HLS / DASH /
+        # MP3 / sites with separated streams. We deliberately use
+        # 422 (Unprocessable Entity) rather than 200 with a flag
+        # so curl-style clients without the fallback logic still
+        # see a non-success status.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "needs_processing",
+                "fallback": "/api/process",
+                "message": "This URL needs server-side merging or re-encoding. Use /api/process.",
+            },
+        )
+
+    token = secrets.token_urlsafe(24)
+    expires_at = time.time() + STREAM_TOKEN_TTL_S
+    filename = _safe_name(resolved.get("title") or "cmvideo", fmt)
+    resolved["filename"] = filename
+    resolved["client_ip"] = _client_ip(request)
+
+    _purge_expired_stream_tokens()
+    with _stream_tokens_lock:
+        _stream_tokens[token] = (resolved, _client_ip(request), expires_at)
+
+    return {
+        "stream_url": f"/api/stream/{token}",
+        "filename": filename,
+        "filesize": resolved.get("filesize"),
+        "height": resolved.get("height", 0),
+        "expires_in": STREAM_TOKEN_TTL_S,
+    }
+
+
+@app.get("/api/stream/{token}", include_in_schema=False)
+async def api_stream_serve(token: str, request: Request):
+    """Pop the token, open an upstream streaming GET, pipe bytes
+    through to the client. NO filesize cap, NO total-time timeout -
+    only a per-chunk read-timeout (STREAM_READ_TIMEOUT_S) catches
+    upstreams that go silent.
+
+    The browser's native download bar handles progress; we just
+    pass `Content-Length` through if known so the bar isn't
+    indeterminate."""
+    _purge_expired_stream_tokens()
+    with _stream_tokens_lock:
+        # One-shot: pop. Even if the user retries the same URL,
+        # they'll get a fresh token and the leaked one is dead.
+        data = _stream_tokens.pop(token, None)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Download link expired or already used. Click Download again.")
+    resolved, owner_ip, expires_at = data
+    if time.time() > expires_at:
+        raise HTTPException(status_code=410, detail="Download link expired. Click Download again to retry.")
+
+    # NB: we deliberately do NOT enforce `owner_ip == _client_ip(request)`.
+    # Mobile clients on CGNAT shift IPs between requests; the
+    # `_get_job` IP-scope check used to break legitimate users
+    # for exactly this reason (see CHANGELOG `0.4.16.3-alpha`).
+    # The token itself is the capability; one-shot use + 5 min
+    # TTL is the security boundary.
+
+    ip = _client_ip(request)
+    with _active_streams_lock:
+        if _active_streams.get(ip, 0) >= STREAM_MAX_PER_IP:
+            raise HTTPException(
+                status_code=429,
+                detail=f"You have {STREAM_MAX_PER_IP} streams in flight already. Wait for one to finish.",
+            )
+        _active_streams[ip] = _active_streams.get(ip, 0) + 1
+
+    def _release_slot() -> None:
+        with _active_streams_lock:
+            n = _active_streams.get(ip, 0) - 1
+            if n <= 0:
+                _active_streams.pop(ip, None)
+            else:
+                _active_streams[ip] = n
+
+    upstream_url = resolved["url"]
+    headers = dict(resolved.get("headers") or {})
+    headers.setdefault("User-Agent", YDL_USER_AGENT)
+    # Per-domain residential proxy routing - matches the rest of
+    # the pipeline (see proxy_router.py). Falls back to direct if
+    # no proxy is configured for this domain.
+    proxies = None
+    try:
+        proxy_url = _proxy_router.proxy_for(upstream_url)
+        if proxy_url:
+            proxies = {"http": proxy_url, "https": proxy_url}
+    except Exception:
+        log.exception("stream proxy_for() failed; falling back to direct")
+        proxies = None
+
+    try:
+        upstream = requests.get(
+            upstream_url,
+            headers=headers,
+            stream=True,
+            timeout=(STREAM_CONNECT_TIMEOUT_S, STREAM_READ_TIMEOUT_S),
+            allow_redirects=True,
+            proxies=proxies,
+        )
+        upstream.raise_for_status()
+    except requests.RequestException as exc:
+        _release_slot()
+        log.warning("stream upstream connect failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Couldn't reach the source server. Try again or use the desktop app.")
+
+    # Pass Content-Length through if upstream advertised one (gives
+    # the browser an accurate progress bar and lets the user see
+    # a final size). Don't fabricate one from filesize_approx -
+    # mismatches break some browser download UIs.
+    response_headers = {
+        "Content-Disposition": f'attachment; filename="{resolved["filename"]}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    upstream_len = upstream.headers.get("Content-Length")
+    if upstream_len and upstream_len.isdigit():
+        response_headers["Content-Length"] = upstream_len
+
+    media_type = resolved.get("mime_type") or "application/octet-stream"
+
+    def gen():
+        try:
+            for chunk in upstream.iter_content(chunk_size=STREAM_CHUNK_BYTES):
+                if chunk:
+                    yield chunk
+        except (requests.RequestException, GeneratorExit):
+            # Client disconnected or upstream timed out / errored.
+            # Either way, just stop yielding - StreamingResponse
+            # handles the rest.
+            pass
+        except Exception:
+            log.exception("stream pipe failed mid-flight")
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+            _release_slot()
+
+    return StreamingResponse(gen(), media_type=media_type, headers=response_headers)
 
 
 class YTCensorRequest(BaseModel):

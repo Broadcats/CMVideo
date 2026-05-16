@@ -20,6 +20,106 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.16.3-alpha] - 2026-05-16
+
+Streaming fast-path. Raw URL downloads now skip the server-pull
++ disk-buffer + 360s-cap loop entirely - the mini server
+resolves the source URL, then proxies bytes straight from the
+upstream CDN to the browser. **No filesize cap, no total-time
+timeout, no rate cap on the actual download.** y2mate's trick,
+applied to our stack.
+
+### Why
+
+`mini-2026.05.16.2-alpha`'s feedback loop went: paste URL ->
+"Source download exceeded the 360s mini-app cap" 504. The 360s
+cap was a defense against hung server-side jobs occupying a job
+slot; it was needed because the old `/api/process` pipeline
+downloaded the whole file to `/tmp` BEFORE serving any bytes,
+which meant a long video burned wall-clock on the server with
+zero user-visible progress until the entire pull completed.
+
+The fix isn't to bump the cap - bumping just shifts the cliff.
+The fix is to remove the server from the bandwidth path
+entirely for raw downloads. y2mate / similar services have
+done this for years: the server resolves the URL via yt-dlp,
+mints a one-shot token, then on GET pipes upstream bytes
+through a `StreamingResponse`. The user pays upstream-to-them
+bandwidth, the server pays nothing but a passthrough. There is
+no "download to disk then serve" step - bytes flow continuously,
+the browser's native download UI handles progress.
+
+### Added
+
+- **`POST /api/stream-download`** - probe + token mint. Body
+  `{url, format, quality}`. Returns 200 `{stream_url, filename,
+  filesize, height, expires_in}` if the URL is direct-eligible,
+  or 422 `{reason: "needs_processing", fallback: "/api/process"}`
+  if it needs server-side merging / fragment assembly /
+  ffmpeg re-encode. Tokens are 24 random bytes, one-shot, TTL
+  300 s.
+- **`GET /api/stream/{token}`** - pops the token and pipes
+  upstream bytes through to the browser via `StreamingResponse`.
+  Per-IP concurrent stream cap (`STREAM_MAX_PER_IP=3`) for
+  fairness, but no filesize cap and no total-time timeout. The
+  only liveness check is a per-chunk 60s read-timeout
+  (`STREAM_READ_TIMEOUT_S`) so a hung upstream doesn't pin the
+  slot indefinitely. Per-domain residential proxy routing
+  (`proxy_router.py`) is honored so YT / TT / IG / etc. URLs
+  go through the residential exit, same as the slow-path
+  pipeline.
+- **`_resolve_direct_format(url, fmt, quality)`** - filters
+  yt-dlp's format list to single-file HTTP MP4s with both
+  video and audio tracks. Returns the highest-resolution
+  candidate at-or-below the requested quality cap, or None
+  if no format is direct-eligible.
+
+### Frontend
+
+- **`site/app.js`** + **`web-mini/static/app.js`** - download
+  mode now tries `/api/stream-download` first; on 200 it
+  triggers a browser-native download via an invisible `<a download>`
+  click and shows "Streaming X (~N MB) directly to your
+  browser - no caps, no waiting on the server"; on 422 it
+  falls through to the existing async `/api/process` pipeline
+  silently. Censor modes, MP3, and file uploads always skip
+  the fast path.
+
+### What still hits the slow path
+
+- Any censor mode (silence / beep) - the server has to mux
+  every byte for the censor pipeline, so passthrough doesn't
+  help.
+- MP3 downloads - need ffmpeg re-encode.
+- HLS / DASH / m3u8 / mpd sources - need server-side fragment
+  assembly. Most of YouTube falls in this bucket above ~360p
+  because YT serves video and audio as separated DASH streams.
+  The fast path catches YT downloads up to 360p where YT still
+  serves a complete progressive MP4.
+- Sites that only expose video-only + audio-only formats
+  (need merge).
+
+### Knobs
+
+All env-var tunable on the HF Space without redeploy:
+
+| Env | Default | Purpose |
+|---|---|---|
+| `CMVIDEO_STREAM_TOKEN_TTL_S` | `300` | Token lifetime after issue |
+| `CMVIDEO_STREAM_READ_TIMEOUT_S` | `60` | Per-chunk read timeout (kills stalled upstream connections; NOT a total-time cap) |
+| `CMVIDEO_STREAM_CONNECT_TIMEOUT_S` | `30` | Connect timeout for upstream open |
+| `CMVIDEO_STREAM_MAX_PER_IP` | `3` | Concurrent streams per client IP |
+
+### Notes
+
+- Tokens are NOT IP-scoped (intentional). The lesson from
+  `0.4.16.3-alpha` is that mobile CGNAT IP shifts within a
+  single session, so the token itself is the capability and
+  one-shot use + 300s TTL is the security boundary.
+- Fast-path is best-effort. The frontend gracefully falls back
+  to the slow path on any 422, so users never see the
+  fast-path's existence as a failure mode.
+
 ## [mini-2026.05.16.2-alpha] - 2026-05-16
 
 Hotfix on top of `mini-2026.05.16.1-alpha`. The `.1` deploy

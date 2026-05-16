@@ -532,23 +532,95 @@
     if (selectedFile) fd.append("file", selectedFile);
     else              fd.append("url", url);
 
-    // Async pipeline:
-    //   POST /api/process?async=1   -> { job_id }
-    //   poll GET /api/jobs/{id}     -> { stage, pct, ready, error, filename }
-    //   when ready: GET /api/jobs/{id}/file
+    // Pipeline. Two paths:
+    //
+    //   FAST  (y2mate-style stream pass-through):
+    //     POST /api/stream-download   -> { stream_url, filename, filesize }
+    //     <a href={stream_url} click> -> browser native download
+    //   Used for raw URL downloads where yt-dlp can resolve the
+    //   source to a single complete MP4 over plain HTTP. No
+    //   server-side disk usage, no 360s cap, no filesize cap.
+    //   The mini server only proxies bytes - the user pays
+    //   upstream-to-them bandwidth, not 2x via the server's disk.
+    //
+    //   SLOW  (server-pull async pipeline):
+    //     POST /api/process?async=1   -> { job_id }
+    //     poll GET /api/jobs/{id}     -> { stage, pct, ready, ... }
+    //     when ready: GET /api/jobs/{id}/file
+    //   Used for everything else: censor mode, MP3 (needs ffmpeg),
+    //   HLS / DASH sources that need fragment merging, and any
+    //   raw-download case where the fast path returned 422
+    //   "needs_processing".
+    //
+    // Once the fast path triggers a browser download we pass `null`
+    // through the rest of the chain so the SLOW-path .then steps
+    // become no-ops. Cleaner than two separate chains and keeps
+    // error handling unified.
     preflight
       .then(function () {
+        // Fast path is only meaningful for URL-based MP4 downloads.
+        // File uploads, MP3 (needs ffmpeg), and censor modes
+        // (silence / beep) all skip straight to the SLOW path.
+        if (mode !== "download" || fmt !== "mp4" || selectedFile) return null;
+        return fetch(MINI_API_BASE + "/api/stream-download", {
+          method: "POST", mode: "cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url, format: fmt, quality: getQuality() })
+        }).then(function (res) {
+          // 422 = backend says "this URL needs the slow path";
+          // that's the expected branch for HLS, DASH, MP3, and
+          // sites with separated streams. Fall through silently.
+          if (res.status === 422) return null;
+          if (!res.ok) return mapHttpError(res);
+          return res.json();
+        });
+      })
+      .then(function (streamInit) {
+        if (streamInit && streamInit.stream_url) {
+          // Browser-native download via an invisible <a download>
+          // click. Cross-origin link, but the mini server sets
+          // Content-Disposition: attachment so the browser saves
+          // instead of navigating - same trick y2mate uses.
+          var streamUrl = MINI_API_BASE + streamInit.stream_url;
+          var a = document.createElement("a");
+          a.href = streamUrl;
+          if (streamInit.filename) a.download = streamInit.filename;
+          a.rel = "noopener";
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () {
+            if (a.parentNode) a.parentNode.removeChild(a);
+          }, 1000);
+
+          hideProgress();
+          var name = streamInit.filename || ("cmvideo-mini." + fmt);
+          var sizeStr = "";
+          if (streamInit.filesize) {
+            sizeStr = " (\u2248" + Math.round(streamInit.filesize / 1024 / 1024) + " MB)";
+          }
+          setStatus(
+            "Streaming " + name + sizeStr + " directly to your browser \u2014 " +
+            "no caps, no waiting on the server. Want full quality, censoring, " +
+            "and offline use? Grab the desktop app below.",
+            "ok"
+          );
+          return null;          // sentinel for SLOW-path no-op
+        }
         return fetch(MINI_API_BASE + "/api/process?async=1", { method: "POST", mode: "cors", body: fd });
       })
       .then(function (res) {
+        if (res === null) return null;      // fast path took it
         if (!res.ok) return mapHttpError(res);
         return res.json();
       })
       .then(function (data) {
+        if (data === null) return null;
         if (!data || !data.job_id) throw new Error("Mini service didn't return a job id.");
         return pollJob(data.job_id);
       })
       .then(function (jobId) {
+        if (jobId === null) return null;
         setProgress(100, "Saving\u2026", false);
         return fetch(MINI_API_BASE + "/api/jobs/" + encodeURIComponent(jobId) + "/file", { method: "GET", mode: "cors" })
           .then(function (res) {
@@ -558,6 +630,7 @@
           });
       })
       .then(function (out) {
+        if (out === null) return;          // fast path handled it
         downloadBlob(out.blob, out.name);
         hideProgress();
         if (mode === "download") {

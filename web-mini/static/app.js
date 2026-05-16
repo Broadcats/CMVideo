@@ -115,8 +115,55 @@
     }
     const fmt = getFormat();
     setBusy(true);
-    setStatus(`Downloading ${fmt.toUpperCase()} ... this can take 10-90 seconds. Stay on this tab.`, "busy");
+
     try {
+      // FAST PATH: direct-stream pass-through (y2mate-style).
+      // Mini server resolves the URL, browser downloads from a
+      // one-shot proxy endpoint. No server-side disk, no caps.
+      // MP4 only - MP3 always needs ffmpeg post-processing on the
+      // server, so it skips this branch.
+      if (fmt === "mp4") {
+        setStatus("Resolving direct stream...", "busy");
+        const initRes = await fetch("/api/stream-download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, format: fmt, quality: "standard" }),
+        });
+        if (initRes.ok) {
+          const init = await initRes.json();
+          const a = document.createElement("a");
+          a.href = init.stream_url;
+          if (init.filename) a.download = init.filename;
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 1000);
+          const sizeStr = init.filesize
+            ? ` (~${Math.round(init.filesize / 1024 / 1024)} MB)`
+            : "";
+          setStatus(
+            `Streaming ${init.filename}${sizeStr} directly. Browser is saving it now.`,
+            "ok",
+          );
+          return;
+        }
+        // 422 = "this URL needs server-side processing"; fall
+        // through to SLOW path. Anything else is a real error -
+        // surface it instead of pretending the slow path will
+        // help.
+        if (initRes.status !== 422) {
+          let msg = `HTTP ${initRes.status}`;
+          try {
+            const data = await initRes.json();
+            if (data && data.detail) msg = data.detail;
+          } catch (_) {}
+          throw new Error(msg);
+        }
+      }
+
+      // SLOW PATH: server-pull via /api/download (the JSON shim
+      // for /api/process). Used for MP3 and for fast-path 422s.
+      setStatus(`Downloading ${fmt.toUpperCase()} ... this can take 10-90 seconds. Stay on this tab.`, "busy");
       const res = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

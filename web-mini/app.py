@@ -581,22 +581,31 @@ def _ydl_common_opts(
 
 
 def _video_format_selector(fps: str = "source", *, height: int | None = None) -> str:
-    """Pick the format yt-dlp should download.
+    """Pick the format yt-dlp should download - QUALITY FIRST.
 
-    The order matters for SPEED, not just quality: a single-file
-    progressive MP4 ("best[ext=mp4]") downloads as one HTTP GET and
-    needs no ffmpeg merge step at the end. The bestvideo+bestaudio
-    pair downloads two streams AND then forces ffmpeg to remux them
-    together, which on the free Space's CPU adds 5-30 s on top of
-    the network time. We try the progressive single-file first, and
-    only fall through to the split-track form if no progressive
-    variant exists at the cap (modern YouTube is the main offender).
+    History note: in 0.4.11 we ordered this selector to prefer
+    progressive MP4 ("best[ext=mp4][acodec!=none]") because a
+    single-file download avoids the ~10-30 s ffmpeg merge step at
+    the end. That assumption was wrong for YouTube specifically,
+    where progressive MP4 only goes up to 360p - everything 720p+
+    is served as separate video/audio tracks. So the selector was
+    silently capping YouTube downloads at 360p regardless of which
+    height the user asked for. Same story on a number of other
+    sites that ship progressive at 480p max.
 
-    `height` controls the resolution cap. Defaults to 720 (the
-    `standard` quality tier). When `height` is 1080 we still embed
-    a 720 fallback at the bottom of the selector so an HD request
-    against a source that doesn't expose 1080 still produces a file
-    rather than failing the whole job.
+    yt-dlp picks the FIRST matching clause in the chain. So we now
+    order clauses by QUALITY, not by I/O cost. The progressive
+    no-merge path is still here, but it only fires when the
+    progressive variant is actually AT the chosen height (i.e. the
+    site really does ship a single-file MP4 at 720p / 1080p, like
+    most non-YouTube CDNs). Otherwise we take the split-track path
+    and pay the merge cost - which on the free Space is 10-30 s
+    for a ~150 MB file, well under the 360 s download cap.
+
+    `height` is the resolution cap. Defaults to 720 (`standard`).
+    When `height` is 1080 we still embed a 720 fallback at the
+    bottom of the chain so an HD request against a source that
+    doesn't expose 1080 produces a file rather than failing.
     """
     h = int(height or MAX_VIDEO_HEIGHT)
     # FPS clause: empty for "source", [fps<=30] for 30,
@@ -606,31 +615,50 @@ def _video_format_selector(fps: str = "source", *, height: int | None = None) ->
         "30": "[fps<=30]",
         "60": "[fps>=50]",
     }.get(fps, "")
-    base = (
-        # 1) Progressive MP4 with audio baked in - one stream, no merge.
-        f"best[height<={h}]{fps_clause}[ext=mp4][acodec!=none]/"
-        f"best[height<={h}][ext=mp4][acodec!=none]/"
-        # 2) Progressive MP4 (audio missing - rare but happens).
-        f"best[height<={h}]{fps_clause}[ext=mp4]/"
-        f"best[height<={h}][ext=mp4]/"
-        # 3) Split AVC/AAC tracks - merge cost but best compatibility.
-        f"bestvideo[height<={h}]{fps_clause}[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
-        f"bestvideo[height<={h}]{fps_clause}[ext=mp4]+bestaudio/"
-        f"bestvideo[height<={h}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
-        f"bestvideo[height<={h}][ext=mp4]+bestaudio/"
-        # 4) Last resort at the requested height - any container.
-        f"best[height<={h}]/"
-    )
-    # If the user asked for HD and the source has nothing at 1080,
-    # fall back through the standard tier rather than letting the
-    # job error out. yt-dlp picks the highest-matching tier.
-    if h > 720:
-        base += (
-            f"best[height<=720][ext=mp4][acodec!=none]/"
-            f"bestvideo[height<=720][ext=mp4]+bestaudio/"
-            f"best[height<=720]/"
+
+    def tier(target: int) -> str:
+        # bestvideo* (with star) lets yt-dlp pick whichever variant
+        # is best at this height, including progressive-with-audio
+        # streams. That means on a site that only ships a single
+        # 720p MP4 (no separate tracks), bestvideo*[height<=720]
+        # naturally picks that progressive file and the
+        # +bestaudio is a no-op (yt-dlp drops the redundant fetch).
+        # On YouTube where 720p only exists as split tracks, the
+        # same expression picks the 720p video-only AVC and merges
+        # it with the best m4a. Either way: we get the right height.
+        return (
+            # 1) Best video at the cap, AVC/m4a where possible (mp4
+            #    output without a transcode).
+            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            f"bestvideo*[height<={target}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            # 2) Best video at the cap, mp4 video container, any audio.
+            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4]+bestaudio/"
+            f"bestvideo*[height<={target}][ext=mp4]+bestaudio/"
+            # 3) Best video at the cap, ANY container (webm/etc.) +
+            #    best audio. yt-dlp will remux to mp4 via the
+            #    FFmpegVideoRemuxer postprocessor we set in opts.
+            f"bestvideo*[height<={target}]{fps_clause}+bestaudio/"
+            f"bestvideo*[height<={target}]+bestaudio/"
+            # 4) Single-file at the EXACT cap height. This is the
+            #    no-merge fast path for sites that ship progressive
+            #    720p / 1080p (most non-YouTube CDNs). It's clause
+            #    4, not clause 1, because we only want it when the
+            #    progressive resolution actually matches the cap -
+            #    not when it's a low-res fallback that happens to
+            #    sneak in under <=H.
+            f"best[height={target}]{fps_clause}[ext=mp4][acodec!=none]/"
+            f"best[height={target}][ext=mp4][acodec!=none]/"
+            # 5) Last resort at this tier - any single-file <=H.
+            f"best[height<={target}]"
         )
-    return base + "best"
+
+    base = tier(h)
+    # If HD was asked for and 1080 isn't available, fall through
+    # the entire 720 tier rather than failing. yt-dlp picks the
+    # first chain that matches.
+    if h > 720:
+        base += "/" + tier(720)
+    return base + "/best"
 
 
 # Direct-media-URL fast path: extensions that point straight at a

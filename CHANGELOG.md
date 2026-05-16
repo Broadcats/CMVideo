@@ -3,6 +3,41 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.13.2-alpha] - 2026-05-16
+
+Mini-app: fix the resolution regression. Downloads were silently
+capping at the source's progressive-MP4 ceiling (360p on YouTube,
+480p on a number of other sites) regardless of which height tier
+the user selected, because the format selector introduced in
+v0.4.11 ordered clauses by I/O cost (no-merge path first) instead
+of by quality.
+
+### Fixed
+
+- **Format selector reordered to put quality first.**
+  `_video_format_selector` now leads with
+  `bestvideo*[height<=H][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]`
+  - the canonical "highest video at the cap, merge with best m4a"
+  pattern - across all sources. The progressive single-file no-merge
+  path is still in the chain, but only fires when the progressive
+  variant is actually AT the chosen height (`best[height=H]`, not
+  `best[height<=H]`), so it can't sneak in below the cap any more.
+- The fix applies to both `Standard (720p)` and `HD (1080p)` tiers
+  and to all three modes (download, silence, beep). Censor mode
+  was previously transcribing and rendering 360p sources too -
+  same root cause.
+
+### Note on speed
+
+The 0.4.11 ordering was based on an incorrect assumption that
+progressive MP4 was widely available at 720p+. For YouTube
+specifically that's just wrong (everything 720p+ is split
+tracks). The merge step is real but small - ~10-30 s for a typical
+~150 MB file - and well under the 360 s download cap. For sources
+that genuinely do ship single-file 720p / 1080p (most non-YouTube
+CDNs), the no-merge path still triggers via the `[height=H]`
+clauses lower in the chain, so they don't lose any speed.
+
 ## [0.4.13.1-alpha] - 2026-05-16
 
 Mini-widget UX hotfix on top of v0.4.13-alpha.

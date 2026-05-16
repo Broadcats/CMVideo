@@ -44,7 +44,12 @@
 
   /* ---------- (2) Mini widget ---------- */
 
-  var MINI_API_BASE = "https://dandyfeet-cmvideo-mini.hf.space";
+  // mini.cmvideo.online is a custom-domain CNAME -> HF Spaces
+  // (Dandyfeet/cmvideo-mini). The original hf.space URL still
+  // works at the network level and is kept allowed in the CSP
+  // below, so reverting is a one-line change with no redeploy
+  // chain if the custom domain ever has issues.
+  var MINI_API_BASE = "https://mini.cmvideo.online";
 
   // YouTube URLs take a separate, fully-legal path: we fetch the
   // transcript via the backend (no video download), then embed the

@@ -683,6 +683,11 @@ def streamlink_download(
     # streamlink for HLS streams, which is what Twitch / Kick / YT-live
     # all serve.
     bin_path = _resolve_tool("streamlink") or "streamlink"
+    # Resolve ffmpeg through the same trusted-tool path streamlink
+    # uses, so a bundled binary at e.g.
+    # `<bundle>/tools/ffmpeg` wins over a stale system PATH entry.
+    # Mirrors the desktop censor/extractors.py change in v0.4.16.
+    ffmpeg_bin = _resolve_tool("ffmpeg") or "ffmpeg"
     cmd = [
         bin_path,
         "--quiet",
@@ -692,7 +697,7 @@ def streamlink_download(
         "best",
     ]
     ff = [
-        "ffmpeg",
+        ffmpeg_bin,
         "-loglevel", "error",
         "-y",
         "-i", "pipe:0",

@@ -3,6 +3,102 @@
 All notable changes to CMVideo are recorded here. The project follows
 [Semantic Versioning](https://semver.org/) once it leaves the alpha series.
 
+## [0.4.16.2-alpha] - 2026-05-16
+
+Pre-deploy bug audit on top of the v0.4.16.x security work.
+Three real bugs caught and fixed before redeploying. Also folds
+in a couple of low-severity consistency fixes from the same
+audit pass. **Supersedes v0.4.16.1-alpha as the deploy target -
+v0.4.16.1's mini-app should never go live; deploy v0.4.16.2
+directly.**
+
+### Fixed
+
+- **`/api/download` JSON shim returned 422 in production**, had
+  for many releases. The route's docstring claimed it was a
+  back-compat **JSON** shim for old clients. The signature said
+  `format: str = Form(...)`, `url: str = Form(...)`. The bundled
+  HF Space page (`web-mini/static/app.js`) sent JSON. Result:
+  every Download click on the standalone HF page got a 422 from
+  FastAPI's body validator before reaching any handler code.
+  Verified live against the deployed mini before patching:
+    ```
+    $ curl -X POST .../api/download -H content-type:application/json \
+        -d '{"url":"...","format":"mp4"}'
+    HTTP 422 {"detail":[{"type":"missing","loc":["body","format"]...
+    ```
+  Replaced with a Pydantic body model so the on-wire shape
+  matches the docstring and the live caller. The website widget
+  on cmvideo.online wasn't affected (it uses
+  `/api/process?async=1` with FormData), which is why this bug
+  hid for so long.
+- **Latent crash in the same handler**: when the JSON shim was
+  fixed the call delegating to `api_process` left `fps` and
+  `quality` defaulted, but FastAPI's `Form(...)` defaults are
+  sentinel objects (not strings) when the route function is
+  called directly (i.e. not parsed through a request). So the
+  very first line of `api_process` did
+  `(fps or "source").lower()` on a `Form` instance and got
+  `AttributeError: 'Form' object has no attribute 'lower'`.
+  Caught by the smoke test, not the audit. Now passes
+  `fps="source"`, `quality=DEFAULT_QUALITY` explicitly.
+- **HD download cap mismatch (1080p tier silently rejected at
+  the final gate)**. `_run_pipeline_async` (line ~1320) and
+  sync `api_process` (line ~1777) both raise the `max_size`
+  passed into `_do_download` to `QUALITY_DOWNLOAD_CAPS["hd"]`
+  (1500 MB) when the user picks the HD tier. But the **final
+  filesize gate** at lines ~1447 and ~1819 was still using
+  `MAX_DOWNLOAD_FILESIZE_BYTES`, which is the *standard* tier
+  (800 MB). So a legitimate 1080p job that pulled a real ~1.2
+  GB file completed the download, then **failed at the last
+  size check** with `"Output exceeds the 800 MB cap"` -
+  misleading because the user explicitly selected HD. Both
+  gates now compute `active_cap` from the same per-quality
+  `QUALITY_DOWNLOAD_CAPS` lookup that sized `max_size`.
+
+### Hardened
+
+- **XFF parser docstring now honest about its limitation.**
+  v0.4.16.1's docstring implied the fix made header forgery
+  "impossible at the edge HF controls". That's true ONLY if
+  the chain is at least `_TRUSTED_PROXY_HOPS` entries long,
+  which on HF Spaces is automatic (Caddy always appends its
+  peer), but is NOT automatic on a bare-metal direct deploy
+  with no proxy. Added a worked example, called out the
+  limitation explicitly, and changed the `len(chain) < hops`
+  fallback from `chain[0]` to the socket peer - small
+  defense-in-depth improvement on misconfigured deploys, no-op
+  on HF.
+- **`web-mini/extractors.py` `streamlink_download` now resolves
+  ffmpeg through `_resolve_tool`** instead of a bare `"ffmpeg"`
+  literal. Mirrors the desktop fix shipped in v0.4.16-alpha;
+  keeps mini-app + desktop binary-resolution behaviour
+  symmetric, so a bundled ffmpeg in either tree wins over a
+  stale system PATH entry.
+- **`site/app.js` YouTube URL detection now matches
+  `youtube-nocookie.com`** in addition to youtube.com / youtu.be.
+  Previously censor-mode `youtube-nocookie.com` URLs slipped
+  past the YT short-circuit and got dispatched to the generic
+  pipeline, which then errored out. Also rewrote the misleading
+  block comment that still described an in-browser iframe
+  player flow that was removed in v0.4.16-alpha.
+
+### Verified
+
+A 10-case FastAPI TestClient smoke run gates this release:
+- `/api/download` with JSON body: not 422, not 500.
+- `/api/limits` exposes `quality_download_caps_mb.hd >= 1500`.
+- HD cap source-pattern audit: 4 occurrences of the per-quality
+  lookup (2 for `max_size`, 2 for `active_cap`).
+- XFF spoofing matrix: forged + appended -> blocked; padded
+  forgery -> blocked; legitimate single-entry HF-shape -> picks
+  user IP; no XFF -> socket peer.
+- `/api/limits` body grepped for `api.cerebras.ai`,
+  `api.openai.com`, `api.groq.com`, `cobalt.tools`, `fly.dev`,
+  `onrender.com` - all clean (v0.4.16's redaction holds).
+- Python `py_compile` + import smoke for desktop and mini.
+- `node --check site/app.js` - JS syntax OK.
+
 ## [0.4.16.1-alpha] - 2026-05-16
 
 Hotfix on top of v0.4.16-alpha. The XFF parsing fix that

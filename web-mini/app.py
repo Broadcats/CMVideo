@@ -118,7 +118,7 @@ _TRUSTED_PROXY_HOPS = max(1, int(os.environ.get("CMVIDEO_TRUSTED_PROXY_HOPS", "1
 
 def _client_ip(request: Request) -> str:
     """Resolve the real client IP behind HF Spaces' reverse proxy
-    in a way that resists header forgery.
+    in a way that resists header forgery THROUGH the public edge.
 
     `slowapi.util.get_remote_address` reads `request.client.host`,
     which on HF Spaces is always the platform's edge proxy - so
@@ -127,13 +127,6 @@ def _client_ip(request: Request) -> str:
     `_TRUSTED_PROXY_HOPS`-th-from-rightmost entry (the immediate
     peer of our outermost trusted proxy). Anything an attacker
     pre-pends on the left is ignored.
-
-    Why this matters: the previous "always pick leftmost"
-    behaviour let any caller forge an `X-Forwarded-For: <victim>`
-    header and inherit `<victim>`'s rate-limit bucket - and, if
-    `<victim>` was on the owner allowlist, get unlimited jobs.
-    The fix makes header forgery impossible at the edge HF
-    controls.
 
     Worked example with `_TRUSTED_PROXY_HOPS=1` (HF only):
     * Legitimate: chain `[client_ip]` (HF appended) -> chain[-1]
@@ -144,23 +137,40 @@ def _client_ip(request: Request) -> str:
       ignored.
     * Forged with padding: `[a, b, c, attacker_ip]` -> chain[-1]
       = `attacker_ip`. Still right.
-    """
+
+    LIMITATION: this trusts that the chain is `_TRUSTED_PROXY_HOPS`
+    entries long because the trusted edge ALWAYS appends its peer.
+    On HF Spaces' Caddy edge that's true. If you ever expose this
+    process directly to the public internet (no proxy in front),
+    a single-entry forged XFF will still pass through - the
+    correct fix in that scenario is socket-peer-CIDR trust, which
+    requires knowing the platform's internal peer IPs. Ship that
+    only after measuring `request.client.host` on the actual
+    target deploy. On HF Spaces this gap is unreachable: the
+    FastAPI container is bound on the internal Docker network and
+    not routable from the public internet.
+
+    If `len(chain) < _TRUSTED_PROXY_HOPS` (chain shorter than
+    expected, which on HF means missing/empty XFF), we fall
+    through to the socket peer rather than `chain[0]`. That
+    matters for synthetic / direct test traffic and doesn't
+    affect production because HF's chain is always >= 1 entry."""
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
         chain = [c.strip() for c in xff.split(",")]
         chain = [c for c in chain if c]
-        if chain:
-            # Take the Nth-from-rightmost entry. For hops=1 that's
-            # chain[-1]; for hops=2 it's chain[-2]; etc. If the
-            # chain is shorter than `hops` (request didn't
-            # actually pass through that many trusted proxies),
-            # fall back to the leftmost entry as best-effort -
-            # this branch can only happen on direct backend
-            # access, not via the public HF Space.
-            if len(chain) >= _TRUSTED_PROXY_HOPS:
-                candidate = chain[len(chain) - _TRUSTED_PROXY_HOPS]
-            else:
-                candidate = chain[0]
+        # Take the Nth-from-rightmost entry, but ONLY if the chain
+        # is at least that long. If `len(chain) < _TRUSTED_PROXY_HOPS`
+        # the request didn't actually pass through the expected
+        # number of trusted proxies, which means EITHER the
+        # platform misconfigured XFF, OR an attacker is hitting
+        # the FastAPI process directly with no edge in front and
+        # forging the header. In both cases trusting any chain
+        # entry hands the attacker a free spoof. Fall through to
+        # the socket peer instead - it's the actual TCP source
+        # and can't be forged over HTTP.
+        if chain and len(chain) >= _TRUSTED_PROXY_HOPS:
+            candidate = chain[len(chain) - _TRUSTED_PROXY_HOPS]
             # Tolerate IPv6 with brackets / zone IDs by feeding
             # ipaddress only the bit it'll accept; if parsing fails
             # we still return the raw string so the limiter buckets
@@ -1443,8 +1453,20 @@ async def _run_pipeline_async(
             _set_stage(job, "rendering", 100)
 
         # Final filesize gate (catches outputs that grew during re-encode).
+        # `active_cap` MUST mirror the per-quality cap that was passed
+        # in to `_do_download` (see ~1320). Using the legacy
+        # `MAX_DOWNLOAD_FILESIZE_BYTES` constant - which always points
+        # at the *standard* tier (800 MB) - bites HD jobs: yt-dlp is
+        # told it can pull up to 1500 MB, succeeds with a legitimate
+        # ~1.2 GB 1080p file, then we reject it here with an
+        # "exceeds the 800 MB cap" message that's wrong for the
+        # quality tier the user picked.
         size = out_path.stat().st_size
-        active_cap = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+        active_cap = (
+            QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            if md == "download"
+            else MAX_CENSOR_FILESIZE_BYTES
+        )
         if size > active_cap:
             job.error = f"Output exceeds the {active_cap // (1024 * 1024)} MB cap."
             job.stage = "error"
@@ -1815,8 +1837,15 @@ async def api_process(
                 raise HTTPException(status_code=400, detail=str(e))
 
         # 3) Final filesize gate (catches outputs that grew during re-encode).
+        # See _run_pipeline_async for why active_cap is per-quality:
+        # the legacy MAX_DOWNLOAD_FILESIZE_BYTES is the standard
+        # (800 MB) tier and rejects legitimate HD pulls.
         size = out_path.stat().st_size
-        active_cap = MAX_DOWNLOAD_FILESIZE_BYTES if md == "download" else MAX_CENSOR_FILESIZE_BYTES
+        active_cap = (
+            QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            if md == "download"
+            else MAX_CENSOR_FILESIZE_BYTES
+        )
         if size > active_cap:
             raise HTTPException(status_code=413, detail=f"Output exceeds the {active_cap // (1024 * 1024)} MB cap.")
 
@@ -1921,16 +1950,46 @@ async def api_job_file(request: Request, job_id: str):
     )
 
 
+class DownloadCompatRequest(BaseModel):
+    """Body for the JSON-shape /api/download shim used by the
+    bundled HF Space page's static/app.js."""
+
+    url: str = Field(..., min_length=8, max_length=2048)
+    format: str = Field(..., min_length=1, max_length=8)
+
+
 @app.post("/api/download", include_in_schema=False)
 @limiter.limit(RATE_LIMIT_PER_HOUR)
-async def api_download_compat(
-    request: Request,
-    format: str = Form(...),
-    url: str = Form(...),
-):
-    """Back-compat shim for old clients that used the JSON /api/download.
-    Delegates to /api/process with mode=download."""
-    return await api_process(request=request, format=format, mode="download", url=url, file=None)
+async def api_download_compat(request: Request, body: DownloadCompatRequest):
+    """Back-compat shim for clients that POST JSON to /api/download
+    (notably the mini-app's own bundled `static/app.js`). Delegates
+    to /api/process with mode=download.
+
+    Two bugs lived here as of v0.4.16-alpha and earlier:
+      1. The signature used `format: str = Form(...)`,
+         `url: str = Form(...)` while the docstring (and the only
+         known in-tree caller, static/app.js) sent JSON. So every
+         request from the bundled HF Space page got 422 from
+         FastAPI's body validator before reaching any handler code.
+      2. When that 422 was bypassed, the delegating call below
+         passed positional args but left `fps` and `quality`
+         defaulted. FastAPI's `Form(...)` defaults are sentinel
+         objects (not strings) when the function is called directly
+         (i.e. not through the request parser), so api_process'
+         very first line `(fps or "source").lower()` crashed with
+         AttributeError.
+    Fixed both: pydantic body for the on-wire shape, and explicit
+    string defaults for fps/quality so the direct call doesn't
+    inherit Form sentinels."""
+    return await api_process(
+        request=request,
+        format=body.format,
+        mode="download",
+        url=body.url,
+        file=None,
+        fps="source",
+        quality=DEFAULT_QUALITY,
+    )
 
 
 class YTCensorRequest(BaseModel):

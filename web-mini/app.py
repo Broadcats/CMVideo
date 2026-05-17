@@ -109,6 +109,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("cmvideo-mini")
 
 
+# Matches the auth segment of a URL-shaped substring:
+#   <scheme>://<user>:<pass>@<host>...
+# Used to scrub residential-proxy credentials out of log lines
+# before they reach HF Space logs. yt-dlp / requests sometimes
+# echo the proxy URL back in error messages ("HTTP 407 from
+# http://user:pass@host:port"), and our `CMVIDEO_RESIDENTIAL_PROXY`
+# env var IS the user:pass@host:port form, so anything we log
+# that came from those libraries needs sanitising.
+_PROXY_CRED_RE = re.compile(r'(://)[^:@/\s]+:[^@/\s]+@')
+
+
+def _safe_log_msg(exc: BaseException) -> str:
+    """Single-line, credential-safe, length-capped representation
+    of `exc` for INFO/WARNING logging.
+
+    Why this exists:
+      * `str(exc).splitlines()[-1]` is the obvious one-liner but
+        IndexErrors when the stringified exception is empty -
+        which DOES happen for some socket-level errors. An
+        IndexError raised inside an `except` block escapes
+        whatever clean error response we were about to return,
+        turning a 422 into a 500.
+      * yt-dlp / requests sometimes embed the upstream URL
+        (including the residential-proxy URL with creds) in
+        their error messages. We don't want creds in HF logs.
+      * Long messages with embedded HTML / tracebacks blow up
+        log volume; cap at 200 chars.
+
+    Returns the type name as a fallback if the message is empty,
+    so log lines always carry SOMETHING actionable."""
+    raw = str(exc) if str(exc) else type(exc).__name__
+    redacted = _PROXY_CRED_RE.sub(r'\1***:***@', raw)
+    lines = [ln for ln in redacted.splitlines() if ln.strip()]
+    last = lines[-1] if lines else type(exc).__name__
+    return last[:200]
+
+
 # ---------------------------------------------------------------------------
 # App boilerplate
 # ---------------------------------------------------------------------------
@@ -1055,12 +1092,18 @@ def _do_info(url: str) -> dict:
     # Per-domain residential proxy. Datacenter-hostile sites
     # (Meta / TikTok / X / tube sites / YouTube etc.) need this
     # for the metadata-extract call, not just the eventual byte
-    # download. Falls through to direct (proxy=None) for sites
-    # that don't need it - only burns paid GB on the allowlist.
+    # download. Falls through to direct for sites that aren't on
+    # the allowlist - only burns paid GB where it matters.
+    # Mirrors the slow-path pattern at the top of `_do_download`:
+    # only set the key when non-None to avoid passing an explicit
+    # `proxy=None` into yt-dlp's params.
     try:
-        info_opts["proxy"] = _proxy_router.proxy_for_url(url)
+        _info_proxy = _proxy_router.proxy_for_url(url)
     except Exception:
         log.exception("info proxy_for_url() failed; falling back to direct")
+        _info_proxy = None
+    if _info_proxy:
+        info_opts["proxy"] = _info_proxy
     with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
@@ -1137,12 +1180,16 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     # TikTok, X, YT, etc.) reject the metadata probe from HF's
     # datacenter IP and we return None -> 422 -> the slow path
     # falls back to /api/process, defeating the point of the
-    # fast-path tier-2 streamer. Falls through to direct
-    # (proxy=None) for sites not on the allowlist.
+    # fast-path tier-2 streamer. Falls through to direct for
+    # sites not on the allowlist (matches the slow-path pattern
+    # of only setting `proxy` when non-None).
     try:
-        info_opts["proxy"] = _proxy_router.proxy_for_url(url)
+        _resolve_proxy = _proxy_router.proxy_for_url(url)
     except Exception:
         log.exception("streamable resolve: proxy_for_url() failed; falling back to direct")
+        _resolve_proxy = None
+    if _resolve_proxy:
+        info_opts["proxy"] = _resolve_proxy
     try:
         with yt_dlp.YoutubeDL(info_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -1153,7 +1200,12 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         # caller turns this None into a 422 with reason=
         # needs_processing so the frontend falls back to the
         # slow path which will surface a friendlier error.
-        log.info("streamable resolve: extract_info failed: %s", str(exc).splitlines()[-1][:200])
+        log.info(
+            "streamable resolve: extract_info failed for %s: %s: %s",
+            _proxy_router._hostname_of(url),
+            type(exc).__name__,
+            _safe_log_msg(exc),
+        )
         return None
     if info is None:
         log.info("streamable resolve: extract_info returned None")

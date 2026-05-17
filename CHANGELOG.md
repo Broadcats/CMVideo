@@ -20,6 +20,105 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.18.0-alpha] - 2026-05-18
+
+**y2down feature parity.** The mini was lagging y2down.cc on two
+visible axes (audio formats, video quality rungs) and one
+invisible one (YouTube reliability from datacenter IPs without
+user cookies). This release closes all three. Marketing fluff
+("no limits", "best speeds") is deliberately not copied because
+the mini still has — and will keep — real rate / time / size
+caps to stay free.
+
+### Multi-format audio output
+* `format` now accepts `mp3`, `m4a`, `aac`, `ogg`, `opus`, `wav`,
+  `flac` in addition to the existing `mp4`. Routed through
+  `FFmpegExtractAudio` with the right `preferredcodec` per format.
+* Lossy formats (mp3 / m4a / aac / ogg / opus) keep the 320 kbps
+  cap and the existing 200 MB filesize budget.
+* Lossless formats (wav / flac) skip the bitrate parameter and
+  get larger budgets — 800 MB for WAV, 600 MB for FLAC — to fit
+  the duration cap at 16-bit/44.1 kHz/stereo.
+* `/api/stream-download` returns 422 `needs_processing` for any
+  audio format because the FFmpegExtractAudio step always needs
+  server-side ffmpeg, no fast-path possible.
+* `/api/limits` exposes `audio_formats`, `default_audio_format`,
+  `audio_download_caps_mb` so the frontend / docs can enumerate
+  what's available.
+
+### Multi-quality video rungs
+* `quality` now accepts `144p`, `240p`, `360p`, `480p`, `720p`,
+  `1080p`, `1440p`, `2160p` (4K). Old `standard` / `hd` aliases
+  still work and map to `720p` / `1080p` so any external
+  integration that was pasting them in keeps working.
+* Per-tier filesize caps scale with bitrate expectations:
+  144p → 200 MB, 720p → 800 MB, 1080p → 1.5 GB, 1440p → 2.5 GB,
+  4K → 4 GB. Lower tiers get tighter caps because if the source
+  ships a 4 GB master we don't need the full blob to make a 360p
+  output.
+* Censoring is rejected up-front for >1080p (silence / beep at
+  4K would blow the 240 s ffmpeg timeout on the 2-vCPU shared
+  Space). Download mode still allows full 4K.
+* Existing 1080p+30/60fps guard kept; now generalised to any
+  ≥1080p quality + fps override combo.
+
+### PoToken provider sidecar (`bgutil-ytdlp-pot-provider` v1.3.1)
+* This is the actual fix for "YouTube without user cookies works
+  on y2down/cobalt but not on us." Both of those backends mint
+  proof-of-origin tokens via the bgutil provider so YouTube's
+  bot challenge ("Sign in to confirm you're not a bot") clears
+  on a sizable fraction of videos.
+* `Dockerfile` now installs Node.js 20, the `bgutil-ytdlp-pot-provider`
+  pip plugin, and builds the matching Node HTTP server from the
+  v1.3.1 release tarball. Service binds to localhost:4416 inside
+  the container; HF Spaces only exposes 7860 publicly so the
+  PoToken endpoint is not externally reachable.
+* `entrypoint.sh` (new) starts the bgutil server in the
+  background, wires up signal forwarding, then `exec`s uvicorn.
+  Every step of the install + startup is guarded so a missing
+  Node, failed npm install, or runtime crash of the sidecar all
+  result in a working app — yt-dlp falls back to the existing
+  client-rotation behaviour.
+* Set `CMVIDEO_DISABLE_POTOKEN=1` to skip the sidecar at runtime
+  (e.g. for debugging or running outside the HF image).
+
+### Frontend: y2down-style format + quality dropdowns
+* `templates/index.html` replaces the binary MP4 / MP3 pill toggle
+  with two `<select>` controls — Format (with optgroups for
+  Video / Audio-lossy / Audio-lossless) and Quality (144p…4K).
+* Quality select auto-disables when an audio format is picked
+  because height has no meaning for stripped-audio outputs;
+  flipping back to MP4 restores the user's last quality pick.
+* `static/style.css` adds `.select-control` styling that matches
+  the URL input's surface / border so the form reads as one
+  unified control panel. Keeps the cool-shade indigo palette.
+* `static/app.js` reads from the new selects, sends `quality`
+  on every `/api/stream-download` and `/api/download` call, and
+  shows a longer status hint for lossless audio jobs (which
+  legitimately take 30-180s for an hour-long clip).
+
+### Copy + positioning updates
+* `<title>` and meta description now list the formats explicitly
+  (MP4 / MP3 / M4A / WAV / FLAC / OPUS / OGG / AAC) so search
+  engines that ranked y2down on those terms see us as a peer.
+* "Mini-version caps" section mentions the new format / quality
+  range and the lossless cap exception.
+* Upsell copy pivots from "more formats" (no longer a desktop
+  USP) to "censoring + batch processing + extra container
+  formats (MOV / MKV / WebM / AVI / FLV) + no caps". MP3 / M4A /
+  AAC / OGG / OPUS / WAV / FLAC are now mini-supported so it
+  would be misleading to claim them as desktop-exclusive.
+
+### Compatibility
+* All existing API integrations keep working — `format=mp3` still
+  downloads MP3, `format=mp4` still downloads MP4, `quality=standard`
+  / `quality=hd` still resolve to 720p / 1080p.
+* `/api/download` body now optionally accepts `quality` (defaults
+  to `720p`); old callers that omit it stay on 720p as before.
+* Stress-test e2e script (`scripts/stress/stress_e2e.py`) still
+  passes 10/10 on Battery A and 7/7 on Battery C against the
+  pre-deploy local TestClient.
+
 ## [mini-2026.05.17.5-alpha] - 2026-05-17
 
 **Coverage push.** May 2026 stress test against a freshly curated

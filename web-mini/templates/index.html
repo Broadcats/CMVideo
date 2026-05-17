@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CMVideo Mini - URL to MP4 / MP3</title>
-  <meta name="description" content="The mini web version of CMVideo. Paste a URL, get a clean MP4 or MP3 back. Caps apply - the full desktop app at cmvideo.online has no caps and can also remove swears." />
+  <title>CMVideo Mini - URL to MP4, MP3, M4A, WAV, FLAC, OPUS, OGG, AAC</title>
+  <meta name="description" content="The mini web version of CMVideo. Paste a URL, pick a format and a quality, get a clean file back. Supports MP4 (144p..4K), MP3, M4A, WAV, FLAC, OPUS, OGG, AAC. Caps apply - the full desktop app at cmvideo.online has no caps and can also remove swears." />
   <meta name="theme-color" content="#0d1018" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
@@ -16,14 +16,15 @@
       <p class="eyebrow">mini web version &middot; download only</p>
       <h1>CMVideo <span class="grad-text">Mini</span>.</h1>
       <p class="lede">
-        Paste a video URL. Pick MP4 or MP3. Download. That&rsquo;s it -
-        this is just the URL grabber from <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a>,
+        Paste a video URL. Pick a format and quality. Download. That&rsquo;s it &mdash;
+        this is the URL grabber from <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a>,
         running in your browser with quality and length caps so it
         stays free.
       </p>
       <p class="sub-note">
-        Want to <strong>censor swears</strong>, pick 4K / FLAC / WebM /
-        anything other than MP4 or MP3, batch-process whole folders, or
+        Video up to <strong>4K</strong>, audio in
+        <strong>MP3 / M4A / WAV / FLAC / OPUS / OGG / AAC</strong>.
+        Want to <strong>censor swears</strong>, batch-process whole folders, or
         skip the caps entirely? The
         <a href="https://cmvideo.online" target="_blank" rel="noopener">full desktop app</a>
         is free and runs locally.
@@ -39,19 +40,40 @@
       </div>
 
       <div class="row fmt-row">
-        <span class="row-label">Format</span>
-        <div class="pill-group" role="radiogroup" aria-label="Format">
-          <label class="pill on" data-fmt="mp4">
-            <input type="radio" name="fmt" value="mp4" checked />
-            <span class="pill-icon">&#9658;</span>
-            MP4 &middot; up to {{ max_video_height }}p
-          </label>
-          <label class="pill" data-fmt="mp3">
-            <input type="radio" name="fmt" value="mp3" />
-            <span class="pill-icon">&#9836;</span>
-            MP3 &middot; {{ audio_bitrate_kbps }} kbps
-          </label>
-        </div>
+        <label class="row-label" for="fmt-select">Format</label>
+        <select id="fmt-select" class="select-control" aria-label="Output format">
+          <optgroup label="Video">
+            <option value="mp4" selected>MP4 (H.264 + AAC)</option>
+          </optgroup>
+          <optgroup label="Audio &middot; lossy">
+            <option value="mp3">MP3 &middot; {{ audio_bitrate_kbps }} kbps</option>
+            <option value="m4a">M4A (AAC in MP4 container)</option>
+            <option value="aac">AAC (raw)</option>
+            <option value="opus">OPUS</option>
+            <option value="ogg">OGG (Vorbis)</option>
+          </optgroup>
+          <optgroup label="Audio &middot; lossless">
+            <option value="wav">WAV (uncompressed)</option>
+            <option value="flac">FLAC</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="row quality-row" id="quality-row">
+        <label class="row-label" for="quality-select">Quality</label>
+        <select id="quality-select" class="select-control" aria-label="Video quality">
+          <option value="144p">144p</option>
+          <option value="240p">240p</option>
+          <option value="360p">360p</option>
+          <option value="480p">480p</option>
+          <option value="720p" selected>720p</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p (2K)</option>
+          <option value="2160p">2160p (4K)</option>
+        </select>
+        <span class="row-hint muted small" id="quality-hint">
+          Video only. Audio formats ignore quality.
+        </span>
       </div>
 
       <div class="row btn-row">
@@ -108,10 +130,11 @@
       <h3>Mini-version caps</h3>
       <ul>
         <li>Up to <strong>{{ max_duration_min }} minutes</strong> per clip.</li>
-        <li>Up to <strong>{{ max_filesize_mb }} MB</strong> per file.</li>
-        <li>Video maxes out at <strong>{{ max_video_height }}p MP4</strong> by default; the API also accepts <code>quality=hd</code> for <strong>1080p</strong> (slower, larger file). Audio at <strong>{{ audio_bitrate_kbps }} kbps MP3</strong>.</li>
+        <li>Per-file size cap scales with quality: <strong>{{ max_filesize_mb }} MB</strong> at 720p, larger at 1080p / 1440p / 4K. Lossless audio (WAV/FLAC) gets its own bigger cap.</li>
+        <li>Video: <strong>144p &rarr; 4K</strong> (single MP4, H.264 + AAC).</li>
+        <li>Audio: <strong>MP3 / M4A / AAC / OPUS / OGG</strong> at {{ audio_bitrate_kbps }} kbps, plus <strong>WAV / FLAC</strong> lossless.</li>
         <li><strong>{{ rate_limit }}</strong> per visitor.</li>
-        <li>No censoring, no transcripts, no other formats - those live in the full app.</li>
+        <li>No censoring, no transcripts, no batching &mdash; those live in the full app.</li>
       </ul>
     </section>
 
@@ -120,13 +143,15 @@
         <h2>Want the full thing?</h2>
         <p>
           The desktop app at <a href="https://cmvideo.online" target="_blank" rel="noopener">cmvideo.online</a>
-          downloads at full quality (up to <strong>4K / 320 kbps</strong>),
-          supports <strong>13+ formats</strong> (MP4, MOV, MKV, WebM, AVI,
-          FLV, MP3, M4A, AAC, OGG, Opus, WAV, FLAC), and
-          automatically removes swears and slurs with <strong>silence</strong>,
-          <strong>beep</strong>, or a <strong>retro robotic TTS</strong>
-          replacement. Runs entirely on your machine - no uploads, no
-          accounts, no caps.
+          adds the parts the mini can&rsquo;t safely give the public web:
+          <strong>swear &amp; slur censoring</strong> with
+          <strong>silence</strong>, <strong>beep</strong>, or a
+          <strong>retro robotic TTS</strong> replacement;
+          <strong>batch processing</strong> for whole folders;
+          extra container formats (<strong>MOV, MKV, WebM, AVI, FLV</strong>);
+          and <strong>no time / size / rate caps</strong>.
+          Runs entirely on your machine &mdash; no uploads, no
+          accounts, no quotas.
         </p>
         <p>
           <a class="btn btn-primary" href="https://cmvideo.online" target="_blank" rel="noopener">

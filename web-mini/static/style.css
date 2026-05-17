@@ -115,6 +115,45 @@ input[type="url"]:focus {
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
 }
 
+/* y2down-style dropdowns. Match the URL input's surface/border so
+   the form reads as one unified control. */
+.select-control {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface-deep);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 11px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.select-control:focus {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+.select-control:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.row-hint { display: block; margin-top: 6px; }
+.quality-row.disabled .row-label,
+.quality-row.disabled .row-hint { opacity: 0.55; }
+
 .pill-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .pill {
   display: inline-flex; align-items: center; gap: 8px;

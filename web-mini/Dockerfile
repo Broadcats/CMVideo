@@ -15,12 +15,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # instead of asking `playwright install --with-deps` to do it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ffmpeg ca-certificates curl tar \
+        ffmpeg ca-certificates curl tar git gnupg \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
         libgbm1 libpango-1.0-0 libcairo2 libasound2 libdrm2 libxshmfence1 \
         fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+# Node.js 20 - needed for the PoToken provider sidecar that mints
+# proof-of-origin tokens for YouTube's bot challenge. Without
+# PoTokens, datacenter IPs (which is what HF Spaces all are) get
+# 'Sign in to confirm you're not a bot' on a sizable chunk of
+# YouTube videos. With PoTokens, most of those clear without
+# user-supplied cookies. This is the same trick y2down / cobalt
+# use on their backends.
+#
+# Install is best-effort: a missing Node still produces a working
+# image, the entrypoint just skips the sidecar and falls back to
+# the existing client-rotation behavior.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    || echo "WARN: Node.js install failed; PoToken sidecar will be skipped at runtime"
 
 # Pin the lux tarball version. lux is a Go binary, ~12 MB, no
 # dependencies. Bumped manually at the same cadence as the
@@ -44,6 +60,36 @@ RUN pip install --no-cache-dir -r requirements.txt
 # fixed in nightly but still broken in last-stable.
 RUN pip install --no-cache-dir --upgrade --pre 'yt-dlp[default,curl-cffi]' \
     && pip install --no-cache-dir --upgrade 'gallery-dl' 'streamlink' 'you-get'
+
+# PoToken provider plugin for yt-dlp. Auto-detected at runtime;
+# if the Node sidecar (built below) is reachable on
+# localhost:4416 the plugin mints PoTokens for YouTube requests,
+# which clears most 'Sign in to confirm you're not a bot' walls
+# from datacenter IPs. If the sidecar is missing, the plugin
+# no-ops and yt-dlp falls back to its built-in client rotation.
+RUN pip install --no-cache-dir bgutil-ytdlp-pot-provider \
+    || echo "WARN: bgutil-ytdlp-pot-provider plugin install failed; YouTube without user cookies may be flaky"
+
+# Build the bgutil PoToken provider Node service. We pin to a
+# release tag so a regression upstream can't break our image
+# build silently. Build artifacts land in /opt/bgutil-server;
+# the entrypoint script starts `node build/main.js` on port
+# 4416 before uvicorn comes up.
+ARG BGUTIL_VERSION=1.3.1
+RUN if command -v node >/dev/null 2>&1; then \
+        set -e; \
+        echo "Building bgutil-ytdlp-pot-provider v${BGUTIL_VERSION}"; \
+        mkdir -p /opt/bgutil-server && cd /opt/bgutil-server; \
+        curl -fsSL "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/${BGUTIL_VERSION}.tar.gz" \
+            | tar -xz --strip-components=2 -C . "bgutil-ytdlp-pot-provider-${BGUTIL_VERSION}/server"; \
+        npm ci --omit=dev --no-audit --no-fund 2>&1 | tail -20; \
+        npm ci --no-audit --no-fund 2>&1 | tail -20; \
+        npx tsc 2>&1 | tail -20; \
+        rm -rf node_modules/.cache; \
+        echo "bgutil-server build complete; entry: /opt/bgutil-server/build/main.js"; \
+    else \
+        echo "WARN: Node.js not present; skipping bgutil-server build"; \
+    fi || echo "WARN: bgutil-server build failed; runtime will skip the sidecar"
 # Pull Chromium for Playwright. Chromium is ~165 MB compressed
 # from Playwright's CDN and ~450 MB on disk. We point
 # PLAYWRIGHT_BROWSERS_PATH at /opt so the binaries survive the
@@ -63,12 +109,18 @@ print("whisper tiny.en cached")
 PY
 
 COPY app.py mini_censor.py extractors.py llm_extract.py proxy_router.py version.py /app/
+COPY entrypoint.sh /app/entrypoint.sh
 COPY wordlists /app/wordlists
 COPY templates /app/templates
 COPY static /app/static
+RUN chmod +x /app/entrypoint.sh
 
+# /opt/bgutil-server is built earlier; fold it into the chown so
+# the unprivileged `user` can read & exec the Node entry point.
 RUN chown -R user:user /app /opt/ms-playwright 2>/dev/null || chown -R user:user /app
+RUN [ -d /opt/bgutil-server ] && chown -R user:user /opt/bgutil-server || true
 USER user
 
 EXPOSE 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+ENV CMVIDEO_POTOKEN_PORT=4416
+CMD ["/app/entrypoint.sh"]

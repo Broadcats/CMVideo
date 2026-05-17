@@ -54,24 +54,63 @@ MAX_CENSOR_FILESIZE_BYTES = 100 * 1024 * 1024    # cap upload + output
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024             # multipart body size
 AUDIO_BITRATE_KBPS = "320"  # highest standard MP3 bitrate (LAME -V0 / CBR)
 
-# Quality tiers. "standard" stays the default because the speed wins
+# Quality tiers. "720p" is the default because the speed wins
 # from 0.4.11 (single-file progressive MP4, no merge step) only apply
 # at 720p - bumping the default to 1080p makes first-impression
-# pulls slower for everyone. HD is opt-in.
-ALLOWED_QUALITY = {"standard", "hd"}
-DEFAULT_QUALITY = "standard"
-QUALITY_HEIGHTS = {"standard": 720, "hd": 1080}
-# 1080p source can run 1.3-2.7 GB/hr on AVC; bump the per-job size
-# cap accordingly. HF Spaces' ephemeral disk is ~50 GB so even three
-# concurrent HD pulls (~4.5 GB tmp) is fine.
+# pulls slower for everyone. Higher tiers are opt-in.
+#
+# Naming: height-suffixed primary keys (the y2down convention,
+# adopted in mini-2026.05.18.0-alpha). Legacy "standard" / "hd"
+# values from the 0.4.13.0-alpha API are kept as aliases so old
+# integrations don't break.
+QUALITY_HEIGHTS = {
+    "144p":   144,
+    "240p":   240,
+    "360p":   360,
+    "480p":   480,
+    "720p":   720,
+    "1080p":  1080,
+    "1440p":  1440,
+    "2160p":  2160,
+}
+QUALITY_ALIASES = {"standard": "720p", "hd": "1080p"}
+ALLOWED_QUALITY = set(QUALITY_HEIGHTS.keys()) | set(QUALITY_ALIASES.keys())
+DEFAULT_QUALITY = "720p"
+# Per-tier filesize caps. Lower tiers get tighter budgets - if the
+# source is shipping a 4 GB master we don't need the full blob to
+# serve a 360p output. Higher tiers get more headroom because AVC
+# bitrate scales roughly with pixel count: 1080p ~2x 720p, 1440p
+# ~2x 1080p, 4K ~2x 1440p.
 QUALITY_DOWNLOAD_CAPS = {
-    "standard": 800 * 1024 * 1024,
-    "hd":      1_500 * 1024 * 1024,
+    "144p":   200 * 1024 * 1024,
+    "240p":   300 * 1024 * 1024,
+    "360p":   400 * 1024 * 1024,
+    "480p":   600 * 1024 * 1024,
+    "720p":   800 * 1024 * 1024,
+    "1080p": 1500 * 1024 * 1024,
+    "1440p": 2500 * 1024 * 1024,
+    "2160p": 4000 * 1024 * 1024,
 }
 # Back-compat: anywhere downstream still references the legacy
 # constants we keep them pointing at the standard tier.
 MAX_VIDEO_HEIGHT = QUALITY_HEIGHTS[DEFAULT_QUALITY]
 MAX_DOWNLOAD_FILESIZE_BYTES = QUALITY_DOWNLOAD_CAPS[DEFAULT_QUALITY]
+
+
+def _normalize_quality(quality: str) -> str:
+    """Map a user-supplied quality string to a canonical
+    height-named tier. Accepts both the new ('720p', '1080p', ...)
+    and legacy ('standard', 'hd') values; returns one of
+    QUALITY_HEIGHTS' keys or raises HTTPException(400)."""
+    q = (quality or DEFAULT_QUALITY).lower().strip()
+    if q in QUALITY_HEIGHTS:
+        return q
+    if q in QUALITY_ALIASES:
+        return QUALITY_ALIASES[q]
+    raise HTTPException(
+        status_code=400,
+        detail=f"Quality must be one of: {', '.join(sorted(QUALITY_HEIGHTS))}",
+    )
 
 # 1-hour 720p AVC files land around 600-800 MB. From the HF Space's
 # datacenter peering that pulls in roughly 60-180s depending on
@@ -99,7 +138,42 @@ CENSOR_TIMEOUT_SECONDS = 240
 # parse time - a malformed value will raise on app boot.
 RATE_LIMIT_PER_HOUR = os.environ.get("CMVIDEO_RATE_LIMIT_PER_HOUR", "20/hour")
 
-ALLOWED_FORMATS = {"mp4", "mp3"}
+# Audio formats. yt-dlp's FFmpegExtractAudio supports all of these
+# via its `preferredcodec` arg. Lossless formats (wav, flac) skip
+# the bitrate parameter entirely.
+ALLOWED_AUDIO_FORMATS = {"mp3", "m4a", "aac", "ogg", "opus", "wav", "flac"}
+DEFAULT_AUDIO_FORMAT = "mp3"
+LOSSLESS_AUDIO_FORMATS = {"wav", "flac"}
+# yt-dlp's `preferredcodec` value for each format. Most align with
+# the format name; "ogg" maps to "vorbis" because that's the codec
+# inside an Ogg container yt-dlp can produce by default.
+AUDIO_CODEC_MAP = {
+    "mp3":  "mp3",
+    "m4a":  "m4a",
+    "aac":  "aac",
+    "ogg":  "vorbis",
+    "opus": "opus",
+    "wav":  "wav",
+    "flac": "flac",
+}
+# Per-format filesize caps. WAV is the worst case at ~600 MB/hr
+# for 16-bit/44.1kHz/stereo; FLAC about half that. Lossy formats
+# at 320 kbps land around 150 MB/hr regardless of source quality,
+# so 200 MB is plenty.
+AUDIO_DOWNLOAD_CAPS = {
+    "mp3":  200 * 1024 * 1024,
+    "m4a":  200 * 1024 * 1024,
+    "aac":  200 * 1024 * 1024,
+    "ogg":  200 * 1024 * 1024,
+    "opus": 200 * 1024 * 1024,
+    "wav":  800 * 1024 * 1024,
+    "flac": 600 * 1024 * 1024,
+}
+
+# Top-level format slot. "mp4" => video path; everything else =>
+# audio path with FFmpegExtractAudio. Validation in the route
+# handlers splits the two flows.
+ALLOWED_FORMATS = {"mp4"} | ALLOWED_AUDIO_FORMATS
 ALLOWED_MODES = {"download", "silence", "beep"}
 ALLOWED_FPS = {"source", "30", "60"}
 
@@ -701,8 +775,21 @@ def _safe_name(stem: str, fmt: str) -> str:
     return f"{cleaned}.{fmt}"
 
 
+_AUDIO_MEDIA_TYPES: dict[str, str] = {
+    "mp3":  "audio/mpeg",
+    "m4a":  "audio/mp4",
+    "aac":  "audio/aac",
+    "ogg":  "audio/ogg",
+    "opus": "audio/ogg",   # ffmpeg ships opus inside an Ogg container
+    "wav":  "audio/wav",
+    "flac": "audio/flac",
+}
+
+
 def _media_type(fmt: str) -> str:
-    return "video/mp4" if fmt == "mp4" else "audio/mpeg"
+    if fmt == "mp4":
+        return "video/mp4"
+    return _AUDIO_MEDIA_TYPES.get(fmt, "application/octet-stream")
 
 
 # ---- YouTube embed-and-censor ---------------------------------------------
@@ -1353,13 +1440,26 @@ def _direct_url_fast_path(
     if not any(path_lower.endswith(ext) for ext in _DIRECT_MEDIA_EXTS):
         return None
     # Only fast-path when the URL ext matches the requested format.
-    # mp4 mode wants a video container; mp3 mode is happy with any
-    # audio file (we re-encode anyway in the postproc step).
+    # mp4 mode wants a video container; an audio request only gets
+    # the fast-path when the source IS already that exact audio
+    # format (e.g. `format=flac` + `.flac` source). Otherwise we
+    # fall through to the yt-dlp path so the FFmpegExtractAudio
+    # postprocessor can transcode into the requested codec - the
+    # earlier behaviour of returning ANY audio file for ANY audio
+    # request meant `format=flac` + an mp4 source served back the
+    # mp4 unmodified, breaking caller expectations.
     src_ext = "." + path_lower.rsplit(".", 1)[-1]
     if fmt == "mp4" and src_ext not in (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".flv"):
         return None
-    if fmt == "mp3" and src_ext not in (".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac"):
-        return None
+    if fmt != "mp4":
+        # Audio formats: src_ext must equal `.{fmt}` exactly.
+        # `.m4a` is treated as a synonym of `.aac` because both
+        # contain raw AAC and don't need a re-encode pass.
+        ok_exts = {f".{fmt}"}
+        if fmt in ("m4a", "aac"):
+            ok_exts |= {".m4a", ".aac"}
+        if src_ext not in ok_exts:
+            return None
 
     import urllib.request
     req = urllib.request.Request(url, headers={"User-Agent": YDL_USER_AGENT})
@@ -1489,15 +1589,21 @@ def _do_download(
             ],
         })
     else:
+        # Audio path. `fmt` is the requested audio container/codec
+        # name (mp3 / m4a / aac / ogg / opus / wav / flac). We pick
+        # the matching FFmpegExtractAudio codec and skip the bitrate
+        # arg for lossless formats (yt-dlp passes it to ffmpeg `-ab`
+        # which is meaningless for wav/flac).
+        codec = AUDIO_CODEC_MAP.get(fmt, "mp3")
+        pp: dict = {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": codec,
+        }
+        if fmt not in LOSSLESS_AUDIO_FORMATS:
+            pp["preferredquality"] = AUDIO_BITRATE_KBPS
         opts.update({
             "format": "bestaudio/best",
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": AUDIO_BITRATE_KBPS,
-                },
-            ],
+            "postprocessors": [pp],
         })
 
     def _wrap_attempt(tool, msg):  # type: ignore[no-untyped-def]
@@ -2198,9 +2304,14 @@ async def index(request: Request):
             "max_censor_min": MAX_CENSOR_DURATION_SECONDS // 60,
             "max_censor_mb": MAX_CENSOR_FILESIZE_BYTES // (1024 * 1024),
             "max_video_height": MAX_VIDEO_HEIGHT,
-            "qualities": sorted(ALLOWED_QUALITY),
+            "max_filesize_mb": MAX_DOWNLOAD_FILESIZE_BYTES // (1024 * 1024),
+            "max_duration_min": MAX_DOWNLOAD_DURATION_SECONDS // 60,
+            "qualities": sorted(QUALITY_HEIGHTS.keys()),
             "default_quality": DEFAULT_QUALITY,
             "quality_heights": dict(QUALITY_HEIGHTS),
+            "audio_formats": sorted(ALLOWED_AUDIO_FORMATS),
+            "default_audio_format": DEFAULT_AUDIO_FORMAT,
+            "lossless_audio_formats": sorted(LOSSLESS_AUDIO_FORMATS),
             "audio_bitrate_kbps": AUDIO_BITRATE_KBPS,
             "rate_limit": RATE_LIMIT_PER_HOUR,
         },
@@ -2925,31 +3036,45 @@ async def api_process(
     fmt = (format or "").lower().strip()
     md = (mode or "").lower().strip()
     fps_choice = (fps or "source").lower().strip()
-    quality_choice = (quality or DEFAULT_QUALITY).lower().strip()
     if fmt not in ALLOWED_FORMATS:
-        raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Format must be one of: {', '.join(sorted(ALLOWED_FORMATS))}",
+        )
     if md not in ALLOWED_MODES:
         raise HTTPException(status_code=400, detail="Mode must be 'download', 'silence', or 'beep'.")
     if fps_choice not in ALLOWED_FPS:
         raise HTTPException(status_code=400, detail="FPS must be 'source', '30', or '60'.")
-    if quality_choice not in ALLOWED_QUALITY:
-        raise HTTPException(status_code=400, detail="Quality must be 'standard' or 'hd'.")
-    # FPS is video-only; ignore the field for MP3.
-    if fmt == "mp3":
+    quality_choice = _normalize_quality(quality)
+    # FPS / video-quality are video-only; coerce sane defaults for
+    # audio formats so the pipeline doesn't try to set fps on an
+    # mp3.
+    if fmt != "mp4":
         fps_choice = "source"
         quality_choice = DEFAULT_QUALITY  # height is meaningless for audio
-    # 1080p + fps override = libx264 ultrafast at 1080p on 2 shared
+    # >=1080p + fps override = libx264 ultrafast at 1080p+ on 2 shared
     # vCPUs, which runs at ~5x slower than realtime. An 8-min censor
     # job would hit the ffmpeg timeout. Refuse the combo with a clear
     # message instead of silently coercing - users who specifically
     # picked 60fps deserve to know why we're not honoring it.
-    if quality_choice == "hd" and fps_choice in {"30", "60"}:
+    if QUALITY_HEIGHTS[quality_choice] >= 1080 and fps_choice in {"30", "60"}:
         raise HTTPException(
             status_code=400,
             detail=(
-                "1080p + fps override is too slow on the mini's shared CPU. "
-                "Pick 720p (Standard) for 30/60 fps, or 1080p with Source fps. "
+                f"{quality_choice} + fps override is too slow on the mini's shared CPU. "
+                "Pick 720p or smaller for 30/60 fps, or higher quality with Source fps. "
                 "The desktop app handles both at any combination."
+            ),
+        )
+    # Censoring (silence/beep) is CPU-heavy enough that picking
+    # >1080p makes the ffmpeg encode pass blow the 240s censor
+    # timeout. Reject up front instead of failing mid-job.
+    if md != "download" and QUALITY_HEIGHTS[quality_choice] > 1080:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Censoring at {quality_choice} is too slow on the mini's shared CPU. "
+                "Pick 1080p or smaller for silence/beep modes, or use the desktop app."
             ),
         )
 
@@ -3033,7 +3158,13 @@ async def api_process(
         if have_url:
             clean_url = _validate_url(url)
             max_dur = MAX_DOWNLOAD_DURATION_SECONDS if md == "download" else MAX_CENSOR_DURATION_SECONDS
-            quality_cap = QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            # Pick the right cap by output type: video uses
+            # quality-tier caps, audio uses per-format caps
+            # (lossless can be much larger than 320 kbps mp3).
+            if fmt == "mp4":
+                quality_cap = QUALITY_DOWNLOAD_CAPS.get(quality_choice, MAX_DOWNLOAD_FILESIZE_BYTES)
+            else:
+                quality_cap = AUDIO_DOWNLOAD_CAPS.get(fmt, MAX_DOWNLOAD_FILESIZE_BYTES)
             max_size = quality_cap if md == "download" else MAX_CENSOR_FILESIZE_BYTES
             target_height = QUALITY_HEIGHTS.get(quality_choice, MAX_VIDEO_HEIGHT)
             try:
@@ -3193,6 +3324,7 @@ class DownloadCompatRequest(BaseModel):
 
     url: str = Field(..., min_length=8, max_length=2048)
     format: str = Field(..., min_length=1, max_length=8)
+    quality: str = Field(default=DEFAULT_QUALITY, min_length=1, max_length=16)
     yt_session: Optional[str] = Field(default=None, max_length=64)
 
 
@@ -3226,7 +3358,7 @@ async def api_download_compat(request: Request, body: DownloadCompatRequest):
         url=body.url,
         file=None,
         fps="source",
-        quality=DEFAULT_QUALITY,
+        quality=body.quality or DEFAULT_QUALITY,
         yt_session=body.yt_session,
     )
 
@@ -3305,11 +3437,24 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
     _check_cooldown(_client_ip(request))
 
     fmt = (body.format or "").lower().strip()
-    quality_choice = (body.quality or DEFAULT_QUALITY).lower().strip()
     if fmt not in ALLOWED_FORMATS:
-        raise HTTPException(status_code=400, detail="Format must be 'mp4' or 'mp3'.")
-    if quality_choice not in ALLOWED_QUALITY:
-        raise HTTPException(status_code=400, detail="Quality must be 'standard' or 'hd'.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Format must be one of: {', '.join(sorted(ALLOWED_FORMATS))}",
+        )
+    quality_choice = _normalize_quality(body.quality)
+    # Fast-path is mp4-only. Audio formats always need the
+    # FFmpegExtractAudio postprocessor, which means hitting the
+    # full /api/process pipeline. Tell the client to fall back.
+    if fmt != "mp4":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": "needs_processing",
+                "fallback": "/api/process",
+                "message": "Audio formats need server-side encoding. Use /api/process.",
+            },
+        )
 
     clean_url = _validate_url(body.url)
 
@@ -3688,10 +3833,14 @@ async def api_limits(request: Request):
         "rate_limit": RATE_LIMIT_PER_HOUR,
         "modes": sorted(ALLOWED_MODES),
         "formats": sorted(ALLOWED_FORMATS),
-        "qualities": sorted(ALLOWED_QUALITY),
+        "audio_formats": sorted(ALLOWED_AUDIO_FORMATS),
+        "default_audio_format": DEFAULT_AUDIO_FORMAT,
+        "qualities": sorted(QUALITY_HEIGHTS.keys()),
+        "quality_aliases": dict(QUALITY_ALIASES),
         "default_quality": DEFAULT_QUALITY,
         "quality_heights": dict(QUALITY_HEIGHTS),
         "quality_download_caps_mb": {k: v // (1024 * 1024) for k, v in QUALITY_DOWNLOAD_CAPS.items()},
+        "audio_download_caps_mb": {k: v // (1024 * 1024) for k, v in AUDIO_DOWNLOAD_CAPS.items()},
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
         "yt_user_cookie_sessions": _yt_session_status(),
         "hardening": {

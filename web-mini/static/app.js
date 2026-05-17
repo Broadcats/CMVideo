@@ -3,6 +3,9 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const urlInput = $("url");
+  const fmtSelect = $("fmt-select");
+  const qualitySelect = $("quality-select");
+  const qualityRow = $("quality-row");
   const previewBtn = $("info-btn");
   const dlBtn = $("dl-btn");
   const statusEl = $("status");
@@ -12,6 +15,21 @@
   const previewSub = $("preview-sub");
 
   let busy = false;
+
+  // Audio formats keep the quality select disabled - height has no
+  // meaning when we're stripping the video stream. We keep the
+  // value preserved so flipping back to MP4 restores the user's
+  // last quality pick.
+  function syncQualityRow() {
+    if (!fmtSelect || !qualityRow || !qualitySelect) return;
+    const isVideo = fmtSelect.value === "mp4";
+    qualitySelect.disabled = !isVideo;
+    qualityRow.classList.toggle("disabled", !isVideo);
+  }
+  if (fmtSelect) {
+    fmtSelect.addEventListener("change", syncQualityRow);
+    syncQualityRow();
+  }
 
   // ------- YouTube cookie session state -------
   // Token lives in memory only - never localStorage / cookies, so
@@ -115,17 +133,12 @@
   }
 
   function getFormat() {
-    const sel = document.querySelector('input[name="fmt"]:checked');
-    return sel ? sel.value : "mp4";
+    return (fmtSelect && fmtSelect.value) || "mp4";
   }
 
-  // Toggle pill "on" class to match the chosen radio.
-  document.querySelectorAll('.pill input[name="fmt"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      document.querySelectorAll(".pill").forEach((p) => p.classList.remove("on"));
-      input.closest(".pill").classList.add("on");
-    });
-  });
+  function getQuality() {
+    return (qualitySelect && qualitySelect.value) || "720p";
+  }
 
   function fmtDuration(seconds) {
     if (!seconds && seconds !== 0) return "unknown length";
@@ -203,20 +216,21 @@
       return;
     }
     const fmt = getFormat();
+    const quality = getQuality();
     setBusy(true);
 
     try {
       // FAST PATH: direct-stream pass-through.
       // Mini server resolves the URL, browser downloads from a
       // one-shot proxy endpoint. No server-side disk, no caps.
-      // MP4 only - MP3 always needs ffmpeg post-processing on the
-      // server, so it skips this branch.
+      // MP4 only - audio formats always need ffmpeg post-processing
+      // on the server, so they skip this branch.
       if (fmt === "mp4") {
         setStatus("Resolving direct stream...", "busy");
         const initRes = await fetch("/api/stream-download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(withYtSession({ url, format: fmt, quality: "standard" })),
+          body: JSON.stringify(withYtSession({ url, format: fmt, quality })),
         });
         if (initRes.ok) {
           const init = await initRes.json();
@@ -251,12 +265,23 @@
       }
 
       // SLOW PATH: server-pull via /api/download (the JSON shim
-      // for /api/process). Used for MP3 and for fast-path 422s.
-      setStatus(`Downloading ${fmt.toUpperCase()} ... this can take 10-90 seconds. Stay on this tab.`, "busy");
+      // for /api/process). Used for audio formats and for
+      // fast-path 422s. Lossless audio (WAV/FLAC) gets a longer
+      // status hint because ffmpeg encoding takes meaningfully
+      // longer than passing through a streamed mp4.
+      const isAudio = fmt !== "mp4";
+      const isLossless = fmt === "wav" || fmt === "flac";
+      const fmtLabel = fmt.toUpperCase();
+      const hint = isLossless
+        ? "this can take 30-180 seconds for lossless audio"
+        : isAudio
+          ? "this can take 10-60 seconds"
+          : "this can take 10-90 seconds";
+      setStatus(`Downloading ${fmtLabel} ... ${hint}. Stay on this tab.`, "busy");
       const res = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(withYtSession({ url, format: fmt })),
+        body: JSON.stringify(withYtSession({ url, format: fmt, quality })),
       });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
@@ -283,7 +308,7 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
 
       setStatus(
-        `Saved ${filename}. Want full quality, more formats, or censoring? Grab the full app at cmvideo.online.`,
+        `Saved ${filename}. Need censoring or batch processing? Grab the full app at cmvideo.online.`,
         "ok",
       );
     } catch (e) {

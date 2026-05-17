@@ -611,6 +611,81 @@ h1 {
 }
 .shot-fps-row.hidden { display: none; }
 .shot-quality-group.hidden { display: none; }
+/* Wraps each <select> dropdown so we can put a tiny "Format" /
+ * "Quality" caption above it without breaking the chip row's
+ * flex layout. The caption sits above the select; on narrow
+ * viewports both selects stack on their own line. */
+.shot-select-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 140px;
+  max-width: 240px;
+}
+.shot-select-wrap.hidden { display: none; }
+.shot-select-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim, #94a3b8);
+  padding: 0 2px;
+}
+/* The native <select> styled to match the chip/pill aesthetic
+ * around it - same surface, same border, same radius. Custom
+ * caret because cross-browser default carets clash with the
+ * dark indigo palette. */
+.shot-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #eef0f7);
+  background-color: rgba(15, 17, 27, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  padding: 8px 32px 8px 14px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.shot-select:hover {
+  border-color: rgba(165, 180, 252, 0.55);
+  background-color: rgba(20, 23, 35, 0.95);
+}
+.shot-select:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+.shot-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* Native <option> elements inherit the page background by
+ * default, which on Linux/Chrome ends up white-on-white. Force
+ * a readable dark dropdown panel. */
+.shot-select option,
+.shot-select optgroup {
+  background-color: #11141d;
+  color: #eef0f7;
+}
+.shot-select optgroup {
+  font-style: normal;
+  font-weight: 700;
+  color: #a78bfa;
+}
 
 /* Combined "format | quality" row: format chips on the left, vertical
  * divider, quality chips on the right. Wraps to two lines on narrow

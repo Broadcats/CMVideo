@@ -37,10 +37,13 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 # Always pull the freshest yt-dlp regardless of pip cache layers.
-# yt-dlp ships extractor fixes weekly; the floor pin in
-# requirements.txt is intentionally `>=` so this upgrade actually
-# moves forward on each rebuild.
-RUN pip install --no-cache-dir --upgrade 'yt-dlp[default,curl-cffi]' 'gallery-dl' 'streamlink' 'you-get'
+# yt-dlp ships extractor fixes daily to the nightly channel
+# (`*.dev0` versions on PyPI); the stable cadence is monthly.
+# `--pre` opts into the nightly channel - May 2026 stress test
+# showed Eporner / RedTube / XHamster / PBS / NBC / Aparat all
+# fixed in nightly but still broken in last-stable.
+RUN pip install --no-cache-dir --upgrade --pre 'yt-dlp[default,curl-cffi]' \
+    && pip install --no-cache-dir --upgrade 'gallery-dl' 'streamlink' 'you-get'
 # Pull Chromium for Playwright. Chromium is ~165 MB compressed
 # from Playwright's CDN and ~450 MB on disk. We point
 # PLAYWRIGHT_BROWSERS_PATH at /opt so the binaries survive the

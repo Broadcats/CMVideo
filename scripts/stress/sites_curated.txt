@@ -1,3 +1,17 @@
+# Curated test URL list - May 2026.
+#
+# Selection criteria:
+#   1. Evergreen URLs where possible (e.g. canonical / "first ever"
+#      YouTube videos, official broadcaster permalinks).
+#   2. Direct-CDN MP4/MP3 URLs from sample-hosting providers (these
+#      are stable for years and exercise the tier-0 fast path).
+#   3. Currently-published URLs from mainstream platforms
+#      (verified live at curation time via HEAD probe).
+#
+# Will be HEAD-probed before running the stress test - any URL that
+# returns 4xx/5xx gets filtered out so the denominator is clean.
+
+# === Mainstream video (evergreen / well-known) ===
 YouTube-FirstVideo|https://www.youtube.com/watch?v=jNQXAC9IVRw
 YouTube-RickRoll|https://www.youtube.com/watch?v=dQw4w9WgXcQ
 YouTube-Embed|https://www.youtube.com/embed/jNQXAC9IVRw
@@ -5,29 +19,50 @@ YouTube-Short|https://www.youtube.com/shorts/aqz-KE-bpKQ
 Vimeo-StaffPick|https://vimeo.com/76979871
 Vimeo-Player|https://player.vimeo.com/video/76979871
 Dailymotion|https://www.dailymotion.com/video/x84sh87
+Streamable|https://streamable.com/moo
 BitChute|https://www.bitchute.com/video/UGlrF9o9b-Q/
 Rumble|https://rumble.com/v6oka5o-elon-musk-was-supposed-to-stop-this.html
+PeerTube-Frama|https://framatube.org/w/iESGhh4Q9PnLNjFEHsTrSe
 ArchiveOrg|https://archive.org/details/BigBuckBunny_124
+
+# === Social media ===
 Twitter-X|https://x.com/elonmusk/status/1722127666497786143
+Reddit-Top|https://www.reddit.com/r/aww/comments/k1xa8m/at_least_someone_loves_him.json
 Reddit-Video|https://www.reddit.com/r/aww/comments/k1xa8m/at_least_someone_loves_him/
 TikTok-Verified|https://www.tiktok.com/@gordonramsayofficial/video/7232611617498910981
 Instagram-Reel|https://www.instagram.com/reel/CqkqMZJyHxK/
+Tumblr|https://www.tumblr.com/zenpencils/179873815866/zen-pencils-comic-179
 Imgur|https://i.imgur.com/3jLn4l8.mp4
+
+# === Streaming (live + VOD) ===
 Twitch-VOD|https://www.twitch.tv/videos/2154723814
 Twitch-Clip|https://www.twitch.tv/xqc/clip/SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR
 Kick-VOD|https://kick.com/destiny/videos/4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1
+
+# === News ===
+CNN-Video|https://www.cnn.com/videos/world/2024/01/10/exp-japan-quake-update-trnd.cnn
+BBC-iPlayer|https://www.bbc.co.uk/iplayer/episode/m000sb1g/the-graham-norton-show-series-29-episode-13
+Reuters-Video|https://www.reuters.com/video/watch/idRWPVK010424012024RP1
+ABC-News|https://abcnews.go.com/US/wireStory/southern-california-mountain-roadway-snow-storm-jam-cars-117291843
 NBC-News|https://www.nbcnews.com/now
 DW|https://www.dw.com/en/germany/s-1432
+EuroNews|https://www.euronews.com/2024/01/15/germany-protests-spread-against-far-right-afd-meeting
 Bloomberg|https://www.bloomberg.com/news/videos/2024-01-15/apple-vision-pro-launch-strategy-video
 PBS|https://www.pbs.org/newshour/show/january-15-2024-pbs-newshour-full-episode
+
+# === Educational / informational ===
 TED|https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse
 TED-Embed|https://embed.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse
 KhanAcademy|https://www.khanacademy.org/economics-finance-domain/macroeconomics/macro-basic-economic-concepts/macro-introduction-to-macroeconomics/v/introduction-to-economics
+
+# === Audio platforms ===
 SoundCloud-Track|https://soundcloud.com/octobersveryown/drake-passionfruit
 SoundCloud-Pop|https://soundcloud.com/sezairi/yh3btahn0vum
 Mixcloud-Set|https://www.mixcloud.com/dholbach/cryptkeeper/
 Bandcamp-Track|https://amandapalmer.bandcamp.com/track/runs-in-the-family
 Bandcamp-Album|https://amandapalmer.bandcamp.com/album/who-killed-amanda-palmer
+
+# === Direct media URLs (tier-0 sanity tests) ===
 Direct-MP4-5s|https://download.samplelib.com/mp4/sample-5s.mp4
 Direct-MP4-15s|https://download.samplelib.com/mp4/sample-15s.mp4
 Direct-MP4-30s|https://download.samplelib.com/mp4/sample-30s.mp4
@@ -36,11 +71,18 @@ Direct-MP3-15s|https://download.samplelib.com/mp3/sample-15s.mp3
 W3Schools-MP4|https://www.w3schools.com/html/mov_bbb.mp4
 LearningContainer-MP4|https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4
 SampleVideos-MP4|https://www.sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4
+
+# === International ===
 BiliBili|https://www.bilibili.com/video/BV1uT4y1P7CX/
 Niconico|https://www.nicovideo.jp/watch/sm9
 NHK|https://www3.nhk.or.jp/nhkworld/en/shows/sumo/
+ARTE|https://www.arte.tv/en/videos/107985-000-A/yoga-of-life/
+ZDF-Mediathek|https://www.zdf.de/nachrichten/heute-19-uhr-100.html
+SVT-Play|https://www.svtplay.se/video/jbjV5Wz/aktuellt
 Naver-TV|https://tv.naver.com/v/45683562
 Aparat|https://www.aparat.com/v/EuVyA
+
+# === Adult-tube sites (canonical URLs only - already proven yt-dlp test ones) ===
 ThisVid-Canon|https://thisvid.com/videos/sitting-on-ball-tight-jeans/
 ThisVid-Embed|https://thisvid.com/embed/3533241/
 XHamster|https://xhamster.com/videos/femaleagent-shy-beauty-takes-the-bait-1509445
@@ -52,8 +94,11 @@ SpankBang|https://spankbang.com/56b3d/video/the+slut+maker+hmv
 Eporner|https://www.eporner.com/video-EpoRnEr-test/
 Beeg|https://beeg.com/-0983946056129650
 TXXX|https://txxx.com/videos/16574965/digital-desire-malena-morgan/
+
+# === Misc & other tube/hosting ===
 9GAG|https://9gag.com/gag/aP1q6m1
 Newgrounds|https://www.newgrounds.com/portal/view/717094
 Coub|https://coub.com/view/3rwa3a
 Veoh|https://www.veoh.com/watch/v141509908ZZQzAaSk
+Stitcher|https://listen.stitcher.com/yvap/?af_dp=stitcher://episode/319175521
 LBC|https://www.lbc.co.uk/radio/presenters/nick-ferrari/

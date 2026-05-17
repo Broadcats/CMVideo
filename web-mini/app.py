@@ -419,6 +419,95 @@ def _ip_is_internal(ip: ipaddress._BaseAddress) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Embed URL canonicalization
+# ---------------------------------------------------------------------------
+# Some sites publish two URL shapes for the same video:
+#   - Canonical "watch" page: yt-dlp's primary extractor matches.
+#   - Embed / iframe player URL: a separate extractor that often
+#     lags behind on parser fixes (or doesn't exist at all).
+#
+# When the user pastes the embed URL we silently rewrite to the
+# canonical form before extraction. This is purely a heuristic
+# - if pattern doesn't match we leave the URL alone and let
+# yt-dlp do its thing.
+#
+# Stress test (May 2026) showed `youtube.com/embed/<id>` 422'ing
+# from datacenter while `youtube.com/watch?v=<id>` succeeded with
+# the same auth state, and `thisvid.com/embed/<id>/` 422'ing while
+# `thisvid.com/videos/<slug>/` succeeded. Same trick fixes both.
+
+# Each entry: (compiled regex, replacement_template_for_id_only).
+# We rebuild the URL from scratch so `?start=10` style query
+# strings on the embed get merged correctly with `?v=<id>`
+# instead of producing `watch?v=<id>?start=10`. Capture group 1
+# is always the video ID.
+_EMBED_REWRITES: tuple[tuple[re.Pattern, str], ...] = (
+    # YouTube /embed/<id>?<extra> -> /watch?v=<id>&<extra>
+    (
+        re.compile(
+            r"^(?:https?://)?(?:www\.|m\.)?youtube\.com/embed/([A-Za-z0-9_-]{11})(\?.*)?$",
+            re.I,
+        ),
+        "youtube_watch",
+    ),
+    # youtu.be/<id>?<extra> -> youtube.com/watch?v=<id>&<extra>
+    (
+        re.compile(
+            r"^(?:https?://)?youtu\.be/([A-Za-z0-9_-]{11})(\?.*)?$",
+            re.I,
+        ),
+        "youtube_watch",
+    ),
+    # YouTube /shorts/<id> -> /watch?v=<id>. Shorts work in
+    # yt-dlp but via a separate extractor path; canonical /watch
+    # is the more battle-tested code path.
+    (
+        re.compile(
+            r"^(?:https?://)?(?:www\.|m\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11})(\?.*)?$",
+            re.I,
+        ),
+        "youtube_watch",
+    ),
+    # Vimeo player.vimeo.com/video/<id> -> vimeo.com/<id>
+    (
+        re.compile(
+            r"^(?:https?://)?player\.vimeo\.com/video/(\d+)(\?.*)?$",
+            re.I,
+        ),
+        "vimeo_watch",
+    ),
+)
+
+
+def _canonicalize_embed_url(url: str) -> str:
+    """If `url` matches a known embed-shape pattern, rewrite it to
+    the canonical "watch page" form. Returns `url` unchanged if no
+    rewrite applies. Idempotent."""
+    if not url:
+        return url
+    s = url.strip()
+    for pattern, kind in _EMBED_REWRITES:
+        m = pattern.match(s)
+        if not m:
+            continue
+        vid = m.group(1)
+        extra = m.group(2) or ""
+        # Merge `?start=10` style extras as `&start=10` since we're
+        # already adding our own `?v=` (or vimeo path).
+        if extra.startswith("?"):
+            extra = "&" + extra[1:]
+        if kind == "youtube_watch":
+            new = f"https://www.youtube.com/watch?v={vid}{extra}"
+        elif kind == "vimeo_watch":
+            new = f"https://vimeo.com/{vid}{extra.replace('&', '?', 1) if extra else ''}"
+        else:  # pragma: no cover
+            continue
+        log.info("canonicalize: %s -> %s", s[:80], new[:80])
+        return new
+    return s
+
+
 def _assert_public_url(url: str) -> str:
     """Validate that `url` is safe for yt-dlp / requests to fetch.
 
@@ -438,6 +527,12 @@ def _assert_public_url(url: str) -> str:
     raw = (url or "").strip()
     if not URL_RE.match(raw):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    # Embed -> canonical rewrite happens BEFORE host validation so
+    # the validation runs against the rewritten host (which is
+    # what yt-dlp will actually fetch). For e.g. player.vimeo.com
+    # -> vimeo.com that's a different hostname; we want SSRF
+    # checks to apply to the destination.
+    raw = _canonicalize_embed_url(raw)
     try:
         parsed = urlparse(raw)
     except ValueError:
@@ -541,7 +636,12 @@ _install_socket_ssrf_guard()
 def _friendly_ydl_error(e: Exception) -> str:
     """yt-dlp errors are long and Pythonic. Distill them into the
     one line that a visitor on cmvideo.online can act on."""
-    msg = str(e).strip().splitlines()[-1] if str(e) else ""
+    raw = str(e or "").strip()
+    # `splitlines()[-1]` blows up on empty strings - guard so the
+    # error pipeline can't crash itself trying to format another
+    # error.
+    lines = raw.splitlines() if raw else []
+    msg = lines[-1] if lines else ""
     low = msg.lower()
     yt_blocked = any(needle in low for needle in (
         "sign in to confirm",
@@ -564,6 +664,35 @@ def _friendly_ydl_error(e: Exception) -> str:
         return "That video isn't available (private, region-locked, or removed)."
     if "unsupported url" in low:
         return "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    # Parser regressions: yt-dlp's extractor matched the URL but
+    # the site's HTML/JSON shape changed and the parser blew up.
+    # These are normally fixed within a day or two of being
+    # reported upstream; the right move for the user is to wait
+    # OR file an issue. We surface a concrete "report this URL"
+    # link so motivated users have a clear next step instead of
+    # a stack trace.
+    parser_regression_hints = (
+        "no video formats",
+        "no formats found",
+        "unable to extract",
+        "unable to parse",
+        "keyerror",
+        "list index out of range",
+        "list indices must be integers",
+        "expected string or bytes-like",
+        "extractor crash",
+        "json parse error",
+        "cannot parse data",
+        "report this issue",
+        "please report",
+    )
+    if any(h in low for h in parser_regression_hints):
+        return (
+            "This site\u2019s extractor is currently broken upstream "
+            "(yt-dlp parser bug). It usually gets patched within a day or two. "
+            "If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues "
+            "or try the desktop app, which auto-updates yt-dlp on launch."
+        )
     return msg or "Couldn't fetch that URL."
 
 
@@ -715,6 +844,88 @@ YDL_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 )
 
+
+# ---- curl_cffi impersonation ----------------------------------------------
+# A growing list of sites front their pages with Cloudflare /
+# DataDome / PerimeterX fingerprint checks that look at the JA3 /
+# JA4 TLS handshake and HTTP/2 frame ordering, NOT just headers.
+# The default Python `requests` / `urllib3` stack has a deterministic
+# fingerprint that those services flag as "bot". `curl_cffi` ships
+# real browser TLS handshakes (Chrome/Safari/Firefox) and lets
+# yt-dlp ride on them.
+#
+# We don't enable impersonation universally because:
+#   1. Some extractors break under it (they assume the urllib3
+#      backend's exact retry semantics).
+#   2. It costs ~5x the per-request CPU vs. urllib3.
+#   3. yt-dlp's own internal retries can pick the right backend
+#      automatically when the URL's domain is known.
+#
+# Instead: for hostnames that historically 403 from datacenter +
+# urllib3 (Cloudflare-fronted sites that don't take residential
+# proxy alone), we ALSO request `impersonate=chrome` so the TLS
+# fingerprint passes muster. The actual ImpersonateTarget value
+# is left as a string ("chrome") and yt-dlp picks the freshest
+# installed sub-version at request time.
+
+_IMPERSONATE_DOMAINS: tuple[str, ...] = (
+    # Cloudflare-fronted with strict TLS fingerprinting.
+    "bloomberg.com", "bwbx.io",
+    "newgrounds.com", "ngfiles.com",
+    "9gag.com", "9cache.com",
+    "coub.com",
+    # MindGeek + several tubes use DataDome / Cloudflare bot
+    # heuristics on top of geo restrictions. Impersonation on top
+    # of residential proxy clears both.
+    "xhamster.com", "xhcdn.com",
+    "spankbang.com",
+    "eporner.com", "epornercdn.com",
+    "redtube.com", "rdtcdn.com",
+    "thisvid.com", "ttcache.com",
+    # Discord CDN media URLs sometimes fingerprint-check.
+    "cdn.discordapp.com",
+)
+
+
+def _should_impersonate(url: str) -> bool:
+    """True if this URL's hostname is on the impersonation allowlist.
+    Mirrors `proxy_router.should_proxy()` semantics: hostname-suffix
+    match at a label boundary so foo.bar.bloomberg.com matches but
+    notbloomberg.com.evil.tld doesn't."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    for suffix in _IMPERSONATE_DOMAINS:
+        if host == suffix or host.endswith("." + suffix):
+            return True
+    return False
+
+
+def _maybe_impersonate(opts: dict, url: str) -> dict:
+    """Mutate `opts` in place to add yt-dlp's `impersonate` option
+    if the URL's hostname is on the allowlist. Returns `opts`
+    unchanged so callers can chain it. No-op if curl_cffi isn't
+    importable - we don't want to fail the request just because
+    impersonation isn't available."""
+    if not _should_impersonate(url):
+        return opts
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        # `client='chrome'` with no version pin = yt-dlp picks the
+        # newest installed Chrome target. Same for other clients;
+        # we deliberately don't pin a version to avoid stale-pin
+        # failures when curl_cffi ships a new browser version and
+        # drops an old one.
+        opts["impersonate"] = ImpersonateTarget(client="chrome")
+    except ImportError:
+        # curl_cffi extras not installed; silently fall through to
+        # the urllib3 backend.
+        pass
+    return opts
+
 # YouTube cookies path: if the operator sets the YT_COOKIES_TXT env
 # var (HF Space Secret) to the raw contents of a Netscape cookies.txt
 # file we materialize it to a tempfile here at import time and feed
@@ -732,6 +943,246 @@ def _init_yt_cookies() -> Optional[str]:
 
 
 YT_COOKIES_FILE = _init_yt_cookies()
+
+
+# ---------------------------------------------------------------------------
+# Per-session client-supplied YouTube cookies
+# ---------------------------------------------------------------------------
+# YouTube has been increasingly aggressive about blocking datacenter
+# IPs without an authenticated session. The mini app's HF Space
+# outbound IP doesn't have any cookies, which is why ~70% of YT
+# URLs fail with "Sign in to confirm you're not a bot".
+#
+# Users CAN bring their own browser cookies. The flow:
+#   1. Browser POSTs the user's exported `cookies.txt` content
+#      to /api/yt-cookies. Server validates it parses as Netscape
+#      format, generates a random 24-byte session token, materializes
+#      the cookies into a tempfile, and returns the token.
+#   2. Browser includes `yt_session=<token>` on subsequent
+#      /api/info, /api/process, and /api/stream-download requests.
+#   3. Server looks up the session, hands the cookiefile path to
+#      yt-dlp for that single request.
+#
+# Security model:
+#   * Cookies live in process memory only (path is in /tmp, written
+#     0600). NEVER persisted to a database, log line, or response
+#     body.
+#   * Session token is 24 bytes from `secrets.token_urlsafe()`,
+#     which is the same primitive we use for stream tokens.
+#     Probability of collision/guess is negligible.
+#   * Token is short-lived: 30 min from upload, then the entry +
+#     tempfile is purged. No "remember me" flag, no extension.
+#   * Token is bound to the uploading client IP. Requests with the
+#     correct token from a different IP are rejected to prevent a
+#     leaked token (e.g. via screenshot, browser history) being
+#     replayable across the internet.
+#   * Tempfile is unlinked on TTL expiry AND on process exit.
+#   * Cookie content is NEVER echoed back. Only `{ok: true, expires_in}`.
+#   * Number of active sessions is capped (env-tunable) to bound
+#     memory under abuse.
+#
+# Threat scenarios this DOESN'T defend against:
+#   * The HF Space operator is a compromised insider and can read
+#     /tmp. (True for the existing YT_COOKIES_TXT secret too;
+#     the operator is part of the trust boundary.)
+#   * The client uploads cookies for an account they don't own.
+#     (User's problem. We just route bytes; we don't verify
+#     account ownership.)
+#
+# Why we don't encrypt at rest in the tempfile:
+#   The encryption key would have to live in the same process,
+#   which gains us nothing against the threat scenarios we DO
+#   defend against (token guessing, accidental log echo). The
+#   tempfile is 0600 + lives in tmpfs on HF Spaces.
+
+YT_SESSION_TTL_S = int(os.environ.get("CMVIDEO_YT_SESSION_TTL_S", "1800"))
+YT_SESSION_MAX_ACTIVE = int(os.environ.get("CMVIDEO_YT_SESSION_MAX_ACTIVE", "50"))
+# Max cookies.txt body size: typical YT export is ~2-8 KB. 256 KB
+# is generous and bounds memory under abuse.
+YT_COOKIES_MAX_BYTES = 256 * 1024
+
+# Session table:
+#   token -> (cookiefile_path, client_ip, expires_at)
+import threading as _threading_yt  # threading is also imported lower for jobs
+_yt_sessions: dict[str, tuple[str, str, float]] = {}
+_yt_sessions_lock = _threading_yt.Lock()
+
+
+# Netscape cookies.txt: each non-comment line is exactly 7
+# tab-separated fields. We match liberally - just need to know
+# the body parses without exploding.
+_NETSCAPE_COOKIE_LINE = re.compile(r"^[^#\s][^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t.*$")
+
+
+def _validate_netscape_cookies(raw: str) -> tuple[bool, int]:
+    """Return (is_valid, n_yt_cookies). Doesn't try to be a full
+    parser - just checks the file has at least one well-formed
+    cookie line whose domain looks YouTube-shaped."""
+    if not raw or len(raw) > YT_COOKIES_MAX_BYTES:
+        return False, 0
+    yt_count = 0
+    has_any_cookie = False
+    for line in raw.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        if not _NETSCAPE_COOKIE_LINE.match(line):
+            continue
+        has_any_cookie = True
+        domain = line.split("\t", 1)[0].lstrip(".")
+        if domain.endswith("youtube.com") or domain.endswith("google.com") or domain.endswith("youtu.be"):
+            yt_count += 1
+    return has_any_cookie, yt_count
+
+
+def _purge_expired_yt_sessions() -> None:
+    """Drop entries whose TTL has elapsed, unlinking the
+    associated tempfile. Called lazily before every session
+    create/lookup so we don't need a separate sweeper thread.
+
+    We hold the lock the whole time; the table is small (~tens
+    of entries max) so this is microseconds."""
+    now = time.time()
+    with _yt_sessions_lock:
+        dead = [tok for tok, (_, _, exp) in _yt_sessions.items() if exp < now]
+        for tok in dead:
+            path, _, _ = _yt_sessions.pop(tok)
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+def _yt_session_create(raw: str, client_ip: str) -> tuple[str, int]:
+    """Persist `raw` cookies.txt content to a tempfile, register
+    a new session for `client_ip`, return (token, n_yt_cookies).
+    Raises ValueError if validation fails or the table is full."""
+    ok, yt_count = _validate_netscape_cookies(raw)
+    if not ok:
+        raise ValueError("That doesn't parse as a Netscape cookies.txt file.")
+    if yt_count == 0:
+        raise ValueError(
+            "Cookies file uploaded but no YouTube cookies found. "
+            "Make sure you exported cookies for youtube.com, not just google.com."
+        )
+    _purge_expired_yt_sessions()
+    with _yt_sessions_lock:
+        if len(_yt_sessions) >= YT_SESSION_MAX_ACTIVE:
+            raise ValueError("Too many active YouTube cookie sessions; try again later.")
+        # Materialize. fdopen+write under 0600.
+        fd, path = tempfile.mkstemp(prefix="cmvm_ytuser_", suffix=".txt")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(raw if raw.endswith("\n") else raw + "\n")
+            os.chmod(path, 0o600)
+        except Exception:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
+        token = secrets.token_urlsafe(24)
+        _yt_sessions[token] = (path, client_ip, time.time() + YT_SESSION_TTL_S)
+        return token, yt_count
+
+
+def _yt_session_get(token: Optional[str], client_ip: str) -> Optional[str]:
+    """Return the cookiefile path for `token` if it's valid and
+    matches `client_ip`. Returns None for any failure mode -
+    callers fall through to the normal no-cookies path. We
+    deliberately don't differentiate "wrong IP" / "expired" /
+    "not found" in the return value to avoid giving a probe
+    oracle for guessing tokens."""
+    if not token:
+        return None
+    _purge_expired_yt_sessions()
+    with _yt_sessions_lock:
+        entry = _yt_sessions.get(token)
+    if entry is None:
+        return None
+    path, owner_ip, expires_at = entry
+    if expires_at < time.time():
+        return None
+    # Strict per-IP binding: token only works from the IP it was
+    # created on. We accept the operator-allowlist owner IPs as
+    # an exception so a session created on a phone keeps working
+    # if the user switches networks (CGNAT) - but only if the
+    # allowlist is actually configured.
+    if owner_ip != client_ip and not _is_owner_ip(client_ip):
+        return None
+    return path
+
+
+def _yt_session_status() -> dict:
+    """Diagnostic snapshot for /api/limits."""
+    _purge_expired_yt_sessions()
+    with _yt_sessions_lock:
+        return {
+            "active_sessions": len(_yt_sessions),
+            "ttl_s": YT_SESSION_TTL_S,
+            "max_active": YT_SESSION_MAX_ACTIVE,
+        }
+
+
+def _resolve_cookiefile(yt_session_token: Optional[str], client_ip: str) -> Optional[str]:
+    """Pick the cookiefile to feed yt-dlp for a given request.
+
+    Priority:
+      1. User-supplied session cookies (per-IP, 30-min TTL) when
+         the request carries a valid `yt_session` token.
+      2. Operator-supplied env-var cookies (`YT_COOKIES_TXT`).
+      3. None - yt-dlp runs without cookies (anonymous).
+
+    Returns the path or None. NEVER raises - on any error we
+    fall back to None so the request still goes through (just
+    without cookies)."""
+    try:
+        path = _yt_session_get(yt_session_token, client_ip)
+        if path:
+            return path
+    except Exception:
+        log.exception("yt session lookup failed; falling back to no-cookie path")
+    return YT_COOKIES_FILE
+
+
+# Per-request cookiefile context. Set in the FastAPI handler
+# before kicking off the yt-dlp call (which runs in a thread
+# pool via `asyncio.to_thread`). ContextVars are propagated
+# across `asyncio.to_thread` boundaries by stdlib, so the
+# thread-pool worker reads the same value the handler set.
+#
+# Why ContextVar instead of an explicit parameter on every
+# downstream helper:
+#   * `_do_info`, `_resolve_streamable_format`, `_do_download`
+#     are called from MANY sites (info endpoint, stream init
+#     endpoint, async job pipeline). Threading `cookiefile`
+#     through every signature would touch ~20 call sites and
+#     a dozen Pydantic models. ContextVar is a one-line set
+#     at the request boundary that everyone reads
+#     transparently.
+#   * Default of None falls back cleanly to `YT_COOKIES_FILE`
+#     so existing call paths that don't set the context behave
+#     exactly as before.
+import contextvars
+_request_cookiefile: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "_request_cookiefile", default=None,
+)
+
+
+def _request_cookiefile_for_url(url: str) -> Optional[str]:
+    """Return the cookiefile path that the current request's
+    yt-dlp call should use, if any. Reads the per-request
+    ContextVar set by the API handler; falls back to the
+    operator's env-var cookies if no per-request override.
+
+    The `url` argument is reserved for future per-domain
+    routing (e.g. don't apply Instagram cookies to a
+    YouTube URL) but is currently informational only -
+    yt-dlp itself filters cookies by domain at request time."""
+    override = _request_cookiefile.get()
+    if override:
+        return override
+    return YT_COOKIES_FILE
+
 
 def _ydl_common_opts(
     tmpdir: Path,
@@ -771,8 +1222,14 @@ def _ydl_common_opts(
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
-    if YT_COOKIES_FILE:
-        opts["cookiefile"] = YT_COOKIES_FILE
+    # Cookiefile resolution: per-request override (user uploaded
+    # cookies via /api/yt-cookies) wins over the operator's
+    # env-var pile. `_request_cookiefile_for_url` reads a
+    # ContextVar set in the request handler; default is None
+    # which falls back to the env-var.
+    cf = _request_cookiefile_for_url("")
+    if cf:
+        opts["cookiefile"] = cf
     if progress_hook is not None:
         opts["progress_hooks"] = [progress_hook]
     return opts
@@ -1019,6 +1476,10 @@ def _do_download(
     if proxy_for_this:
         opts["proxy"] = proxy_for_this
         log.info("yt-dlp: routing %s through residential proxy", _proxy_router._hostname_of(url))
+    # Per-domain TLS impersonation for Cloudflare-fronted sites.
+    # No-op when the URL isn't on the impersonate allowlist or
+    # curl_cffi is missing.
+    _maybe_impersonate(opts, url)
     if fmt == "mp4":
         opts.update({
             "format": _video_format_selector(fps, height=height),
@@ -1092,8 +1553,9 @@ def _do_info(url: str) -> dict:
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
-    if YT_COOKIES_FILE:
-        info_opts["cookiefile"] = YT_COOKIES_FILE
+    cf = _request_cookiefile_for_url(url)
+    if cf:
+        info_opts["cookiefile"] = cf
     # Per-domain residential proxy. Datacenter-hostile sites
     # (Meta / TikTok / X / tube sites / YouTube etc.) need this
     # for the metadata-extract call, not just the eventual byte
@@ -1109,6 +1571,7 @@ def _do_info(url: str) -> dict:
         _info_proxy = None
     if _info_proxy:
         info_opts["proxy"] = _info_proxy
+    _maybe_impersonate(info_opts, url)
     with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
@@ -1255,6 +1718,160 @@ def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Tier 3: generic <video> tag scraper for sites yt-dlp doesn't recognise.
+# Some news / blog / wiki / CMS pages just embed an MP4 with
+# `<video src="...">` or `<source src="...">` and yt-dlp's Generic
+# extractor either misses it or returns garbage. This scraper
+# downloads the page HTML once, pulls out:
+#   * `<video src=...>` / `<source src=...>` (HTML5 native player)
+#   * `og:video` / `og:video:url` / `og:video:secure_url` meta
+#   * `twitter:player:stream` meta
+#   * JSON-LD `VideoObject.contentUrl` / `embedUrl`
+#
+# Then probes each candidate URL through the existing tier-0
+# direct-URL fast path. First one that comes back as a streamable
+# MP4 wins; we return its tier-0 dict shape.
+#
+# Cost discipline: this fires ONLY after yt-dlp has already failed
+# (extract_info raised or returned no formats). Page-fetch is
+# capped at ~256 KB so we don't yank a whole hostile site into
+# memory.
+
+_PAGE_SCRAPER_MAX_BYTES = 256 * 1024
+_PAGE_SCRAPER_TIMEOUT_S = 8
+
+# Patterns ordered most-reliable first. Each is anchored on the
+# attribute name so we don't accidentally match comments.
+_VIDEO_URL_PATTERNS: tuple[re.Pattern, ...] = (
+    # OpenGraph - most reliable when present.
+    re.compile(
+        r'<meta\b[^>]*\bproperty\s*=\s*["\']og:video(?::secure_url|:url)?["\'][^>]*\bcontent\s*=\s*["\']([^"\']+\.mp4[^"\']*)',
+        re.I,
+    ),
+    # OpenGraph with reversed attribute order.
+    re.compile(
+        r'<meta\b[^>]*\bcontent\s*=\s*["\']([^"\']+\.mp4[^"\']*)["\'][^>]*\bproperty\s*=\s*["\']og:video(?::secure_url|:url)?["\']',
+        re.I,
+    ),
+    # Twitter player stream meta.
+    re.compile(
+        r'<meta\b[^>]*\bname\s*=\s*["\']twitter:player:stream["\'][^>]*\bcontent\s*=\s*["\']([^"\']+\.mp4[^"\']*)',
+        re.I,
+    ),
+    # HTML5 <video src="...">. Some sites use src on <video>, others
+    # on a child <source>; we match both.
+    re.compile(r'<video\b[^>]*\bsrc\s*=\s*["\']([^"\']+\.mp4[^"\']*)', re.I),
+    re.compile(r'<source\b[^>]*\bsrc\s*=\s*["\']([^"\']+\.mp4[^"\']*)', re.I),
+    # JSON-LD `"contentUrl": "...mp4"` (loose match - we don't
+    # parse the surrounding JSON, just the field).
+    re.compile(r'"contentUrl"\s*:\s*"([^"]+\.mp4[^"]*)"', re.I),
+    re.compile(r'"embedUrl"\s*:\s*"([^"]+\.mp4[^"]*)"', re.I),
+)
+
+
+def _resolve_streamable_page_scrape(url: str) -> Optional[dict]:
+    """Tier 3 fast path: fetch the HTML, look for embedded MP4
+    URLs in well-known meta / element shapes, and probe the
+    first one that looks like a real video.
+
+    Returns the same `method: direct` dict shape as tier 0/1
+    so the caller doesn't need a separate dispatch branch.
+    Returns None if the URL doesn't appear to be HTML, the page
+    has no recognised video URL, or every candidate fails the
+    tier-0 probe.
+    """
+    headers = {
+        "User-Agent": YDL_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml",
+        # Cap server-side: ask for a partial body so a huge page
+        # doesn't tank our memory budget. Most servers honour the
+        # Range request and just send the first N bytes; the
+        # ones that don't will get cut off below at the read loop.
+        "Range": f"bytes=0-{_PAGE_SCRAPER_MAX_BYTES - 1}",
+    }
+    proxies = None
+    try:
+        p = _proxy_router.proxy_for_url(url)
+        if p:
+            proxies = {"http": p, "https": p}
+    except Exception:
+        log.exception("page-scrape: proxy_for_url() failed; falling back to direct")
+
+    try:
+        resp = requests.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(STREAM_CONNECT_TIMEOUT_S, _PAGE_SCRAPER_TIMEOUT_S),
+            allow_redirects=True,
+            proxies=proxies,
+        )
+    except requests.RequestException as exc:
+        log.info("page-scrape: fetch failed for %s: %s: %s",
+                 _proxy_router._hostname_of(url),
+                 type(exc).__name__,
+                 _safe_log_msg(exc))
+        return None
+
+    try:
+        if resp.status_code not in (200, 206):
+            return None
+        ct = (resp.headers.get("Content-Type") or "").lower()
+        if "html" not in ct and "xml" not in ct:
+            # Not a webpage - tier 0 already handled the direct
+            # MP4 case, so anything that's not HTML here isn't
+            # something we can scrape.
+            return None
+        # Read up to the cap. iter_content + manual byte counting
+        # is more robust than .text on partial responses (which
+        # can blow up on encoding detection of truncated UTF-8).
+        chunks = []
+        total = 0
+        for chunk in resp.iter_content(chunk_size=16 * 1024, decode_unicode=False):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= _PAGE_SCRAPER_MAX_BYTES:
+                break
+        body = b"".join(chunks).decode("utf-8", errors="replace")
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+    # Try each pattern; the first hit that resolves through the
+    # tier-0 probe wins.
+    seen: set[str] = set()
+    for pat in _VIDEO_URL_PATTERNS:
+        for m in pat.finditer(body):
+            cand = (m.group(1) or "").strip()
+            if not cand or cand in seen:
+                continue
+            seen.add(cand)
+            # Resolve relative URLs against the page URL.
+            try:
+                from urllib.parse import urljoin
+                resolved = urljoin(url, cand)
+            except Exception:
+                resolved = cand
+            # Decode common HTML entities that sneak into JSON-LD.
+            resolved = resolved.replace("&amp;", "&")
+            # Probe via tier 0 to confirm it's actually a streamable
+            # MP4 (and to fill in filesize / mime).
+            tier0 = _resolve_streamable_direct_url(resolved)
+            if tier0 is not None:
+                tier0["extractor"] = "page-scrape"
+                log.info("page-scrape: hit on %s -> %s",
+                         _proxy_router._hostname_of(url),
+                         resolved[:80])
+                return tier0
+
+    return None
+
+
 def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dict]:
     """Resolve `url` to a streamable format. Two tiers, fastest-first.
 
@@ -1323,8 +1940,9 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
-    if YT_COOKIES_FILE:
-        info_opts["cookiefile"] = YT_COOKIES_FILE
+    cf = _request_cookiefile_for_url(url)
+    if cf:
+        info_opts["cookiefile"] = cf
     # Per-domain residential proxy for the extract_info call.
     # Without this, datacenter-hostile sites (tube sites, Meta,
     # TikTok, X, YT, etc.) reject the metadata probe from HF's
@@ -1340,25 +1958,34 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         _resolve_proxy = None
     if _resolve_proxy:
         info_opts["proxy"] = _resolve_proxy
+    _maybe_impersonate(info_opts, url)
     try:
         with yt_dlp.YoutubeDL(info_opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         # Logged at INFO (not exception) - extractor failure for
         # an unsupported / dead URL is a normal outcome on the
-        # public mini. Don't spam tracebacks for those. The
-        # caller turns this None into a 422 with reason=
-        # needs_processing so the frontend falls back to the
-        # slow path which will surface a friendlier error.
+        # public mini. Don't spam tracebacks for those.
         log.info(
             "streamable resolve: extract_info failed for %s: %s: %s",
             _proxy_router._hostname_of(url),
             type(exc).__name__,
             _safe_log_msg(exc),
         )
+        # Tier 3: page scrape. Last shot before falling through
+        # to the slow path. If the page literally embeds an MP4
+        # in `<video>` / `og:video` / JSON-LD we can still serve
+        # it without yt-dlp recognising the site at all.
+        scraped = _resolve_streamable_page_scrape(url)
+        if scraped is not None:
+            return scraped
         return None
     if info is None:
-        log.info("streamable resolve: extract_info returned None")
+        log.info("streamable resolve: extract_info returned None for %s",
+                 _proxy_router._hostname_of(url))
+        scraped = _resolve_streamable_page_scrape(url)
+        if scraped is not None:
+            return scraped
         return None
 
     title = (info.get("title") or "Untitled")[:200]
@@ -1454,6 +2081,13 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
             len(formats),
             _proxy_router._hostname_of(url),
         )
+        # yt-dlp recognised the site but couldn't pull a usable
+        # format (auth-walled / DRM / parser regression). Try
+        # tier 3 (HTML page scrape) as a last shot before letting
+        # the caller fall through to the slow path.
+        scraped = _resolve_streamable_page_scrape(url)
+        if scraped is not None:
+            return scraped
         return None
 
     return {
@@ -1545,6 +2179,12 @@ async def _save_upload(upload: UploadFile, tmpdir: Path) -> Path:
 # ---------------------------------------------------------------------------
 class InfoRequest(BaseModel):
     url: str = Field(..., min_length=8, max_length=2048)
+    # Optional client-supplied YouTube cookie session token,
+    # minted earlier via POST /api/yt-cookies. Lets the user
+    # bring their own browser cookies to bypass YouTube's
+    # datacenter-IP bot challenge. Server-side validated for
+    # length/charset before lookup. Empty/None = anonymous.
+    yt_session: Optional[str] = Field(default=None, max_length=64)
 
 
 @app.get("/", include_in_schema=False)
@@ -2136,11 +2776,23 @@ async def api_info(request: Request, body: InfoRequest):
     _enforce_killswitch()
     _enforce_ua(request)
     url = _validate_url(body.url)
-    cached = _info_cache_get(url)
-    if cached is not None:
-        return JSONResponse(cached)
+    # User cookies bypass cache - the per-cookie response could
+    # differ (auth-walled videos vs. public). Anonymous lookups
+    # still hit the shared cache.
+    cf = _resolve_cookiefile(body.yt_session, _client_ip(request))
+    if not body.yt_session:
+        cached = _info_cache_get(url)
+        if cached is not None:
+            return JSONResponse(cached)
     try:
-        info = await asyncio.wait_for(asyncio.to_thread(_do_info, url), timeout=25)
+        # Set the per-request cookiefile context BEFORE the
+        # threadpool call. ContextVars propagate across
+        # `asyncio.to_thread` so `_do_info` reads it.
+        token = _request_cookiefile.set(cf)
+        try:
+            info = await asyncio.wait_for(asyncio.to_thread(_do_info, url), timeout=25)
+        finally:
+            _request_cookiefile.reset(token)
     except asyncio.TimeoutError:
         _record_failure(_client_ip(request))
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
@@ -2155,8 +2807,100 @@ async def api_info(request: Request, body: InfoRequest):
         log.exception("info failed")
         _record_failure(_client_ip(request))
         raise HTTPException(status_code=400, detail="Couldn't read that URL.")
-    _info_cache_put(url, info)
+    # Only cache anonymous requests - per-user-cookie responses
+    # can include private / unlisted videos that we MUST NOT
+    # leak to the next anonymous visitor. Same key would
+    # otherwise serve the wrong content.
+    if not body.yt_session:
+        _info_cache_put(url, info)
     return JSONResponse(info)
+
+
+# ---------------------------------------------------------------------------
+# YouTube cookie upload endpoint
+# ---------------------------------------------------------------------------
+class YTCookiesRequest(BaseModel):
+    cookies_txt: str = Field(..., min_length=10, max_length=YT_COOKIES_MAX_BYTES)
+
+
+@app.post("/api/yt-cookies")
+@limiter.limit("10/hour;3/minute")
+async def api_yt_cookies(request: Request, body: YTCookiesRequest):
+    """Accept a Netscape cookies.txt blob from the client, materialize
+    it server-side under a random session token, return the token.
+
+    The token can then be passed in the `yt_session` field on
+    /api/info, /api/process, /api/stream-download to apply those
+    cookies to that single user's yt-dlp calls. Cookies live in
+    process memory (tempfile in /tmp, 0600) and are automatically
+    purged after `YT_SESSION_TTL_S` (default 30 minutes).
+
+    Security:
+      * The token is bound to the uploading client IP. Replay
+        from a different IP is rejected (allowlisted owner IPs
+        excepted).
+      * Cookie content is never echoed in any response. Only the
+        opaque token is returned.
+      * Token is `secrets.token_urlsafe(24)` - 192 bits of
+        entropy, not guessable.
+      * No persistence: tempfile is unlinked on TTL expiry. We
+        do NOT write anything to a database or log.
+      * Rate-limited at 10/hour to bound abuse + memory growth.
+    """
+    _enforce_killswitch()
+    _enforce_ua(request)
+    _check_cooldown(_client_ip(request))
+
+    client_ip = _client_ip(request)
+    try:
+        token, n_yt_cookies = _yt_session_create(body.cookies_txt, client_ip)
+    except ValueError as exc:
+        # Validation error - raw message is safe (no cookie
+        # bytes echoed back, our validator never includes user
+        # data in its error strings).
+        _record_failure(client_ip)
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "ok": True,
+        # n_yt_cookies is the count of YT-domain cookies the user
+        # uploaded; useful for the UI to confirm "we saw 8 cookies".
+        # NEVER includes the cookie names/values themselves.
+        "n_yt_cookies": n_yt_cookies,
+        "yt_session": token,
+        "expires_in": YT_SESSION_TTL_S,
+    }
+
+
+@app.delete("/api/yt-cookies/{token}")
+async def api_yt_cookies_delete(token: str, request: Request):
+    """Manually revoke a cookie session. The user might want to
+    do this if they're done downloading and want to clean up
+    their cookies before the TTL expires - useful from a
+    privacy-minded user's perspective.
+
+    Token-IP binding still applies: a stranger who somehow has
+    the token cannot use it to delete the session unless they're
+    on the same IP."""
+    _enforce_killswitch()
+    if not token or len(token) > 64:
+        raise HTTPException(status_code=400, detail="Bad token.")
+    client_ip = _client_ip(request)
+    with _yt_sessions_lock:
+        entry = _yt_sessions.get(token)
+        if entry is None:
+            return {"ok": True, "revoked": False}
+        path, owner_ip, _ = entry
+        if owner_ip != client_ip and not _is_owner_ip(client_ip):
+            # Don't reveal whether the token exists for a
+            # different IP - return the same shape.
+            return {"ok": True, "revoked": False}
+        _yt_sessions.pop(token, None)
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    return {"ok": True, "revoked": True}
 
 
 @app.post("/api/process")
@@ -2169,6 +2913,7 @@ async def api_process(
     file: Optional[UploadFile] = File(None),
     fps: str = Form("source"),
     quality: str = Form(DEFAULT_QUALITY),
+    yt_session: Optional[str] = Form(None),
 ):
     # Hardening gates run BEFORE we touch any of the request body, so
     # an attacker can't make us allocate tmpdirs / stream uploads
@@ -2215,6 +2960,19 @@ async def api_process(
 
     if md == "download" and have_file:
         raise HTTPException(status_code=400, detail="Download mode is URL-only - you already have the file locally.")
+
+    # Resolve the cookiefile for this request once and stash it
+    # on a ContextVar so all downstream yt-dlp calls pick it up.
+    # ContextVars are propagated:
+    #   * Across `asyncio.to_thread` calls (used by the
+    #     synchronous slow path below).
+    #   * Into `asyncio.create_task` children at task-creation
+    #     time (the async branch). The reset() that fires on the
+    #     parent's return doesn't affect the already-snapshotted
+    #     child context, so the background pipeline keeps the
+    #     cookiefile until it's done.
+    process_cf = _resolve_cookiefile(yt_session, _client_ip(request))
+    process_cf_token = _request_cookiefile.set(process_cf)
 
     # Early Content-Length gate for uploads. The streaming check in
     # `_save_upload` is the real enforcer (clients can lie about
@@ -2435,6 +3193,7 @@ class DownloadCompatRequest(BaseModel):
 
     url: str = Field(..., min_length=8, max_length=2048)
     format: str = Field(..., min_length=1, max_length=8)
+    yt_session: Optional[str] = Field(default=None, max_length=64)
 
 
 @app.post("/api/download", include_in_schema=False)
@@ -2468,6 +3227,7 @@ async def api_download_compat(request: Request, body: DownloadCompatRequest):
         file=None,
         fps="source",
         quality=DEFAULT_QUALITY,
+        yt_session=body.yt_session,
     )
 
 
@@ -2521,6 +3281,7 @@ class StreamDownloadRequest(BaseModel):
     url: str = Field(..., min_length=8, max_length=2048)
     format: str = Field(..., min_length=1, max_length=8)
     quality: str = Field(default=DEFAULT_QUALITY, min_length=1, max_length=16)
+    yt_session: Optional[str] = Field(default=None, max_length=64)
 
 
 @app.post("/api/stream-download")
@@ -2552,11 +3313,16 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
 
     clean_url = _validate_url(body.url)
 
+    cf = _resolve_cookiefile(body.yt_session, _client_ip(request))
     try:
-        resolved = await asyncio.wait_for(
-            asyncio.to_thread(_resolve_streamable_format, clean_url, fmt, quality_choice),
-            timeout=25,
-        )
+        token_ctx = _request_cookiefile.set(cf)
+        try:
+            resolved = await asyncio.wait_for(
+                asyncio.to_thread(_resolve_streamable_format, clean_url, fmt, quality_choice),
+                timeout=25,
+            )
+        finally:
+            _request_cookiefile.reset(token_ctx)
     except asyncio.TimeoutError:
         _record_failure(_client_ip(request))
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
@@ -2586,6 +3352,13 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
     filename = _safe_name(resolved.get("title") or "cmvideo", fmt)
     resolved["filename"] = filename
     resolved["client_ip"] = _client_ip(request)
+    # Carry the cookiefile path through to the eventual GET
+    # request that actually fires the yt-dlp subprocess pipe.
+    # The GET arrives in a different request context (separate
+    # ContextVar), so we stash it on the resolved dict and the
+    # pipe code re-installs it when it builds its own context.
+    if cf:
+        resolved["_cookiefile"] = cf
 
     _purge_expired_stream_tokens()
     with _stream_tokens_lock:
@@ -2764,8 +3537,15 @@ def _serve_stream_ytdlp_pipe(resolved: dict, release_slot) -> StreamingResponse:
         "--socket-timeout", "30",
         "--retries", "3",
     ]
-    if YT_COOKIES_FILE:
-        cmd += ["--cookies", YT_COOKIES_FILE]
+    # Cookiefile resolution: the per-request ContextVar isn't
+    # reliable here because the GET /api/stream/{token} arrives
+    # in a different request context than the POST that minted
+    # the token. The mint endpoint stashes the cookiefile path
+    # on `resolved["_cookiefile"]` for exactly this case; fall
+    # back to the env-var path otherwise.
+    pipe_cf = resolved.get("_cookiefile") or YT_COOKIES_FILE
+    if pipe_cf:
+        cmd += ["--cookies", pipe_cf]
 
     try:
         proxy_url = _proxy_router.proxy_for_url(source_url)
@@ -2913,6 +3693,7 @@ async def api_limits(request: Request):
         "quality_heights": dict(QUALITY_HEIGHTS),
         "quality_download_caps_mb": {k: v // (1024 * 1024) for k, v in QUALITY_DOWNLOAD_CAPS.items()},
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
+        "yt_user_cookie_sessions": _yt_session_status(),
         "hardening": {
             "killswitch_active": _killswitch_active(),
             "job_max_inflight": JOB_MAX_INFLIGHT,

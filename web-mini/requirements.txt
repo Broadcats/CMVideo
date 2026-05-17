@@ -4,6 +4,16 @@ uvicorn[standard]==0.30.6
 # extractors that gate on a real browser TLS fingerprint (XHamster,
 # SpankBang, a handful of other tubes) can succeed instead of failing
 # with "No impersonate target is available".
+#
+# Floor pin is the latest STABLE; the Dockerfile re-runs
+# `pip install --upgrade --pre yt-dlp` on every rebuild to actually
+# fetch yt-dlp's nightly channel (`*.dev0` versions). Why nightly:
+# yt-dlp ships extractor fixes daily on master and tags them as
+# nightly releases; the stable cadence is monthly. Two-month-old
+# stable was bouncing on Eporner / RedTube / XHamster / PBS / NBC
+# /Aparat extractor regressions that have already been fixed in
+# nightly. Pre-release versions are stable enough to use in prod
+# - the yt-dlp project's own CI runs against nightly.
 yt-dlp[default,curl-cffi]>=2026.3.17
 jinja2==3.1.4
 slowapi==0.1.9

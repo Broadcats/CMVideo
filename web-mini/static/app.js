@@ -13,6 +13,95 @@
 
   let busy = false;
 
+  // ------- YouTube cookie session state -------
+  // Token lives in memory only - never localStorage / cookies, so
+  // it dies when the user closes the tab. Survives a page reload
+  // is intentionally NOT a feature; you'd have to re-paste the
+  // cookies after a refresh, which is the safer default.
+  let ytSessionToken = null;
+  const ytPane = $("yt-cookies-pane");
+  const ytInput = $("yt-cookies-input");
+  const ytApplyBtn = $("yt-cookies-apply");
+  const ytClearBtn = $("yt-cookies-clear");
+  const ytStateEl = $("yt-cookies-state");
+
+  function setYtState(text, kind) {
+    if (!ytStateEl) return;
+    ytStateEl.textContent = text || "";
+    ytStateEl.classList.remove("applied", "error");
+    if (kind) ytStateEl.classList.add(kind);
+  }
+
+  function syncYtControls() {
+    if (!ytClearBtn || !ytApplyBtn) return;
+    ytClearBtn.disabled = !ytSessionToken;
+    ytApplyBtn.disabled = !!ytSessionToken;
+  }
+
+  if (ytApplyBtn && ytInput) {
+    ytApplyBtn.addEventListener("click", async () => {
+      const txt = (ytInput.value || "").trim();
+      if (!txt) {
+        setYtState("Paste the contents of cookies.txt first.", "error");
+        return;
+      }
+      ytApplyBtn.disabled = true;
+      setYtState("Applying cookies...");
+      try {
+        const r = await fetch("/api/yt-cookies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cookies_txt: txt }),
+        });
+        if (!r.ok) {
+          let msg = `HTTP ${r.status}`;
+          try { const data = await r.json(); if (data && data.detail) msg = data.detail; } catch (_) {}
+          throw new Error(msg);
+        }
+        const data = await r.json();
+        ytSessionToken = data.yt_session;
+        // Wipe the textarea so the cookies aren't sitting in the DOM
+        // for the duration of the session. The server has them now;
+        // there's no reason to keep them client-side.
+        ytInput.value = "";
+        setYtState(
+          `Applied (${data.n_yt_cookies} YouTube cookies). Active for ${Math.round(data.expires_in / 60)} min.`,
+          "applied",
+        );
+      } catch (e) {
+        setYtState(e.message || String(e), "error");
+      } finally {
+        syncYtControls();
+      }
+    });
+  }
+
+  if (ytClearBtn) {
+    ytClearBtn.addEventListener("click", async () => {
+      if (!ytSessionToken) return;
+      const tok = ytSessionToken;
+      ytSessionToken = null;
+      syncYtControls();
+      setYtState("Forgetting cookies...");
+      try {
+        await fetch(`/api/yt-cookies/${encodeURIComponent(tok)}`, { method: "DELETE" });
+        setYtState("Cookies forgotten.", "applied");
+      } catch (_) {
+        // Server-side TTL will reap it anyway; this is best-effort.
+        setYtState("Cookies forgotten locally; server will purge on TTL.", "applied");
+      }
+    });
+  }
+
+  // Inject the session token into any JSON body bound for the
+  // backend so callers don't have to know about it.
+  function withYtSession(body) {
+    if (ytSessionToken) {
+      return Object.assign({}, body, { yt_session: ytSessionToken });
+    }
+    return body;
+  }
+
   function setStatus(text, kind) {
     statusEl.textContent = text || "";
     statusEl.classList.remove("error", "ok", "busy");
@@ -52,7 +141,7 @@
     const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(withYtSession(body)),
     });
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
@@ -127,7 +216,7 @@
         const initRes = await fetch("/api/stream-download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, format: fmt, quality: "standard" }),
+          body: JSON.stringify(withYtSession({ url, format: fmt, quality: "standard" })),
         });
         if (initRes.ok) {
           const init = await initRes.json();
@@ -167,7 +256,7 @@
       const res = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, format: fmt }),
+        body: JSON.stringify(withYtSession({ url, format: fmt })),
       });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;

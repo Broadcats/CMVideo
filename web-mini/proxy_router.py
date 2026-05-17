@@ -124,6 +124,26 @@ _PROXY_DOMAIN_TUPLES: tuple[tuple[str, str], ...] = (
     ("weibo.com", "Weibo"),
     ("weibo.cn", "Weibo mobile"),
     ("nicovideo.jp", "Niconico (geo-restricted to JP)"),
+
+    # --- News + media sites that 403 datacenter IPs ---
+    # Stress test (May 2026) showed yt-dlp's metadata extract
+    # returning HTTP 403 from HF Space without proxy on these.
+    # They use Akamai / Cloudflare / Fastly bot-fingerprint
+    # rules that flag any non-residential IP. Routing through
+    # the residential proxy clears the gate.
+    ("bloomberg.com", "Bloomberg"),
+    ("bwbx.io", "Bloomberg media CDN"),
+    ("newgrounds.com", "Newgrounds (Cloudflare 403 from datacenter)"),
+    ("ngfiles.com", "Newgrounds media CDN"),
+    ("reddit.com", "Reddit (JSON API 403/429s from datacenter)"),
+    ("redd.it", "Reddit short-link / media domain"),
+    ("v.redd.it", "Reddit video CDN (HLS playlists)"),
+    ("i.redd.it", "Reddit image CDN"),
+
+    # --- Coub / 9GAG / other social-meme platforms ---
+    ("coub.com", "Coub (HTTP 403 from datacenter)"),
+    ("9gag.com", "9GAG (HTTP 403 from datacenter)"),
+    ("9cache.com", "9GAG media CDN"),
 )
 
 

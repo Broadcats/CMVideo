@@ -64,6 +64,37 @@
 
       <p class="status" id="status" aria-live="polite"></p>
 
+      <details class="yt-cookies-pane" id="yt-cookies-pane">
+        <summary>
+          Getting <strong>"Sign in to confirm you're not a bot"</strong> on YouTube?
+          Bring your own cookies &rsaquo;
+        </summary>
+        <div class="yt-cookies-body">
+          <p class="muted small">
+            Export <code>cookies.txt</code> from your browser
+            (any "Get cookies.txt" / "cookies.txt LOCALLY" extension
+            works). Paste the file contents below. Cookies are kept
+            in <strong>memory only</strong> for <strong>30 minutes</strong>
+            and are tied to <strong>your IP only</strong> &mdash;
+            other visitors can't use them. Nothing is logged or
+            persisted. Click <em>Forget cookies</em> when you're
+            done to wipe them immediately.
+          </p>
+          <textarea
+            id="yt-cookies-input"
+            placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;9999999999&#9;VISITOR_INFO1_LIVE&#9;..."
+            spellcheck="false"
+            autocomplete="off"
+            rows="6"
+          ></textarea>
+          <div class="yt-cookies-actions">
+            <button id="yt-cookies-apply" type="button" class="btn btn-ghost">Apply cookies</button>
+            <button id="yt-cookies-clear" type="button" class="btn btn-ghost" disabled>Forget cookies</button>
+            <span id="yt-cookies-state" class="muted small"></span>
+          </div>
+        </div>
+      </details>
+
       <div class="preview hidden" id="preview">
         <img id="preview-thumb" alt="" />
         <div class="preview-meta">

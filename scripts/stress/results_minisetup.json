@@ -1,0 +1,1283 @@
+{
+  "summary": {
+    "total": 59,
+    "yt_dlp_ok": 25,
+    "has_video": 6,
+    "has_audio": 6,
+    "fastpath_mp4_ok": 23,
+    "tier_breakdown": {
+      "0": 5,
+      "1": 12,
+      "2": 6
+    }
+  },
+  "results": [
+    {
+      "name": "Vimeo-Player",
+      "url": "https://player.vimeo.com/video/76979871",
+      "yt": {
+        "ok": true,
+        "dt": 1.11,
+        "title": "The New Vimeo Player (You Know, For Videos)",
+        "extractor": "Vimeo",
+        "duration": 62,
+        "n_formats": 16,
+        "has_video": true,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.5,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Vimeo-StaffPick",
+      "url": "https://vimeo.com/76979871",
+      "yt": {
+        "ok": true,
+        "dt": 1.56,
+        "title": "The New Vimeo Player (You Know, For Videos)",
+        "extractor": "Vimeo",
+        "duration": 62,
+        "n_formats": 14,
+        "has_video": true,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 1.48,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 20302494
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Dailymotion",
+      "url": "https://www.dailymotion.com/video/x84sh87",
+      "yt": {
+        "ok": true,
+        "dt": 0.93,
+        "title": "Dailymotion demo video",
+        "extractor": "Dailymotion",
+        "duration": 25,
+        "n_formats": 4,
+        "has_video": true,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.68,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "YouTube-Embed",
+      "url": "https://www.youtube.com/embed/jNQXAC9IVRw",
+      "yt": {
+        "ok": false,
+        "dt": 2.15,
+        "err_class": "DownloadError",
+        "err": "ERROR: [youtube] jNQXAC9IVRw: Sign in to confirm you\u2019re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.29,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "YouTube-FirstVideo",
+      "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+      "yt": {
+        "ok": false,
+        "dt": 2.04,
+        "err_class": "DownloadError",
+        "err": "ERROR: [youtube] jNQXAC9IVRw: Sign in to confirm you\u2019re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.64,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "YouTube-Short",
+      "url": "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+      "yt": {
+        "ok": false,
+        "dt": 2.03,
+        "err_class": "DownloadError",
+        "err": "ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you\u2019re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.73,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Rumble",
+      "url": "https://rumble.com/v6oka5o-elon-musk-was-supposed-to-stop-this.html",
+      "yt": {
+        "ok": false,
+        "dt": 0.16,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Rumble] v6oka5o-elon-musk-was-supposed-to-stop-this.html: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.31,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "YouTube-RickRoll",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "yt": {
+        "ok": false,
+        "dt": 2.23,
+        "err_class": "DownloadError",
+        "err": "ERROR: [youtube] dQw4w9WgXcQ: Please sign in. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.68,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Reddit-Video",
+      "url": "https://www.reddit.com/r/aww/comments/k1xa8m/at_least_someone_loves_him/",
+      "yt": {
+        "ok": false,
+        "dt": 0.31,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Reddit] k1xa8m: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.4,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Imgur",
+      "url": "https://i.imgur.com/3jLn4l8.mp4",
+      "yt": {
+        "ok": false,
+        "dt": 0.17,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Imgur] 3jLn4l8: Unable to download JSON metadata: HTTP Error 403: Unknown Error (caused by <HTTPError 403: Unknown Error>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.37,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Twitter-X",
+      "url": "https://x.com/elonmusk/status/1722127666497786143",
+      "yt": {
+        "ok": false,
+        "dt": 0.54,
+        "err_class": "DownloadError",
+        "err": "ERROR: [twitter] 1722127666497786143: No video could be found in this tweet"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.83,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "ArchiveOrg",
+      "url": "https://archive.org/details/BigBuckBunny_124",
+      "yt": {
+        "ok": true,
+        "dt": 0.94,
+        "title": "Big Buck Bunny",
+        "extractor": "ArchiveOrg",
+        "duration": 596.46,
+        "n_formats": 3,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.88,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 61878609
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Instagram-Reel",
+      "url": "https://www.instagram.com/reel/CqkqMZJyHxK/",
+      "yt": {
+        "ok": false,
+        "dt": 0.56,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Instagram] CqkqMZJyHxK: Instagram sent an empty media response. Check if this post is accessible in your browser without being logged-in. If it is not, then use --cookies-from-browser or --coo"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.82,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "TikTok-Verified",
+      "url": "https://www.tiktok.com/@gordonramsayofficial/video/7232611617498910981",
+      "yt": {
+        "ok": false,
+        "dt": 0.55,
+        "err_class": "DownloadError",
+        "err": "ERROR: [TikTok] 7232611617498910981: Your IP address is blocked from accessing this post"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.01,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "BitChute",
+      "url": "https://www.bitchute.com/video/UGlrF9o9b-Q/",
+      "yt": {
+        "ok": true,
+        "dt": 1.31,
+        "title": "This is the first video on #BitChute !",
+        "extractor": "BitChute",
+        "duration": 16.0,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 1.28,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 1170388
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Twitch-VOD",
+      "url": "https://www.twitch.tv/videos/2154723814",
+      "yt": {
+        "ok": false,
+        "dt": 0.32,
+        "err_class": "DownloadError",
+        "err": "ERROR: [twitch:vod] 2154723814: Video 2154723814 does not exist"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.5,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Twitch-Clip",
+      "url": "https://www.twitch.tv/xqc/clip/SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR",
+      "yt": {
+        "ok": false,
+        "dt": 0.3,
+        "err_class": "DownloadError",
+        "err": "ERROR: [twitch:clips] SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR: This clip is no longer available"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.52,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Kick-VOD",
+      "url": "https://kick.com/destiny/videos/4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1",
+      "yt": {
+        "ok": false,
+        "dt": 0.39,
+        "err_class": "DownloadError",
+        "err": "ERROR: [kick:vod] 4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.41,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/videos/2024-01-15/apple-vision-pro-launch-strategy-video",
+      "yt": {
+        "ok": false,
+        "dt": 0.31,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Bloomberg] apple-vision-pro-launch-strategy-video: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.31,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "NBC-News",
+      "url": "https://www.nbcnews.com/now",
+      "yt": {
+        "ok": false,
+        "dt": 0.62,
+        "err_class": "IndexError",
+        "err": "list index out of range"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.6,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "DW",
+      "url": "https://www.dw.com/en/germany/s-1432",
+      "yt": {
+        "ok": false,
+        "dt": 0.88,
+        "err_class": "DownloadError",
+        "err": "ERROR: Unsupported URL: https://www.dw.com/en/germany/s-1432"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.63,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "KhanAcademy",
+      "url": "https://www.khanacademy.org/economics-finance-domain/macroeconomics/macro-basic-economic-concepts/macro-introduction-to-macroeconomics/v/introduction-to-economics",
+      "yt": {
+        "ok": false,
+        "dt": 0.33,
+        "err_class": "DownloadError",
+        "err": "ERROR: [khanacademy] economics-finance-domain/macroeconomics/macro-basic-economic-concepts/macro-introduction-to-macroeconomics/v/introduction-to-economics: Unable to download JSON metadata: HTTP Erro"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.57,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "SoundCloud-Track",
+      "url": "https://soundcloud.com/octobersveryown/drake-passionfruit",
+      "yt": {
+        "ok": true,
+        "dt": 0.38,
+        "title": "Passionfruit",
+        "extractor": "Soundcloud",
+        "duration": 30.0,
+        "n_formats": 2,
+        "has_video": false,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.36,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "TED-Embed",
+      "url": "https://embed.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+      "yt": {
+        "ok": true,
+        "dt": 0.97,
+        "title": "Distant time and the hint of a multiverse",
+        "extractor": "TedTalk",
+        "duration": 937,
+        "n_formats": 13,
+        "has_video": true,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.27,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 140550000
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "TED",
+      "url": "https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+      "yt": {
+        "ok": true,
+        "dt": 1.13,
+        "title": "Distant time and the hint of a multiverse",
+        "extractor": "TedTalk",
+        "duration": 937,
+        "n_formats": 13,
+        "has_video": true,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.35,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 140550000
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "SoundCloud-Pop",
+      "url": "https://soundcloud.com/sezairi/yh3btahn0vum",
+      "yt": {
+        "ok": false,
+        "dt": 0.24,
+        "err_class": "DownloadError",
+        "err": "ERROR: [soundcloud] Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.4,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Direct-MP4-5s",
+      "url": "https://download.samplelib.com/mp4/sample-5s.mp4",
+      "yt": {
+        "ok": true,
+        "dt": 0.54,
+        "title": "sample-5s",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.26,
+        "method": "direct",
+        "tier": "0",
+        "filesize": 2848208
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Direct-MP4-15s",
+      "url": "https://download.samplelib.com/mp4/sample-15s.mp4",
+      "yt": {
+        "ok": true,
+        "dt": 0.39,
+        "title": "sample-15s",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.32,
+        "method": "direct",
+        "tier": "0",
+        "filesize": 11916526
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Mixcloud-Set",
+      "url": "https://www.mixcloud.com/dholbach/cryptkeeper/",
+      "yt": {
+        "ok": false,
+        "dt": 0.24,
+        "err_class": "DownloadError",
+        "err": "ERROR: [mixcloud] Unable to download JSON metadata: HTTP Error 503: Service Unavailable (caused by <HTTPError 503: Service Unavailable>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.15,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Bandcamp-Track",
+      "url": "https://amandapalmer.bandcamp.com/track/runs-in-the-family",
+      "yt": {
+        "ok": true,
+        "dt": 0.85,
+        "title": "Amanda Palmer - Runs in the Family",
+        "extractor": "Bandcamp",
+        "duration": 164.427,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.75,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Direct-MP4-30s",
+      "url": "https://download.samplelib.com/mp4/sample-30s.mp4",
+      "yt": {
+        "ok": true,
+        "dt": 0.42,
+        "title": "sample-30s",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.3,
+        "method": "direct",
+        "tier": "0",
+        "filesize": 21657943
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "W3Schools-MP4",
+      "url": "https://www.w3schools.com/html/mov_bbb.mp4",
+      "yt": {
+        "ok": true,
+        "dt": 0.17,
+        "title": "mov_bbb",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.11,
+        "method": "direct",
+        "tier": "0",
+        "filesize": 788493
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Direct-MP3-3s",
+      "url": "https://download.samplelib.com/mp3/sample-3s.mp3",
+      "yt": {
+        "ok": true,
+        "dt": 0.42,
+        "title": "sample-3s",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.46,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "LearningContainer-MP4",
+      "url": "https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4",
+      "yt": {
+        "ok": true,
+        "dt": 0.22,
+        "title": "sample-mp4-file",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.12,
+        "method": "direct",
+        "tier": "0",
+        "filesize": 10546620
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Direct-MP3-15s",
+      "url": "https://download.samplelib.com/mp3/sample-15s.mp3",
+      "yt": {
+        "ok": true,
+        "dt": 0.5,
+        "title": "sample-15s",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.47,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "PBS",
+      "url": "https://www.pbs.org/newshour/show/january-15-2024-pbs-newshour-full-episode",
+      "yt": {
+        "ok": false,
+        "dt": 2.67,
+        "err_class": "DownloadError",
+        "err": "ERROR: An extractor error has occurred. (caused by KeyError('contentID')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.78,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "BiliBili",
+      "url": "https://www.bilibili.com/video/BV1uT4y1P7CX/",
+      "yt": {
+        "ok": false,
+        "dt": 1.45,
+        "err_class": "DownloadError",
+        "err": "ERROR: [BiliBili] 1uT4y1P7CX: This video may be deleted or geo-restricted. You might want to try a VPN or a proxy server (with --proxy)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 2.21,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Naver-TV",
+      "url": "https://tv.naver.com/v/45683562",
+      "yt": {
+        "ok": true,
+        "dt": 1.69,
+        "title": "\ubaa8\ub378 \uae40\ud0dc\ud638\uc758 \ud574\uc678\ud328\uc158\uc704\ud06c vlog 1\ud0c4 #\uc2a4\ud1a4\uc544\uc77c\ub79c\ub4dc \ud3b8 \ud83c\udfa5",
+        "extractor": "Naver",
+        "duration": 61,
+        "n_formats": 16,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 1.05,
+        "method": "direct",
+        "tier": "1",
+        "filesize": 5848114
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Niconico",
+      "url": "https://www.nicovideo.jp/watch/sm9",
+      "yt": {
+        "ok": true,
+        "dt": 2.23,
+        "title": "\u65b0\u30fb\u8c6a\u8840\u5bfa\u4e00\u65cf -\u7169\u60a9\u89e3\u653e - \u30ec\u30c3\u30c4\u30b4\u30fc\uff01\u9670\u967d\u5e2b",
+        "extractor": "Niconico",
+        "duration": 320,
+        "n_formats": 4,
+        "has_video": true,
+        "has_audio": true
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 1.69,
+        "method": "ytdlp-pipe",
+        "tier": "2",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Aparat",
+      "url": "https://www.aparat.com/v/EuVyA",
+      "yt": {
+        "ok": false,
+        "dt": 0.15,
+        "err_class": "TypeError",
+        "err": "expected string or bytes-like object, got 'bool'"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.27,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "ThisVid-Canon",
+      "url": "https://thisvid.com/videos/sitting-on-ball-tight-jeans/",
+      "yt": {
+        "ok": true,
+        "dt": 0.34,
+        "title": "Sitting on ball tight jeans",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 2,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.45,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "ThisVid-Embed",
+      "url": "https://thisvid.com/embed/3533241/",
+      "yt": {
+        "ok": true,
+        "dt": 0.29,
+        "title": "Sitting on ball tight jeans",
+        "extractor": "Generic",
+        "duration": null,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.45,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "XHamster",
+      "url": "https://xhamster.com/videos/femaleagent-shy-beauty-takes-the-bait-1509445",
+      "yt": {
+        "ok": false,
+        "dt": 0.43,
+        "err_class": "DownloadError",
+        "err": "ERROR: [XHamster] 1509445: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest "
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.9,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "XNXX",
+      "url": "https://www.xnxx.com/video-55awb78/skyrim_test_video",
+      "yt": {
+        "ok": true,
+        "dt": 0.54,
+        "title": "Skyrim Test Video",
+        "extractor": "XNXX",
+        "duration": 469,
+        "n_formats": 7,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.41,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Pornhub",
+      "url": "https://www.pornhub.com/view_video.php?viewkey=ph5d4e6589c29ba",
+      "yt": {
+        "ok": false,
+        "dt": 0.29,
+        "err_class": "DownloadError",
+        "err": "ERROR: [PornHub] ph5d4e6589c29ba: Unable to download webpage: HTTP Error 410: Gone (caused by <HTTPError 410: Gone>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.45,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "RedTube",
+      "url": "https://www.redtube.com/38864951",
+      "yt": {
+        "ok": false,
+        "dt": 0.36,
+        "err_class": "DownloadError",
+        "err": "ERROR: [RedTube] 38864951: Unable to extract video URL; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the lat"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.56,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "XVideos",
+      "url": "https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+      "yt": {
+        "ok": true,
+        "dt": 1.15,
+        "title": "A Beautiful Red-Haired Stranger Was Refused, But Still Came To My Room For Sex",
+        "extractor": "XVideos",
+        "duration": 1238,
+        "n_formats": 7,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.8,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "SpankBang",
+      "url": "https://spankbang.com/56b3d/video/the+slut+maker+hmv",
+      "yt": {
+        "ok": false,
+        "dt": 0.32,
+        "err_class": "DownloadError",
+        "err": "ERROR: [SpankBang] 56b3d: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.43,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Eporner",
+      "url": "https://www.eporner.com/video-EpoRnEr-test/",
+      "yt": {
+        "ok": false,
+        "dt": 0.16,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Eporner] EpoRnEr: Unable to extract hash; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest ve"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.32,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Beeg",
+      "url": "https://beeg.com/-0983946056129650",
+      "yt": {
+        "ok": false,
+        "dt": 0.26,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Beeg] 0983946056129650: Unable to download JSON metadata: HTTP Error 500: Internal Server Error (caused by <HTTPError 500: Internal Server Error>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.41,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "TXXX",
+      "url": "https://txxx.com/videos/16574965/digital-desire-malena-morgan/",
+      "yt": {
+        "ok": true,
+        "dt": 0.23,
+        "title": "Digital Desire - Malena Morgan",
+        "extractor": "Txxx",
+        "duration": 694.0,
+        "n_formats": 1,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": true,
+        "dt": 0.22,
+        "method": "direct",
+        "tier": "1",
+        "filesize": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "NHK",
+      "url": "https://www3.nhk.or.jp/nhkworld/en/shows/sumo/",
+      "yt": {
+        "ok": true,
+        "dt": 6.71,
+        "title": "GRAND SUMO Highlights",
+        "extractor": "NhkVodProgram",
+        "duration": null,
+        "n_formats": 0,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.95,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "9GAG",
+      "url": "https://9gag.com/gag/aP1q6m1",
+      "yt": {
+        "ok": false,
+        "dt": 0.39,
+        "err_class": "DownloadError",
+        "err": "ERROR: [9gag] aP1q6m1: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.55,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Veoh",
+      "url": "https://www.veoh.com/watch/v141509908ZZQzAaSk",
+      "yt": {
+        "ok": false,
+        "dt": 0.33,
+        "err_class": "DownloadError",
+        "err": "ERROR: [generic] Unable to download webpage: HTTPSConnection(host='www.veoh.com', port=443): Failed to resolve 'www.veoh.com' ([Errno -2] Name or service not known) (caused by TransportError(\"HTTPSCon"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.13,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "LBC",
+      "url": "https://www.lbc.co.uk/radio/presenters/nick-ferrari/",
+      "yt": {
+        "ok": false,
+        "dt": 0.26,
+        "err_class": "DownloadError",
+        "err": "ERROR: Unsupported URL: https://www.lbc.co.uk/radio/presenters/nick-ferrari/"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.34,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Newgrounds",
+      "url": "https://www.newgrounds.com/portal/view/717094",
+      "yt": {
+        "ok": false,
+        "dt": 0.65,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Newgrounds] 717094: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 0.88,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Coub",
+      "url": "https://coub.com/view/3rwa3a",
+      "yt": {
+        "ok": false,
+        "dt": 0.62,
+        "err_class": "DownloadError",
+        "err": "ERROR: [Coub] 3rwa3a: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 1.23,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "Bandcamp-Album",
+      "url": "https://amandapalmer.bandcamp.com/album/who-killed-amanda-palmer",
+      "yt": {
+        "ok": true,
+        "dt": 7.33,
+        "title": "Who Killed Amanda Palmer",
+        "extractor": "BandcampAlbum",
+        "duration": null,
+        "n_formats": 0,
+        "has_video": false,
+        "has_audio": false
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 8.51,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    },
+    {
+      "name": "SampleVideos-MP4",
+      "url": "https://www.sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4",
+      "yt": {
+        "ok": false,
+        "dt": 12.38,
+        "err_class": "DownloadError",
+        "err": "ERROR: [generic] Unable to download webpage: (<HTTPSConnection(host='www.sample-videos.com', port=443) at 0x7c20d6d84830>, 'Connection to www.sample-videos.com timed out. (connect timeout=12.0)') (cau"
+      },
+      "fp_mp4": {
+        "ok": false,
+        "dt": 75.17,
+        "method": null
+      },
+      "fp_mp3": {
+        "ok": false,
+        "method": null
+      }
+    }
+  ]
+}

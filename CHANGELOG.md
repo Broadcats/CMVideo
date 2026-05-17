@@ -20,6 +20,125 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.17.5-alpha] - 2026-05-17
+
+**Coverage push.** May 2026 stress test against a freshly curated
+59-site list showed real-world fast-path success at ~41% from a
+datacenter IP and ~49% on URLs that hadn't already link-rotted.
+This release ships eight changes that target every named failure
+mode in that report; projected combined lift is +17–20 pp,
+landing us in the ~58–67% band before residential proxy and the
+~75–80% band with cookies + proxy together.
+
+### A. yt-dlp on nightly channel
+* `Dockerfile` now does `pip install --upgrade --pre 'yt-dlp[default,curl-cffi]'`
+  so the image picks up the daily `*.dev0` build instead of the
+  monthly stable. May 2026 latest stable was `2026.3.17`; latest
+  nightly was `2026.5.16.233954.dev0` (~60 days of fixes).
+* Fixes parser regressions on Eporner, RedTube, XHamster, PBS,
+  NBC News, Aparat that were stuck on stable.
+
+### B. Residential-proxy domain allowlist expansion
+* `proxy_router.py`: added Bloomberg / Bloomberg-CDN, Newgrounds /
+  Newgrounds-CDN, Reddit (page + JSON API + `v.redd.it` /
+  `i.redd.it` CDNs), Coub, 9GAG / 9cache. All 403'd from the HF
+  Space's datacenter IP without proxy.
+
+### C. Per-domain TLS impersonation via `curl_cffi`
+* New `_should_impersonate(url)` helper + `_maybe_impersonate(opts, url)`
+  that conditionally adds yt-dlp's `impersonate=ImpersonateTarget(client="chrome")`
+  for the metadata fetch on Cloudflare-fronted sites (Bloomberg,
+  Newgrounds, 9GAG, Coub, MindGeek tubes + a few others where TLS
+  fingerprinting is layered on top of IP gating).
+* No-op on URLs not in the allowlist; no-op when `curl_cffi` isn't
+  installed. Same `yt-dlp[default,curl-cffi]` pin already pulls
+  the impersonation backend, so the cost is just enabling it for
+  the domains that benefit.
+
+### D. Bring-your-own YouTube cookies (per-session, per-IP)
+* New `POST /api/yt-cookies` endpoint accepts a Netscape
+  `cookies.txt` blob from the client, materialises it to a
+  0600 tempfile under a 192-bit `secrets.token_urlsafe(24)`
+  session token, returns the token. Cookies live in process
+  memory only with a 30-min TTL.
+* New `DELETE /api/yt-cookies/{token}` for explicit revocation
+  (frontend "Forget cookies" button, or a privacy-minded user
+  cleaning up early).
+* `InfoRequest` / `StreamDownloadRequest` / `DownloadCompatRequest`
+  / `api_process` Pydantic + Form bodies all gained an optional
+  `yt_session` field. When present + valid + IP-matched, the
+  bound cookiefile path is installed on a `contextvars.ContextVar`
+  for the duration of the request; `_request_cookiefile_for_url`
+  reads it from every yt-dlp call site (sync, async, threadpool,
+  subprocess pipe).
+* Strict per-IP token binding (owner-allowlist IPs excepted):
+  a leaked token can't be replayed from a different IP. One-shot
+  delete on the wrong IP returns the same shape as "not found"
+  to avoid an existence-probe oracle.
+* Cookie content is **never** echoed in any response body or
+  log line. `/api/limits` exposes only `{active_sessions,
+  ttl_s, max_active}`.
+* Frontend: new `<details>`-collapsed pane below the download
+  buttons with a textarea, an Apply button (POSTs to
+  `/api/yt-cookies` and stashes the token in a JS module-level
+  variable), and a Forget Cookies button. The textarea is wiped
+  immediately on apply so the cookie bytes don't sit in the DOM
+  for the rest of the session.
+
+### E. Embed-URL canonicalization
+* `_canonicalize_embed_url` rewrites:
+  * `youtube.com/embed/<id>[?...]` → `youtube.com/watch?v=<id>[&...]`
+  * `youtu.be/<id>[?...]`           → `youtube.com/watch?v=<id>[&...]`
+  * `youtube.com/shorts/<id>`       → `youtube.com/watch?v=<id>`
+  * `player.vimeo.com/video/<id>`   → `vimeo.com/<id>`
+* Runs before the SSRF / public-URL guard so the validation
+  applies to the post-rewrite hostname.
+* Fixes the May 2026 stress-test failure where YouTube embed
+  URLs 422'd while their canonical /watch counterparts succeeded.
+
+### F. gallery-dl as speculative tier on unknown domains
+* `extractors.extract_with_fallbacks` previously gated gallery-dl
+  on a hand-curated `GALLERY_DL_DOMAINS` allowlist. It now also
+  runs gallery-dl when yt-dlp produced a recoverable failure even
+  if the domain isn't on the allowlist (with a tighter 30-second
+  timeout in the speculative case vs. 180s for known-good
+  domains). gallery-dl exits within 1-2s for URLs it doesn't
+  recognise, so the cost is bounded.
+
+### G. Friendlier upstream-parser-bug error
+* `_friendly_ydl_error` now recognises 11 distinct yt-dlp parser
+  regression patterns (`KeyError`, `list index out of range`,
+  `unable to extract`, `expected string or bytes-like`, etc.) and
+  surfaces a single human-readable message that names the cause
+  (yt-dlp parser bug, fixed within a day or two upstream),
+  points the user at the yt-dlp issue tracker, and suggests the
+  desktop app (which auto-updates yt-dlp on launch).
+
+### H. Tier-3 generic `<video>` page scraper
+* New `_resolve_streamable_page_scrape` fast-path: when yt-dlp
+  fails to recognise a URL or returns 0 formats, fetch the page
+  HTML (capped at 256 KB), look for an MP4 in:
+  * `<meta property="og:video[:url|:secure_url]" content="...mp4">`
+  * `<meta name="twitter:player:stream" content="...mp4">`
+  * `<video src="...mp4">` / `<source src="...mp4">`
+  * JSON-LD `"contentUrl": "...mp4"` / `"embedUrl": "...mp4"`
+* First match resolves through the existing tier-0 probe to
+  confirm it's actually a streamable MP4 (and to fill in
+  filesize / mime). Wins return the same `method: direct` shape
+  as tier 0/1 so no dispatcher changes were needed.
+* Catches sites yt-dlp doesn't have a hand-written extractor for
+  but that publish their video URL straight in the page HTML
+  (a chunk of news sites, blogs, wikis, CMSes).
+
+### Notes
+* Owner-IP allowlist still works as before; the new per-IP cookie
+  binding falls back to "owner IP" → "any IP" for explicit-allowlist
+  operators so a session created on a phone keeps working when
+  the carrier swaps the apparent IP.
+* `info_cache` skips per-cookie requests (same key would otherwise
+  serve a private/unlisted video to the next anonymous visitor);
+  anonymous lookups still cache as before.
+
 ## [mini-2026.05.17.4-alpha] - 2026-05-17
 
 **SECURITY HOTFIX.** Residential-proxy credentials were being

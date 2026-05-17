@@ -238,3 +238,72 @@ input[type="url"]:focus {
   .btn-row { flex-direction: column; align-items: stretch; }
   .btn { width: 100%; }
 }
+
+/* ---- YouTube cookie session pane ---------------------------- */
+
+.yt-cookies-pane {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-deep);
+}
+.yt-cookies-pane summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  user-select: none;
+  font-size: 14px;
+  color: var(--text-muted);
+  list-style: none;
+}
+.yt-cookies-pane summary::-webkit-details-marker { display: none; }
+.yt-cookies-pane summary strong { color: var(--text); }
+.yt-cookies-pane[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+.yt-cookies-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.yt-cookies-body .muted.small {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.yt-cookies-body code {
+  background: var(--surface-hi);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+#yt-cookies-input {
+  width: 100%;
+  min-height: 110px;
+  background: var(--bg-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+#yt-cookies-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+.yt-cookies-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#yt-cookies-state {
+  font-size: 13px;
+}
+#yt-cookies-state.applied { color: var(--success); }
+#yt-cookies-state.error { color: var(--danger); }

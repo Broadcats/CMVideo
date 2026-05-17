@@ -1378,9 +1378,26 @@ def extract_with_fallbacks(
     # all fail without session cookies and just chew up the
     # user-visible wait time. Playwright (next block) handles them.
     if not is_hostile:
-        if "gallery-dl" in enabled_set and (not domain or domain in GALLERY_DL_DOMAINS or _ends_with_any(domain, GALLERY_DL_DOMAINS)):
+        # gallery-dl: previously gated on `GALLERY_DL_DOMAINS`,
+        # now tried on ANY domain when yt-dlp failed with a
+        # recoverable error like "no video formats". gallery-dl
+        # exits within 1-2s for URLs it doesn't recognise, so
+        # the cost of an always-on attempt is bounded. The
+        # benefit is that gallery-dl's hand-written extractors
+        # for niche social-media sites (Pinterest, Bluesky, etc.)
+        # cover URLs that aren't on our hand-curated allowlist.
+        # The historical allowlist is now used only as a HINT
+        # that lets us SKIP gallery-dl on domains where it
+        # already failed in past runs.
+        gallery_in_allowlist = bool(domain) and (
+            domain in GALLERY_DL_DOMAINS or _ends_with_any(domain, GALLERY_DL_DOMAINS)
+        )
+        if "gallery-dl" in enabled_set and (not domain or gallery_in_allowlist or last_error is not None):
             try:
-                r = gallery_dl_download(url, dst_dir, target_height=target_height)
+                # Tighter timeout when domain isn't on the allowlist:
+                # this is a "speculative try", not a primary path.
+                gtimeout = 180 if gallery_in_allowlist else 30
+                r = gallery_dl_download(url, dst_dir, target_height=target_height, timeout=gtimeout)
                 r.attempts = attempts + [f"gallery-dl: ok"]
                 return r
             except ExtractionError as exc:

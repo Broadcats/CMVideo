@@ -1,0 +1,276 @@
+[
+  {
+    "label": "baseline 720p source-fps download",
+    "combo": [
+      "baseline 720p source-fps download",
+      "mp4",
+      "download",
+      "source",
+      "standard",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 2.4,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "30 fps override 720p",
+    "combo": [
+      "30 fps override 720p",
+      "mp4",
+      "download",
+      "30",
+      "standard",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 2.43,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "60 fps override 720p",
+    "combo": [
+      "60 fps override 720p",
+      "mp4",
+      "download",
+      "60",
+      "standard",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 2.41,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "1080p source-fps",
+    "combo": [
+      "1080p source-fps",
+      "mp4",
+      "download",
+      "source",
+      "hd",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 2.44,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "silence-mode censor 720p",
+    "combo": [
+      "silence-mode censor 720p",
+      "mp4",
+      "silence",
+      "source",
+      "standard",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 3.25,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "beep-mode censor 720p",
+    "combo": [
+      "beep-mode censor 720p",
+      "mp4",
+      "beep",
+      "source",
+      "standard",
+      true,
+      true
+    ],
+    "status": 200,
+    "dt": 3.53,
+    "bytes": 11916526,
+    "ffprobe": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_s": 15.63,
+      "size": 11916526,
+      "bitrate_bps": 6100477,
+      "n_streams": 2,
+      "video": {
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "fps_avg": "30000/1001",
+        "fps_r": "30000/1001"
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "125611"
+      }
+    },
+    "expected_video": true,
+    "expected_audio": true,
+    "got_video": true,
+    "got_audio": true,
+    "ok": true
+  },
+  {
+    "label": "mp3 320kbps download",
+    "combo": [
+      "mp3 320kbps download",
+      "mp3",
+      "download",
+      "source",
+      "standard",
+      false,
+      true
+    ],
+    "status": 200,
+    "dt": 3.31,
+    "bytes": 628129,
+    "ffprobe": {
+      "format_name": "mp3",
+      "duration_s": 15.67,
+      "size": 628129,
+      "bitrate_bps": 320607,
+      "n_streams": 1,
+      "video": null,
+      "audio": {
+        "codec": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bitrate": "320000"
+      }
+    },
+    "expected_video": false,
+    "expected_audio": true,
+    "got_video": false,
+    "got_audio": true,
+    "ok": true
+  }
+]

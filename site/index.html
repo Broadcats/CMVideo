@@ -124,29 +124,39 @@
             </div>
 
             <div class="shot-row shot-fmtquality-row">
-              <div class="shot-fmt-group" role="radiogroup" aria-label="Format">
-                <label class="chip pill on" data-fmt="mp4">
-                  <input type="radio" name="mini-fmt" value="mp4" checked />
-                  MP4
-                </label>
-                <label class="chip pill" data-fmt="mp3">
-                  <input type="radio" name="mini-fmt" value="mp3" />
-                  MP3 &middot; 320k
-                </label>
-              </div>
+              <label class="shot-select-wrap" for="mini-fmt-select">
+                <span class="shot-select-label">Format</span>
+                <select id="mini-fmt-select" class="shot-select" name="mini-fmt-select" aria-label="Output format">
+                  <optgroup label="Video">
+                    <option value="mp4" selected>MP4 (H.264 + AAC)</option>
+                  </optgroup>
+                  <optgroup label="Audio &middot; lossy">
+                    <option value="mp3">MP3 &middot; 320k</option>
+                    <option value="m4a">M4A (AAC in MP4)</option>
+                    <option value="aac">AAC (raw)</option>
+                    <option value="opus">OPUS</option>
+                    <option value="ogg">OGG (Vorbis)</option>
+                  </optgroup>
+                  <optgroup label="Audio &middot; lossless">
+                    <option value="wav">WAV</option>
+                    <option value="flac">FLAC</option>
+                  </optgroup>
+                </select>
+              </label>
               <span class="shot-divider" id="mini-fmtquality-divider" aria-hidden="true"></span>
-              <div class="shot-quality-group" role="radiogroup" aria-label="Quality" id="mini-quality-row">
-                <label class="chip pill" data-quality="hd">
-                  <input type="radio" name="mini-quality" value="hd" />
-                  <span class="chip-text">1080p</span>
-                  <span class="chip-hint">larger &middot; slower</span>
-                </label>
-                <label class="chip pill on" data-quality="standard">
-                  <input type="radio" name="mini-quality" value="standard" checked />
-                  <span class="chip-text">720p</span>
-                  <span class="chip-hint">fastest</span>
-                </label>
-              </div>
+              <label class="shot-select-wrap" for="mini-quality-select" id="mini-quality-row">
+                <span class="shot-select-label">Quality</span>
+                <select id="mini-quality-select" class="shot-select" name="mini-quality-select" aria-label="Video quality">
+                  <option value="144p">144p</option>
+                  <option value="240p">240p</option>
+                  <option value="360p">360p</option>
+                  <option value="480p">480p</option>
+                  <option value="720p" selected>720p &middot; fastest</option>
+                  <option value="1080p">1080p &middot; larger</option>
+                  <option value="1440p">1440p (2K)</option>
+                  <option value="2160p">2160p (4K)</option>
+                </select>
+              </label>
             </div>
 
             <div class="shot-row shot-fps-row" role="radiogroup" aria-label="Frame rate" id="mini-fps-row">
@@ -164,10 +174,11 @@
               </label>
             </div>
             <p class="shot-quality-note" id="mini-quality-note" hidden>
-              1080p produces a bigger file (up to <strong>1.5&nbsp;GB</strong>) and
-              takes longer to pull. Source fps only &mdash; 30/60&nbsp;fps overrides
-              are disabled at 1080p (they'd time out on the mini's shared CPU).
-              For 1080p&nbsp;+&nbsp;60&nbsp;fps, use the desktop app.
+              <strong>Heads up:</strong> 1080p+ uses Source fps only on the
+              mini &mdash; 30/60&nbsp;fps overrides at 1080p+ would time out
+              on the shared CPU. Censoring (silence / beep) is also limited
+              to 1080p and below. For 4K + 60&nbsp;fps + censoring,
+              use the desktop app.
             </p>
 
             <div class="shot-row shot-mode-row" role="radiogroup" aria-label="Mode">
@@ -198,13 +209,15 @@
 
             <p class="shot-caps">
               <strong>Mini caps:</strong> download &le;<strong>1&nbsp;hr</strong>
-              / 800&nbsp;MB at 720p (or <strong>1.5&nbsp;GB at 1080p</strong>)
-              &middot; <strong>censor &le;8&nbsp;min</strong> / 100&nbsp;MB &middot;
-              720p or 1080p / 30&ndash;60&nbsp;fps / 320&nbsp;k &middot;
-              20 jobs/hour. Multi-extractor stack (yt-dlp &rarr; gallery-dl &rarr;
+              / size cap scales with quality (200&nbsp;MB at 144p &rarr;
+              <strong>4&nbsp;GB at 4K</strong>) &middot;
+              <strong>censor &le;8&nbsp;min</strong> / 100&nbsp;MB
+              (1080p&nbsp;max) &middot; video 144p&ndash;4K &middot; audio in
+              MP3 / M4A / AAC / OGG / OPUS / WAV / FLAC &middot; 20 jobs/hour.
+              Multi-extractor stack (yt-dlp &rarr; gallery-dl &rarr;
               Cobalt &rarr; streamlink) covers most mainstream sites; a few will
-              still need the desktop app. For full quality, every format,
-              fuzzy / leetspeak matching and the TTS
+              still need the desktop app. For censoring, batch processing,
+              fuzzy / leetspeak matching and TTS
               &mdash; <a href="#downloads">download the app &darr;</a>
             </p>
 

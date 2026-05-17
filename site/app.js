@@ -225,9 +225,31 @@
   var modeNoteEl = document.getElementById("mini-mode-note");
 
   function getMode()    { var s = form.querySelector('input[name="mini-mode"]:checked');    return s ? s.value : "download"; }
-  function getFormat()  { var s = form.querySelector('input[name="mini-fmt"]:checked');     return s ? s.value : "mp4"; }
+  // Format / quality moved from radio pills to <select> dropdowns
+  // when the mini grew the y2down-parity option set
+  // (mini-2026.05.18.0-alpha). The pills became unwieldy at 8 audio
+  // formats x 8 video qualities. Keep the same getter API so the
+  // rest of the file doesn't have to know.
+  function getFormat()  {
+    var s = document.getElementById("mini-fmt-select");
+    return (s && s.value) || "mp4";
+  }
   function getFPS()     { var s = form.querySelector('input[name="mini-fps"]:checked');     return s ? s.value : "source"; }
-  function getQuality() { var s = form.querySelector('input[name="mini-quality"]:checked'); return s ? s.value : "standard"; }
+  function getQuality() {
+    var s = document.getElementById("mini-quality-select");
+    return (s && s.value) || "720p";
+  }
+  // True when the chosen format is anything except mp4 - all the
+  // audio formats (mp3, m4a, aac, ogg, opus, wav, flac) need
+  // server-side ffmpeg post-processing and skip the fast-path.
+  function isAudioFormat() { return getFormat() !== "mp4"; }
+  // Whether the chosen quality is >= 1080p, used to decide whether
+  // 30/60 fps and silence/beep modes should be locked out (they're
+  // too slow on the mini's shared CPU).
+  function isHighQuality() {
+    var q = getQuality();
+    return q === "1080p" || q === "1440p" || q === "2160p";
+  }
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -262,15 +284,17 @@
 
   function syncFpsRow() {
     if (!fpsRow) return;
-    // MP3 has no frames; hide the fps row entirely when audio is selected.
-    var hideForAudio = getFormat() === "mp3";
+    // Audio formats have no frame rate; hide the fps row entirely
+    // when any audio format (mp3/m4a/aac/ogg/opus/wav/flac) is selected.
+    var hideForAudio = isAudioFormat();
     fpsRow.classList.toggle("hidden", hideForAudio);
 
-    // 1080p + 30/60 fps would re-encode at 1080p on shared CPU and
-    // blow our ffmpeg cap. Disable the override pills (and force
-    // "Source") whenever HD is picked so the user sees what's allowed
-    // without waiting for the backend to bounce the request.
-    var lockToSource = !hideForAudio && getQuality() === "hd";
+    // >=1080p + 30/60 fps re-encodes at 1080p+ on shared CPU and
+    // blows the ffmpeg cap. Disable the override pills (and force
+    // "Source") whenever a high quality is picked so the user sees
+    // what's allowed without waiting for the backend to bounce
+    // the request.
+    var lockToSource = !hideForAudio && isHighQuality();
     Array.prototype.forEach.call(
       form.querySelectorAll('input[name="mini-fps"]'),
       function (i) {
@@ -290,7 +314,7 @@
           if (pill) {
             pill.classList.remove("on");
             pill.classList.add("disabled");
-            pill.setAttribute("title", "1080p uses Source fps only on the mini app.");
+            pill.setAttribute("title", "1080p+ uses Source fps only on the mini app.");
           }
         } else {
           i.disabled = false;
@@ -304,21 +328,42 @@
   }
 
   function syncQualityRow() {
-    var isAudio = getFormat() === "mp3";
-    // Quality is video-only: hide both the chips AND the vertical
-    // divider when MP3 is picked, otherwise the divider would dangle
-    // next to the format pills with nothing on its right side.
+    var isAudio = isAudioFormat();
+    // Quality is video-only: hide both the dropdown wrapper AND the
+    // vertical divider when an audio format is picked, otherwise
+    // the divider would dangle next to the format select with
+    // nothing on its right side.
     if (qualityRow)    qualityRow.classList.toggle("hidden", isAudio);
     if (fmtQualityDiv) fmtQualityDiv.classList.toggle("hidden", isAudio);
+    // Show the "high-quality fps lock" note when any quality at or
+    // above 1080p is picked, so the user sees up-front why
+    // 30/60 fps just got disabled.
     if (qualityNote) {
-      if (getQuality() === "hd" && !isAudio) qualityNote.removeAttribute("hidden");
-      else                                   qualityNote.setAttribute("hidden", "");
+      if (isHighQuality() && !isAudio) qualityNote.removeAttribute("hidden");
+      else                             qualityNote.setAttribute("hidden", "");
+    }
+  }
+  // Pop a friendly status if the user picked silence/beep with a
+  // quality that the backend will reject (>1080p). Mirrors the
+  // server-side guard in /api/process so we surface it before
+  // the request fires.
+  function syncCensorQualityGuard() {
+    var m = getMode();
+    var q = getQuality();
+    if ((m === "silence" || m === "beep") && (q === "1440p" || q === "2160p")) {
+      setStatus(
+        "Censoring at " + q + " is too slow on the mini's shared CPU. " +
+        "Pick 1080p or smaller for silence/beep modes, or use the desktop app.",
+        "error"
+      );
     }
   }
 
+  // Pill change listeners for mode + fps (the rows that stayed as
+  // radio pills when format/quality became dropdowns).
   Array.prototype.forEach.call(
     form.querySelectorAll(
-      'input[name="mini-fmt"], input[name="mini-mode"], input[name="mini-fps"], input[name="mini-quality"]'
+      'input[name="mini-mode"], input[name="mini-fps"]'
     ),
     function (input) {
       input.addEventListener("change", function () {
@@ -330,12 +375,27 @@
             if (pill) pill.classList.toggle("on", i.checked);
           }
         );
-        if (groupName === "mini-mode")    { syncBtnLabel(); syncModeNote(); }
-        if (groupName === "mini-fmt")     { syncFpsRow(); syncQualityRow(); }
-        if (groupName === "mini-quality") { syncFpsRow(); syncQualityRow(); }
+        if (groupName === "mini-mode") { syncBtnLabel(); syncModeNote(); syncCensorQualityGuard(); }
       });
     }
   );
+  // Dropdown change listeners for format + quality.
+  var fmtSelectEl     = document.getElementById("mini-fmt-select");
+  var qualitySelectEl = document.getElementById("mini-quality-select");
+  if (fmtSelectEl) {
+    fmtSelectEl.addEventListener("change", function () {
+      syncFpsRow();
+      syncQualityRow();
+      syncCensorQualityGuard();
+    });
+  }
+  if (qualitySelectEl) {
+    qualitySelectEl.addEventListener("change", function () {
+      syncFpsRow();
+      syncQualityRow();
+      syncCensorQualityGuard();
+    });
+  }
   syncBtnLabel();
   syncQualityRow();
   syncFpsRow();
@@ -547,10 +607,11 @@
     //     POST /api/process?async=1   -> { job_id }
     //     poll GET /api/jobs/{id}     -> { stage, pct, ready, ... }
     //     when ready: GET /api/jobs/{id}/file
-    //   Used for everything else: censor mode, MP3 (needs ffmpeg),
-    //   HLS / DASH sources that need fragment merging, and any
-    //   raw-download case where the fast path returned 422
-    //   "needs_processing".
+    //   Used for everything else: censor mode, any audio format
+    //   (mp3 / m4a / aac / ogg / opus / wav / flac all need
+    //   server-side ffmpeg), HLS / DASH sources that need fragment
+    //   merging, and any raw-download case where the fast path
+    //   returned 422 "needs_processing".
     //
     // Once the fast path triggers a browser download we pass `null`
     // through the rest of the chain so the SLOW-path .then steps
@@ -559,8 +620,9 @@
     preflight
       .then(function () {
         // Fast path is only meaningful for URL-based MP4 downloads.
-        // File uploads, MP3 (needs ffmpeg), and censor modes
-        // (silence / beep) all skip straight to the SLOW path.
+        // File uploads, audio formats (all of them - they always
+        // need the FFmpegExtractAudio postprocessor), and censor
+        // modes (silence / beep) all skip straight to the SLOW path.
         if (mode !== "download" || fmt !== "mp4" || selectedFile) return null;
         return fetch(MINI_API_BASE + "/api/stream-download", {
           method: "POST", mode: "cors",

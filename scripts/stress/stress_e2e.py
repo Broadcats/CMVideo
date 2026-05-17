@@ -295,15 +295,30 @@ def battery_c():
     for i, combo in enumerate(C_COMBOS, 1):
         label, fmt, mode, fps, quality = combo
         print(f"\n[{i}/{len(C_COMBOS)}] {label}")
-        # Submit job
+        # Submit. /api/process is synchronous by default - it returns the
+        # rendered file directly. We pass async=1 to opt into the job
+        # model so we can ffprobe-verify intermediate state.
         t0 = time.monotonic()
-        status, body = post_form("/api/process", {
-            "url": C_TEST_URL,
-            "format": fmt,
-            "mode": mode,
-            "fps": fps,
-            "quality": quality,
-        }, timeout=30)
+        try:
+            r = requests.post(
+                f"{BASE}/api/process?async=1",
+                data={
+                    "url": C_TEST_URL,
+                    "format": fmt,
+                    "mode": mode,
+                    "fps": fps,
+                    "quality": quality,
+                },
+                timeout=30,
+            )
+            status = r.status_code
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:300]}
+        except requests.RequestException as exc:
+            status, body = 0, {"err": str(exc)[:200]}
+
         if status != 200:
             print(f"          submit FAIL: {status} {json.dumps(body)[:200]}")
             out.append({"combo": combo, "submit_status": status, "submit_body": body})

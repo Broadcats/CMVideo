@@ -9,7 +9,9 @@ https://huggingface.co/settings/tokens (pick "Write" or a fine-grained
 token with write access to your namespace).
 
 Optional flags:
-    --owner    HF user/org to host the Space under (default: Broadcats)
+    --owner    HF user/org to host the Space under (default: Dandyfeet,
+               which owns the production Space at
+               https://dandyfeet-cmvideo-mini.hf.space)
     --space    Space name (default: cmvideo-mini)
     --private  Make the Space private
     --dry-run  Print what would happen, don't push
@@ -65,12 +67,41 @@ def _ensure_hf_hub() -> None:
 
 
 def _resolve_token(cli_token: str | None) -> str:
+    """Resolve an HF token in this priority order:
+      1. --token CLI flag
+      2. HF_TOKEN / HUGGING_FACE_HUB_TOKEN env vars
+      3. The cached token at ~/.cache/huggingface/token
+         (populated by `hf auth login`)
+
+    The cache lookup is preferred over env vars in real usage
+    because pasting a token into a shell command leaks it into
+    bash history; `hf auth login` reads it from a masked stdin
+    and persists it at mode 0600. We still honour env vars for
+    CI / Docker contexts where there's no interactive login."""
     token = cli_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        # Newer huggingface_hub (>= 0.27) removed `HfFolder`; the
+        # canonical way to read the cached token is `get_token()`.
+        # Older versions still expose `HfFolder.get_token()` which
+        # is what we fall back to.
+        try:
+            from huggingface_hub import get_token
+            token = get_token()
+        except ImportError:
+            try:
+                from huggingface_hub import HfFolder  # type: ignore[attr-defined]
+                token = HfFolder.get_token()
+            except Exception:  # noqa: BLE001 - cache lookup is best-effort
+                token = None
+        except Exception:  # noqa: BLE001
+            token = None
     if not token:
         sys.exit(
             "[deploy-mini] No HF token found.\n"
-            "  Generate one at https://huggingface.co/settings/tokens (Write access)\n"
-            "  then re-run:  HF_TOKEN=hf_xxx python3 scripts/deploy-mini.py"
+            "  Either:\n"
+            "    A. `hf auth login` (preferred - stores token securely at ~/.cache/huggingface/token)\n"
+            "    B. Generate one at https://huggingface.co/settings/tokens (Write access)\n"
+            "       and re-run with `HF_TOKEN=hf_xxx scripts/deploy-mini.py`"
         )
     return token
 
@@ -92,7 +123,7 @@ def _allowed(path: Path) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--owner", default="Broadcats")
+    ap.add_argument("--owner", default="Dandyfeet")
     ap.add_argument("--space", default="cmvideo-mini")
     ap.add_argument("--token", default=None)
     ap.add_argument("--private", action="store_true")

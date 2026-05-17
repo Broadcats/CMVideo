@@ -1052,6 +1052,15 @@ def _do_info(url: str) -> dict:
     }
     if YT_COOKIES_FILE:
         info_opts["cookiefile"] = YT_COOKIES_FILE
+    # Per-domain residential proxy. Datacenter-hostile sites
+    # (Meta / TikTok / X / tube sites / YouTube etc.) need this
+    # for the metadata-extract call, not just the eventual byte
+    # download. Falls through to direct (proxy=None) for sites
+    # that don't need it - only burns paid GB on the allowlist.
+    try:
+        info_opts["proxy"] = _proxy_router.proxy_for_url(url)
+    except Exception:
+        log.exception("info proxy_for_url() failed; falling back to direct")
     with yt_dlp.YoutubeDL(info_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
@@ -1123,12 +1132,31 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     }
     if YT_COOKIES_FILE:
         info_opts["cookiefile"] = YT_COOKIES_FILE
+    # Per-domain residential proxy for the extract_info call.
+    # Without this, datacenter-hostile sites (tube sites, Meta,
+    # TikTok, X, YT, etc.) reject the metadata probe from HF's
+    # datacenter IP and we return None -> 422 -> the slow path
+    # falls back to /api/process, defeating the point of the
+    # fast-path tier-2 streamer. Falls through to direct
+    # (proxy=None) for sites not on the allowlist.
+    try:
+        info_opts["proxy"] = _proxy_router.proxy_for_url(url)
+    except Exception:
+        log.exception("streamable resolve: proxy_for_url() failed; falling back to direct")
     try:
         with yt_dlp.YoutubeDL(info_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-    except Exception:
+    except Exception as exc:
+        # Logged at INFO (not exception) - extractor failure for
+        # an unsupported / dead URL is a normal outcome on the
+        # public mini. Don't spam tracebacks for those. The
+        # caller turns this None into a 422 with reason=
+        # needs_processing so the frontend falls back to the
+        # slow path which will surface a friendlier error.
+        log.info("streamable resolve: extract_info failed: %s", str(exc).splitlines()[-1][:200])
         return None
     if info is None:
+        log.info("streamable resolve: extract_info returned None")
         return None
 
     title = (info.get("title") or "Untitled")[:200]
@@ -2408,11 +2436,11 @@ def _serve_stream_direct(resolved: dict, release_slot) -> StreamingResponse:
     # no proxy is configured for this domain.
     proxies = None
     try:
-        proxy_url = _proxy_router.proxy_for(upstream_url)
+        proxy_url = _proxy_router.proxy_for_url(upstream_url)
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
     except Exception:
-        log.exception("stream proxy_for() failed; falling back to direct")
+        log.exception("stream proxy_for_url() failed; falling back to direct")
         proxies = None
 
     try:
@@ -2507,9 +2535,9 @@ def _serve_stream_ytdlp_pipe(resolved: dict, release_slot) -> StreamingResponse:
         cmd += ["--cookies", YT_COOKIES_FILE]
 
     try:
-        proxy_url = _proxy_router.proxy_for(source_url)
+        proxy_url = _proxy_router.proxy_for_url(source_url)
     except Exception:
-        log.exception("ytdlp-pipe proxy_for() failed; falling back to direct")
+        log.exception("ytdlp-pipe proxy_for_url() failed; falling back to direct")
         proxy_url = None
     if proxy_url:
         cmd += ["--proxy", proxy_url]

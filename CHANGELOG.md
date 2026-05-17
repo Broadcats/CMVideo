@@ -20,6 +20,59 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.17.2-alpha] - 2026-05-17
+
+Hotfix on top of `mini-2026.05.17.1-alpha`: tier-2 streaming was
+shipped wired to the wrong proxy-router function name and missing
+proxy on the metadata-resolve call, which silently disabled
+residential-proxy routing for the entire fast path. Surface
+symptom: every fast-path probe of a datacenter-hostile site
+(thisvid, eporner, redgifs, plus YouTube / Meta / TikTok / X)
+came back as `422 needs_processing` and fell through to the slow
+`/api/process` pipeline, hitting the 360s cap.
+
+### Fixed
+
+- **`_proxy_router.proxy_for(...)` -> `_proxy_router.proxy_for_url(...)`**
+  in both `_serve_stream_direct` and `_serve_stream_ytdlp_pipe`.
+  The wrong name raised `AttributeError`, was caught by the broad
+  `except Exception:` around it, and left `proxy_url = None` for
+  every stream. So even URLs that DID make it past the resolver
+  ended up streaming from HF's datacenter IP rather than through
+  the residential proxy - which thisvid + similar throttle to
+  ~dialup speeds. Renaming to the actual exported function
+  (`proxy_for_url`) restores residential routing on both tiers.
+- **`_resolve_streamable_format` now passes `proxy` to its own
+  `extract_info` call.** Without this, the metadata probe for
+  the streaming fast-path went out from HF's datacenter IP -
+  thisvid + most other tube sites either reject those outright
+  or serve a stripped manifest with no usable formats. Result:
+  `extract_info` raised, was caught, returned `None`, and the
+  endpoint returned 422 `needs_processing` regardless of what
+  tier-2 could have done. The slow path always got proxy because
+  its `_do_download` wired it explicitly; the fast path's
+  `_resolve_streamable_format` did not. Now matched.
+- **`_do_info` (the `/api/info` preview probe) gets the same
+  proxy plumbing** for consistency. Same root cause, same fix -
+  the preview was hitting from datacenter IP and silently
+  showing degraded results for proxy-allowlist domains.
+- **Diagnostic logging on resolve failure.** When `extract_info`
+  raises, the failure reason now lands in HF Space logs at INFO
+  (last line of the exception, truncated to 200 chars). Previous
+  behaviour was a bare `except Exception: return None`, which
+  made it impossible to distinguish "URL unsupported" from
+  "proxy/auth/network failure" from log inspection alone.
+
+### Notes
+
+- The bug was specific to the fast path. The slow `/api/process`
+  pipeline always used `proxy_for_url` correctly, so existing
+  jobs were unaffected - which is why this slipped through smoke
+  testing on URLs that DID succeed via slow path.
+- No frontend / contract changes. The `/api/stream-download` 422
+  response shape is unchanged so the silent fallback to
+  `/api/process` still works for clients that haven't refreshed.
+
 ## [mini-2026.05.17.1-alpha] - 2026-05-17
 
 Streaming fast-path tier 2 (yt-dlp subprocess pipe). Resolves

@@ -90,6 +90,12 @@ _PROXY_DOMAIN_TUPLES: tuple[tuple[str, str], ...] = (
     ("xhamster.com", "xHamster"),
     ("xhcdn.com", "xHamster CDN"),
     ("spankbang.com", "Spankbang"),
+    ("thisvid.com", "ThisVid"),
+    ("ttcache.com", "ThisVid / similar tube CDN"),
+    ("eporner.com", "Eporner"),
+    ("epornercdn.com", "Eporner CDN"),
+    ("redgifs.com", "RedGifs"),
+    ("rdgcdn.com", "RedGifs CDN"),
 
     # --- YouTube ---
     # YouTube actively datacenter-throttles + does TLS fingerprint

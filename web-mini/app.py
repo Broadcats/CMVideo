@@ -1068,39 +1068,46 @@ def _do_info(url: str) -> dict:
     }
 
 
-def _resolve_direct_format(url: str, fmt: str, quality: str) -> Optional[dict]:
-    """Resolve `url` to a single direct-streamable HTTP format suitable
-    for the streaming fast-path download.
+def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dict]:
+    """Resolve `url` to a streamable format. Two tiers, fastest-first.
 
-    Returns a dict with `url`, `headers`, `ext`, `filesize`, `title`,
-    `extractor`, `mime_type` if such a format exists, else None
-    (signaling the caller should fall back to the server-pull
-    `/api/process` pipeline).
+    Returns one of:
+      Tier 1 - direct HTTP passthrough (lowest overhead):
+        {
+          "method": "direct",
+          "url": str, "headers": dict, "ext": "mp4",
+          "filesize": Optional[int], "title": str,
+          "extractor": str, "mime_type": "video/mp4", "height": int,
+        }
+      Tier 2 - yt-dlp subprocess pipe (handles HLS / DASH / segmented /
+      separated streams, anything yt-dlp can download):
+        {
+          "method": "ytdlp-pipe",
+          "source_url": str, "target_height": int, "title": str,
+          "extractor": str, "mime_type": "video/mp4",
+          "filesize": None, "height": int,
+        }
+      None  (URL not streamable - caller falls back to /api/process slow path)
 
-    Eligibility constraints (any failure -> return None):
-      * `fmt` must be `mp4`. MP3 always needs ffmpeg post-processing
-        and can't be served by the streaming fast-path.
-      * The chosen format must be a SINGLE file containing both video
-        and audio tracks. Sites that serve separated streams
-        (YouTube above ~360p, most DASH-only sites) require a merge
-        which the fast-path can't do.
-      * Format protocol must be plain `http` / `https`. HLS / DASH
-        / m3u8 / mpd / fragment lists need server-side fragment
-        assembly.
-      * Format extension must be `mp4` (browser-native, no
-        transmux needed). webm / mkv / etc. would play in the
-        browser but the user asked for `.mp4` so we fall back to
-        the server pipeline which can re-mux.
-      * Format height must not exceed the requested quality cap.
-        (We deliberately don't bump UP to a higher merged stream
-        if available - the user's quality choice is a ceiling.)
+    Tier 1 eligibility (single-file HTTP MP4):
+      * `fmt` must be `mp4`.
+      * Chosen format must contain BOTH video and audio tracks
+        (no separated DASH streams).
+      * Protocol must be plain `http` / `https` (no HLS / DASH).
+      * Container must be `mp4`.
+      * Height must not exceed the requested quality cap.
 
-    The format selection is deliberately conservative: the fast-path
-    is meant to be a no-cost win where it works, not a clever
-    quality selector. If the best merged direct MP4 is significantly
-    below what the user asked for, the caller can still fall back to
-    `/api/process` and get the higher-quality merged result the slow
-    way."""
+    Tier 2 eligibility (yt-dlp pipe):
+      * `fmt` must be `mp4`.
+      * `extract_info` must succeed AND return at least one video
+        format. Anything yt-dlp knows how to download qualifies -
+        the actual pipe-stream uses `yt-dlp --output -` which
+        handles HLS, DASH, separated-stream merging, fragment
+        assembly, cookies, and per-domain proxy via the same code
+        paths as the slow `/api/process` pipeline.
+
+    MP3 always returns None (needs ffmpeg post-encode -> slow path).
+    """
     if fmt != "mp4":
         return None
     target_height = QUALITY_HEIGHTS.get(quality, MAX_VIDEO_HEIGHT)
@@ -1124,19 +1131,21 @@ def _resolve_direct_format(url: str, fmt: str, quality: str) -> Optional[dict]:
     if info is None:
         return None
 
+    title = (info.get("title") or "Untitled")[:200]
+    extractor = info.get("extractor_key")
     formats = info.get("formats") or []
-    candidates = []
+
+    # ----- Tier 1: single-file HTTP MP4 (fastest path) -----
+    direct_candidates = []
     for f in formats:
         if not isinstance(f, dict):
             continue
         if not f.get("url"):
             continue
-        # Must be a complete file (both tracks present, single file).
         if f.get("vcodec") in (None, "none"):
             continue
         if f.get("acodec") in (None, "none"):
             continue
-        # No fragment/segment lists - those need merging.
         if f.get("fragments"):
             continue
         proto = (f.get("protocol") or "").lower()
@@ -1147,34 +1156,54 @@ def _resolve_direct_format(url: str, fmt: str, quality: str) -> Optional[dict]:
         height = f.get("height") or 0
         if height > target_height:
             continue
-        candidates.append(f)
+        direct_candidates.append(f)
 
-    if not candidates:
+    if direct_candidates:
+        direct_candidates.sort(
+            key=lambda f: (
+                f.get("height") or 0,
+                f.get("tbr") or 0,
+                f.get("filesize") or f.get("filesize_approx") or 0,
+            ),
+            reverse=True,
+        )
+        best = direct_candidates[0]
+        headers = dict(best.get("http_headers") or {})
+        headers.setdefault("User-Agent", YDL_USER_AGENT)
+        return {
+            "method": "direct",
+            "url": best["url"],
+            "headers": headers,
+            "ext": "mp4",
+            "filesize": best.get("filesize") or best.get("filesize_approx"),
+            "title": title,
+            "extractor": extractor,
+            "mime_type": "video/mp4",
+            "height": best.get("height") or 0,
+        }
+
+    # ----- Tier 2: yt-dlp subprocess pipe -----
+    # Anything yt-dlp can download qualifies. We don't pick a
+    # specific format here - yt-dlp's own format selector in the
+    # subprocess invocation handles that. Just verify there's
+    # at least one video format so we don't issue a token for a
+    # URL that's actually audio-only or unsupported.
+    has_video = any(
+        isinstance(f, dict) and f.get("vcodec") and f.get("vcodec") != "none"
+        for f in formats
+    )
+    if not has_video:
         return None
 
-    # Highest height first, then highest tbr (total bitrate) as a
-    # quality tie-breaker, then biggest known filesize.
-    candidates.sort(
-        key=lambda f: (
-            f.get("height") or 0,
-            f.get("tbr") or 0,
-            f.get("filesize") or f.get("filesize_approx") or 0,
-        ),
-        reverse=True,
-    )
-    best = candidates[0]
-    headers = dict(best.get("http_headers") or {})
-    headers.setdefault("User-Agent", YDL_USER_AGENT)
-
     return {
-        "url": best["url"],
-        "headers": headers,
-        "ext": "mp4",
-        "filesize": best.get("filesize") or best.get("filesize_approx"),
-        "title": (info.get("title") or "Untitled")[:200],
-        "extractor": info.get("extractor_key"),
+        "method": "ytdlp-pipe",
+        "source_url": url,
+        "target_height": target_height,
+        "title": title,
+        "extractor": extractor,
         "mime_type": "video/mp4",
-        "height": best.get("height") or 0,
+        "filesize": None,
+        "height": target_height,  # cap; actual could be lower
     }
 
 
@@ -2264,7 +2293,7 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
 
     try:
         resolved = await asyncio.wait_for(
-            asyncio.to_thread(_resolve_direct_format, clean_url, fmt, quality_choice),
+            asyncio.to_thread(_resolve_streamable_format, clean_url, fmt, quality_choice),
             timeout=25,
         )
     except asyncio.TimeoutError:
@@ -2312,14 +2341,14 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
 
 @app.get("/api/stream/{token}", include_in_schema=False)
 async def api_stream_serve(token: str, request: Request):
-    """Pop the token, open an upstream streaming GET, pipe bytes
-    through to the client. NO filesize cap, NO total-time timeout -
-    only a per-chunk read-timeout (STREAM_READ_TIMEOUT_S) catches
-    upstreams that go silent.
+    """Pop the token, dispatch to the streaming method recorded at
+    issue time. NO filesize cap, NO total-time timeout in either
+    branch - only liveness checks (per-chunk read-timeout for
+    direct, subprocess-alive for ytdlp-pipe).
 
-    The browser's native download bar handles progress; we just
-    pass `Content-Length` through if known so the bar isn't
-    indeterminate."""
+    The browser's native download bar handles progress; we pass
+    `Content-Length` through for the direct branch when upstream
+    advertises one (the pipe branch can't know in advance)."""
     _purge_expired_stream_tokens()
     with _stream_tokens_lock:
         # One-shot: pop. Even if the user retries the same URL,
@@ -2347,7 +2376,7 @@ async def api_stream_serve(token: str, request: Request):
             )
         _active_streams[ip] = _active_streams.get(ip, 0) + 1
 
-    def _release_slot() -> None:
+    def release_slot() -> None:
         with _active_streams_lock:
             n = _active_streams.get(ip, 0) - 1
             if n <= 0:
@@ -2355,6 +2384,22 @@ async def api_stream_serve(token: str, request: Request):
             else:
                 _active_streams[ip] = n
 
+    method = resolved.get("method", "direct")
+    if method == "direct":
+        return _serve_stream_direct(resolved, release_slot)
+    elif method == "ytdlp-pipe":
+        return _serve_stream_ytdlp_pipe(resolved, release_slot)
+    else:
+        release_slot()
+        raise HTTPException(status_code=500, detail=f"Unknown stream method: {method}")
+
+
+def _serve_stream_direct(resolved: dict, release_slot) -> StreamingResponse:
+    """Tier-1 streaming: open a single HTTP GET and pipe the bytes
+    straight through. Lowest overhead - no subprocess, no remux,
+    just a TCP relay. Filesize cap and total-time cap are absent;
+    a per-chunk read-timeout (`STREAM_READ_TIMEOUT_S`) catches
+    upstreams that go silent."""
     upstream_url = resolved["url"]
     headers = dict(resolved.get("headers") or {})
     headers.setdefault("User-Agent", YDL_USER_AGENT)
@@ -2381,14 +2426,10 @@ async def api_stream_serve(token: str, request: Request):
         )
         upstream.raise_for_status()
     except requests.RequestException as exc:
-        _release_slot()
+        release_slot()
         log.warning("stream upstream connect failed: %s", exc)
         raise HTTPException(status_code=502, detail="Couldn't reach the source server. Try again or use the desktop app.")
 
-    # Pass Content-Length through if upstream advertised one (gives
-    # the browser an accurate progress bar and lets the user see
-    # a final size). Don't fabricate one from filesize_approx -
-    # mismatches break some browser download UIs.
     response_headers = {
         "Content-Disposition": f'attachment; filename="{resolved["filename"]}"',
         "Cache-Control": "no-store",
@@ -2406,9 +2447,6 @@ async def api_stream_serve(token: str, request: Request):
                 if chunk:
                     yield chunk
         except (requests.RequestException, GeneratorExit):
-            # Client disconnected or upstream timed out / errored.
-            # Either way, just stop yielding - StreamingResponse
-            # handles the rest.
             pass
         except Exception:
             log.exception("stream pipe failed mid-flight")
@@ -2417,7 +2455,130 @@ async def api_stream_serve(token: str, request: Request):
                 upstream.close()
             except Exception:
                 pass
-            _release_slot()
+            release_slot()
+
+    return StreamingResponse(gen(), media_type=media_type, headers=response_headers)
+
+
+def _serve_stream_ytdlp_pipe(resolved: dict, release_slot) -> StreamingResponse:
+    """Tier-2 streaming: spawn `python -m yt_dlp --output -` as a
+    subprocess and pipe its stdout straight to the client. This is
+    what makes HLS / DASH / segmented / separated-stream sources
+    work without disk buffering: yt-dlp emits the muxed MP4
+    incrementally, the client receives bytes as they're produced,
+    no `/tmp` involvement, no 360s wall-clock cap.
+
+    yt-dlp is a much heavier subprocess than a single TCP relay
+    (Python startup + extractor + maybe ffmpeg for merging), but
+    it inherits ALL the extractor and proxy logic from the slow
+    path - cookies, headers, residential proxy routing, retries,
+    every site yt-dlp supports. The trade-off is worth it for the
+    URLs that tier-1 can't catch."""
+    import sys
+    import subprocess
+
+    source_url = resolved["source_url"]
+    target_height = int(resolved.get("target_height") or MAX_VIDEO_HEIGHT)
+
+    # Format selector: prefer best video + best audio combo at-or-
+    # below the requested height, fall back to best combined, fall
+    # back to absolute best. yt-dlp's selector grammar handles the
+    # priority order left-to-right (`/` = "or").
+    fmt_selector = (
+        f"bv*[height<={target_height}][ext=mp4]+ba[ext=m4a]"
+        f"/b[height<={target_height}][ext=mp4]"
+        f"/bv*[height<={target_height}]+ba"
+        f"/b[height<={target_height}]"
+        f"/b"
+    )
+
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--quiet", "--no-warnings", "--no-progress", "--no-call-home",
+        "--no-mtime", "--no-part",
+        "--format", fmt_selector,
+        "--merge-output-format", "mp4",
+        "--output", "-",
+        "--user-agent", YDL_USER_AGENT,
+        "--socket-timeout", "30",
+        "--retries", "3",
+    ]
+    if YT_COOKIES_FILE:
+        cmd += ["--cookies", YT_COOKIES_FILE]
+
+    try:
+        proxy_url = _proxy_router.proxy_for(source_url)
+    except Exception:
+        log.exception("ytdlp-pipe proxy_for() failed; falling back to direct")
+        proxy_url = None
+    if proxy_url:
+        cmd += ["--proxy", proxy_url]
+
+    cmd.append(source_url)
+
+    try:
+        # `bufsize=0` -> unbuffered stdout, so chunks reach us as
+        # yt-dlp produces them rather than getting stuck in a
+        # 4 KiB stdio buffer.
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+    except Exception as exc:
+        release_slot()
+        log.warning("ytdlp-pipe spawn failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Couldn't start the download. Try again or use the desktop app.")
+
+    response_headers = {
+        "Content-Disposition": f'attachment; filename="{resolved["filename"]}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    media_type = resolved.get("mime_type") or "application/octet-stream"
+
+    def gen():
+        try:
+            while True:
+                chunk = proc.stdout.read(STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
+        except (OSError, GeneratorExit):
+            pass
+        except Exception:
+            log.exception("ytdlp-pipe gen failed mid-flight")
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # Drain stderr for log diagnostics. Capped so a chatty
+            # extractor can't blow the log buffer.
+            try:
+                err_tail = proc.stderr.read(8192) if proc.stderr else b""
+                if err_tail:
+                    log.info("ytdlp-pipe stderr tail: %s", err_tail[-2048:].decode("utf-8", "replace"))
+            except Exception:
+                pass
+            try:
+                if proc.stderr:
+                    proc.stderr.close()
+            except Exception:
+                pass
+            release_slot()
 
     return StreamingResponse(gen(), media_type=media_type, headers=response_headers)
 

@@ -20,6 +20,74 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.17.1-alpha] - 2026-05-17
+
+Streaming fast-path tier 2 (yt-dlp subprocess pipe). Resolves
+the "still hitting the 360s cap on tube sites" feedback - the
+fast path now catches HLS / DASH / segmented / separated-stream
+sources too, not just single-file HTTP MP4s.
+
+### Why
+
+`mini-2026.05.16.4-alpha`'s fast path covered single-file HTTP
+MP4s only. Sites that serve HLS (`m3u8`) or DASH (`mpd`), use
+fragmented streams, or split video and audio into separate
+URLs (most YouTube > 360p, ~all "tube" sites including
+thisvid.com) were filtered out at the `protocol in ('https',
+'http')` gate in `_resolve_direct_format` and fell through to
+the slow `/api/process` pipeline - which still has a 360s
+wall-clock cap because it actually buffers to `/tmp`. Result:
+those URLs hit "Source download exceeded the 360s mini-app cap"
+exactly like before the fast path existed.
+
+### Added
+
+- **Tier 2: yt-dlp subprocess pipe.** When tier 1 (single-file
+  HTTP MP4) doesn't match but yt-dlp can still extract the URL,
+  the stream endpoint now spawns `python -m yt_dlp --output -`
+  as a subprocess and pipes its stdout straight to the client.
+  yt-dlp handles HLS fragment assembly, DASH manifest parsing,
+  separated-stream merging, cookies, residential proxy, and
+  retries via the same code paths as the slow pipeline - we
+  just skip its disk-write step by using `--output -`.
+- **`_resolve_streamable_format(url, fmt, quality)`** - replaces
+  `_resolve_direct_format`. Returns one of:
+    - `{"method": "direct", "url": ..., "headers": ...}` (tier 1, fastest)
+    - `{"method": "ytdlp-pipe", "source_url": ..., "target_height": ...}` (tier 2)
+    - `None` (URL truly unsupported - falls back to /api/process)
+- **`_serve_stream_direct` + `_serve_stream_ytdlp_pipe`** -
+  the two streaming branches, dispatched by `/api/stream/{token}`
+  based on the method recorded at issue time.
+- **`proxy_router.py` additions.** thisvid.com, ttcache.com,
+  eporner.com / epornercdn.com, redgifs.com / rdgcdn.com now
+  route through the residential proxy. They were datacenter-
+  hostile but absent from the previous allowlist, which is why
+  download speed was poor even when the URL did download.
+
+### What still falls back to the slow path
+
+- Censor modes (silence / beep) - the server has to mux every
+  byte through the censor pipeline anyway.
+- MP3 downloads - need ffmpeg post-encode.
+- URLs yt-dlp can't extract at all (anti-bot walls, login
+  gates, geo-blocked content where the proxy doesn't help).
+
+### Notes
+
+- The `ytdlp-pipe` branch is heavier than the `direct` branch:
+  one Python subprocess + maybe an internal ffmpeg merge
+  process per stream. Falls under the same per-IP concurrency
+  cap (`STREAM_MAX_PER_IP=5`) as direct streams. If we ever
+  see CPU pressure from many concurrent pipe-streams I'll add
+  a separate `STREAM_PIPE_MAX_INFLIGHT` global cap; for now,
+  the natural CPU saturation is the throttle.
+- Output MP4 from `ytdlp-pipe` has the moov atom at the END
+  rather than fragmented (we don't pass `-movflags
+  +frag_keyframe+empty_moov` to yt-dlp's internal ffmpeg).
+  That's fine for SAVING (browser writes bytes to disk as they
+  arrive); it would matter for in-browser PLAYBACK during the
+  download, which we don't do.
+
 ## [mini-2026.05.16.4-alpha] - 2026-05-16
 
 Speed knob tweaks on the streaming fast-path. No protocol or

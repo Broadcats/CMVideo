@@ -534,10 +534,15 @@ def validate_decision(decision: LLMDecision, capture: PageCapture) -> str:
     )
     on_known_cdn = _hostname_endswith_any(host, ALLOWED_CDN_SUFFIXES)
     if not (on_page_domain or on_known_cdn):
+        # User-facing wording deliberately neutral. Earlier copy
+        # mentioned "anti-hallucination + anti-SSRF" which (a)
+        # leaks implementation jargon to end users and (b) was
+        # alarming-looking in the red error banner. The check
+        # itself is unchanged - we still refuse to fetch URLs
+        # that aren't on the page's own domain or a vetted CDN.
         raise RuntimeError(
-            f"LLM URL host {host} is neither on the page's domain "
-            f"({page_root}) nor on the known CDN allowlist. Refusing "
-            f"to fetch (anti-hallucination + anti-SSRF)."
+            f"AI extractor returned an off-domain URL ({host}); "
+            f"skipped for safety."
         )
 
     # Anti-hallucination: the URL the LLM picked must actually have
@@ -548,9 +553,15 @@ def validate_decision(decision: LLMDecision, capture: PageCapture) -> str:
         # path-prefix match.
         target_pathonly = parsed._replace(query="", fragment="").geturl()
         if not any(u.startswith(target_pathonly) for u in seen_urls):
+            # Same neutral-wording rationale as the off-domain
+            # check above. The check still verifies the AI's
+            # picked URL actually appeared in the page's network
+            # log (so it can't invent a synthetic URL we'd then
+            # blindly fetch); we just don't say "hallucination"
+            # in user-facing text any more.
             raise RuntimeError(
-                f"LLM URL did not appear in the network log "
-                f"(possible hallucination): {decision.video_url}"
+                f"AI extractor returned a URL not seen on the page; "
+                f"skipped for safety."
             )
 
     return decision.video_url

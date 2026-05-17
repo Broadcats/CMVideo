@@ -144,13 +144,141 @@ def _read_extra_domains() -> tuple[str, ...]:
 _EXTRA_DOMAINS: tuple[str, ...] = _read_extra_domains()
 
 
+def _normalize_proxy_url(raw: str) -> str:
+    """Normalize the configured proxy URL to standard
+    `<scheme>://<user>:<pass>@<host>:<port>` form.
+
+    Why this matters:
+        IPRoyal's dashboard displays creds in a compact
+        `host:port:user:pass` format. Operators frequently
+        paste that form straight into the env var with `http://`
+        prepended, producing `http://host:port:user:pass`. yt-dlp
+        cannot parse that (only one `:` is allowed between scheme
+        and host), and its error message echoes the WHOLE URL
+        VERBATIM - which historically leaked the proxy
+        credentials into user-facing extraction errors.
+
+        Detect this format and rewrite to the standard URL form
+        BEFORE handing it to any downstream tool. Operators don't
+        have to remember the right separator.
+
+    Accepted shapes (case-insensitive on the scheme):
+        host:port:user:pass             -> http://user:pass@host:port
+        http://host:port:user:pass      -> http://user:pass@host:port
+        http://user:pass@host:port      -> unchanged
+        socks5://...                    -> unchanged
+        (anything with `@`)             -> unchanged
+
+    The rewrite is purely lexical - we don't validate the host
+    or port. The downstream tool (yt-dlp / requests) will reject
+    obvious garbage with a normal "couldn't connect" error
+    instead of echoing the credentials in a parse error.
+    """
+    s = raw.strip()
+    if not s:
+        return s
+    # Already-correct standard form: anything with '@' is assumed
+    # to be `scheme://user:pass@host` and left alone. yt-dlp /
+    # requests both accept this.
+    if "@" in s:
+        return s
+    # Optional scheme prefix - handle both "scheme://body" and
+    # bare body. We only normalize HTTP-ish schemes; leave SOCKS
+    # alone since IPRoyal's compact format is HTTP-only.
+    scheme = "http"
+    body = s
+    if "://" in s:
+        head, body = s.split("://", 1)
+        head_lower = head.lower()
+        if head_lower not in ("http", "https"):
+            return s  # SOCKS or unknown scheme: hands off
+        scheme = head_lower
+    parts = body.split(":")
+    # iProyal compact form is exactly 4 colon-separated parts:
+    # host:port:user:pass. Anything else (3 parts = host:port:user
+    # with no password, 5+ = colon in password we can't safely
+    # disambiguate) we leave alone and let downstream complain.
+    if len(parts) != 4:
+        return s
+    host, port, user, pwd = parts
+    if not host or not port.isdigit() or not user or not pwd:
+        return s
+    return f"{scheme}://{user}:{pwd}@{host}:{port}"
+
+
 def proxy_url() -> Optional[str]:
-    """Return the configured residential proxy URL, or None if the
+    """Return the configured residential proxy URL, normalized to
+    standard `scheme://user:pass@host:port` form, or None if the
     operator hasn't set CMVIDEO_RESIDENTIAL_PROXY. Reading at call
     time (not module load) lets HF restart-on-secret-change apply
     without needing a code redeploy."""
-    val = (os.environ.get("CMVIDEO_RESIDENTIAL_PROXY") or "").strip()
+    val = _normalize_proxy_url(os.environ.get("CMVIDEO_RESIDENTIAL_PROXY") or "")
     return val or None
+
+
+# Pattern matches the auth segment of a URL-shaped substring:
+#   <scheme>://<user>:<pass>@<host>...
+# Used by `redact_secrets()`. Public regex compiled once.
+_STD_AUTH_RE = __import__("re").compile(r'(://)[^:@/\s]+:[^@/\s]+@')
+
+
+def redact_secrets(text: str) -> str:
+    """Scrub residential-proxy credentials from `text`. Apply at
+    EVERY boundary where extractor / yt-dlp / playwright error
+    messages flow into a log line OR a user-facing response.
+
+    Defense-in-depth: this function applies THREE passes because
+    different downstream tools mangle the proxy URL into different
+    shapes when they reject it.
+
+    Pass 1 - URL-shape regex:
+        `http://user:pass@host:port` -> `http://***:***@host:port`
+        Catches anything that's still in standard URL form.
+
+    Pass 2 - literal env-var value:
+        Replaces the whole `CMVIDEO_RESIDENTIAL_PROXY` value with
+        `***` whenever it appears verbatim in `text`. Catches the
+        case where some tool echoes the original (un-normalized)
+        env-var form, e.g. iProyal's `host:port:user:pass`
+        compact format that yt-dlp can't parse.
+
+    Pass 3 - cred fragments:
+        Replaces just the user and password substrings (extracted
+        from the normalized URL) with `***` independently. Catches
+        partial echoes like "auth failed for user XXX" or "503
+        from upstream YYY:port" that wouldn't match either of the
+        first two passes.
+
+    Cost: three regex/string passes per call, each O(n) on the
+    input. Negligible for log lines and error messages."""
+    if not text:
+        return text
+    out = _STD_AUTH_RE.sub(r'\1***:***@', text)
+    raw = (os.environ.get("CMVIDEO_RESIDENTIAL_PROXY") or "").strip()
+    if raw and raw in out:
+        out = out.replace(raw, "***")
+    normalized = _normalize_proxy_url(raw)
+    if normalized and normalized in out:
+        out = out.replace(normalized, "***")
+    if normalized and "@" in normalized and "://" in normalized:
+        try:
+            after_scheme = normalized.split("://", 1)[1]
+            auth = after_scheme.split("@", 1)[0]
+            if ":" in auth:
+                user, pwd = auth.split(":", 1)
+                # Replace the password first - it's the longer,
+                # higher-entropy token and more dangerous to leak.
+                # Guard against accidentally matching short common
+                # words by requiring at least 6 characters; iProyal
+                # passwords are always longer than that. Ditto for
+                # usernames (their format is alnum+, 12-20 chars).
+                if pwd and len(pwd) >= 6:
+                    out = out.replace(pwd, "***")
+                if user and len(user) >= 6:
+                    out = out.replace(user, "***")
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 def is_configured() -> bool:

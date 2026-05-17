@@ -20,6 +20,94 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.17.4-alpha] - 2026-05-17
+
+**SECURITY HOTFIX.** Residential-proxy credentials were being
+echoed verbatim into user-facing extraction-error responses.
+Anyone hitting an "All extractors failed" error in the browser
+saw the operator's IPRoyal username and password in the red
+error banner. Two root causes:
+
+1. **`CMVIDEO_RESIDENTIAL_PROXY` env var set in IPRoyal's
+   compact `host:port:user:pass` display format** instead of the
+   standard `scheme://user:pass@host:port` URL form. yt-dlp
+   couldn't parse that URL, raised `Failed to parse: <full URL>`
+   with the credentials embedded in the message, and the
+   extractor-chain renderer concatenated the whole exception
+   text into the user-facing error.
+2. **No redaction at the user-facing error boundary.** Earlier
+   work (`mini-2026.05.17.2-alpha`) added cred redaction to log
+   lines but did not apply it to the rendered `ExtractionError`
+   text or the `_emit` chokepoint that builds the per-attempt
+   error list.
+
+### Action required for the operator
+
+**Rotate the IPRoyal proxy password.** The password was
+plaintext in any browser that hit the failing extraction page,
+and it was almost certainly in HF Space request logs as part of
+the response body. Treat it as compromised. After rotating, set
+`CMVIDEO_RESIDENTIAL_PROXY` in HF Secrets to either the standard
+URL form OR the compact form - both are now accepted (see
+"Changed" below).
+
+### Fixed
+
+- **`proxy_router.proxy_url()` normalizes IPRoyal compact format.**
+  Detects the `[scheme://]host:port:user:pass` shape (4 colon-
+  separated parts after the optional scheme, no `@`) and rewrites
+  to standard URL form before returning to callers. Already-
+  correct standard form, SOCKS URLs, and any URL with `@` are
+  passed through unchanged. yt-dlp / requests now always receive
+  a parseable URL, so they no longer raise "Failed to parse"
+  errors echoing the credentials.
+- **`proxy_router.redact_secrets(text)` public helper** with
+  three-pass scrubbing:
+  - Pass 1: regex on `://user:pass@` URL-form auth segments.
+  - Pass 2: literal-substring replacement of the raw env-var
+    value (catches the un-normalized form some tools echo).
+  - Pass 3: literal substring replacement of the user and
+    password fragments individually (catches partial echoes
+    like "auth failed for user X" or "password Y rejected").
+  Length-guarded (>= 6 chars) on Pass 3 so it doesn't accidentally
+  match short common words.
+- **Redaction applied at every error-emission boundary:**
+  - `extractors._emit(tool, msg)` - scrubs before appending to
+    the per-attempt list and before invoking `on_attempt`.
+  - `extractors.ExtractionError.__str__()` - scrubs the rendered
+    exception text as a defense-in-depth pass.
+  - `app.py` `_do_download` catch-and-reraise - scrubs the
+    `DownloadError(...)` text before it escapes to the job state.
+- **LLM extractor user-facing wording neutralized.** The
+  off-domain and off-network-log safety checks previously raised
+  with text containing "anti-hallucination + anti-SSRF" / "possible
+  hallucination" - implementation jargon that read as alarming
+  in the red error banner. The checks themselves are unchanged
+  (still refuse off-domain URLs and URLs not seen on the page);
+  only the user-visible message is now plain English ("AI
+  extractor returned an off-domain URL; skipped for safety").
+
+### Changed
+
+- `CMVIDEO_RESIDENTIAL_PROXY` accepts BOTH formats now:
+  - `http://user:pass@host:port` (standard URL form)
+  - `host:port:user:pass` (IPRoyal dashboard compact form)
+  - `http://host:port:user:pass` (compact form with scheme prefix)
+  All three normalize to the standard URL form internally.
+
+### Notes
+
+- The fix is multi-layered on purpose. Even if a future code
+  path bypasses one of the redaction points, the others catch
+  it - the `__str__` boundary catches anything that goes through
+  the standard exception-rendering path, and the explicit
+  `redact_secrets` call in `app.py` catches direct
+  `exc.message` / `exc.attempts` access.
+- Smoke tests verify: simulating the exact leaked-env-var
+  configuration with the screenshot's exception data renders
+  with `***` in place of the username and password, and with
+  the "anti-hallucination" jargon replaced by neutral wording.
+
 ## [mini-2026.05.17.3-alpha] - 2026-05-17
 
 Streaming fast-path tier-0 + tier-1/2 filter relaxation. Adds a

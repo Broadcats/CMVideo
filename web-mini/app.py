@@ -1061,7 +1061,12 @@ def _do_download(
         # Surface as a yt-dlp DownloadError-shaped exception so the
         # caller's friendly-error mapping still works for the common
         # cases. Tools that ran are listed in the exception text.
-        raise yt_dlp.utils.DownloadError(str(exc)) from exc
+        # Defense-in-depth pass through `redact_secrets` even though
+        # `ExtractionError.__str__` already redacts - this catches
+        # the case where someone constructs the DownloadError text
+        # from `exc.message` or `exc.attempts` directly without
+        # going through `__str__`.
+        raise yt_dlp.utils.DownloadError(_proxy_router.redact_secrets(str(exc))) from exc
 
     if result.path.suffix.lower() != f".{fmt}":
         # gallery-dl / Cobalt may hand us a different container. The

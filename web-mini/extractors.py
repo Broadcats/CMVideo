@@ -237,9 +237,20 @@ class ExtractionError(Exception):
     terminal: bool = False  # True = no further fallback would help
 
     def __str__(self) -> str:
+        # Defense in depth: redact residential-proxy credentials
+        # from the rendered exception text. Per-attempt strings
+        # are already redacted by `_emit`, but the top-level
+        # `message` is composed at multiple call sites in this
+        # file and at least one of those (`Last error: {...}`)
+        # quotes the raw last-attempt error verbatim. Doing one
+        # more redaction pass at the rendering boundary is the
+        # cheapest insurance against leaking creds into a
+        # user-facing error response.
         if self.attempts:
-            return f"{self.message} (tried: {', '.join(self.attempts)})"
-        return self.message
+            text = f"{self.message} (tried: {', '.join(self.attempts)})"
+        else:
+            text = self.message
+        return _proxy_router.redact_secrets(text)
 
 
 # Errors yt-dlp throws that are *not* worth retrying with another tool.
@@ -1323,10 +1334,21 @@ def extract_with_fallbacks(
     )
 
     def _emit(tool: str, msg: str) -> None:
-        attempts.append(f"{tool}: {msg[:120]}")
+        # CRITICAL: scrub residential-proxy credentials BEFORE the
+        # message lands in `attempts` or reaches the on_attempt
+        # progress callback. Some downstream tools (yt-dlp's
+        # "Failed to parse: <full URL>" error in particular) echo
+        # the proxy URL verbatim in their exception text, and
+        # `attempts` is rendered into the user-facing extraction
+        # error string by `ExtractionError.__str__`. Without this
+        # pass, a single misconfigured proxy URL leaks the
+        # credentials to every user that sees an "All extractors
+        # failed" error in their browser.
+        clean = _proxy_router.redact_secrets(msg or "")
+        attempts.append(f"{tool}: {clean[:120]}")
         if on_attempt:
             try:
-                on_attempt(tool, msg)
+                on_attempt(tool, clean)
             except Exception:  # noqa: BLE001
                 pass
 

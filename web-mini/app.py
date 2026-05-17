@@ -1120,6 +1120,136 @@ def _do_info(url: str) -> dict:
     }
 
 
+# Tier 0 only handles the MP4 container family (.mp4 / .m4v /
+# .mov are all ISOBMFF and play interchangeably in browsers when
+# served with `Content-Disposition: ...mp4`). Other containers
+# (.webm, .mkv, .avi, .flv) MUST go through yt-dlp tier 2 so it
+# can re-mux into mp4 - serving raw .mkv bytes labeled `.mp4`
+# would download a file the browser refuses to play.
+_DIRECT_VIDEO_EXTS = (".mp4", ".m4v", ".mov")
+_DIRECT_OK_CONTENT_TYPES = (
+    "video/mp4", "video/x-m4v", "video/quicktime",
+    "application/mp4", "application/octet-stream", "binary/octet-stream",
+)
+_DIRECT_MP4_MIMES = ("video/mp4", "video/x-m4v", "application/mp4", "video/quicktime")
+
+
+def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
+    """Tier 0 of the fast path: plain direct media URL, no yt-dlp.
+
+    Probes `url` with a small ranged GET (1 byte) - servers that
+    don't honour HEAD usually still answer Range, and a 1-byte read
+    leaves no measurable bandwidth footprint. Returns a `method:
+    direct` dict if the response looks like a streamable MP4, else
+    None so the caller falls through to yt-dlp.
+
+    Why ranged GET instead of HEAD:
+      * Some CDNs return 405 / 403 / different headers on HEAD.
+      * `Range: bytes=0-0` always returns the same Content-Type
+        as a full GET would, with `Content-Range` confirming the
+        total size, even on servers with broken HEAD.
+      * Closes the connection immediately after the 1-byte body.
+
+    Returns the same `method: direct` shape that tier 1 uses so
+    `api_stream_serve` doesn't need a separate dispatch branch.
+    """
+    try:
+        path_lower = urlparse(url).path.lower()
+    except Exception:
+        return None
+    if not any(path_lower.endswith(ext) for ext in _DIRECT_VIDEO_EXTS):
+        return None
+
+    headers = {
+        "User-Agent": YDL_USER_AGENT,
+        "Range": "bytes=0-0",
+        "Accept": "*/*",
+    }
+    # Per-domain residential proxy for consistency with the rest
+    # of the pipeline. Direct URLs are usually CDN-hosted and not
+    # IP-gated, but if they ARE on the proxy allowlist (e.g. a
+    # tube CDN) we want to hit them through the same egress IP
+    # the eventual stream will use, otherwise we'd probe-and-
+    # serve from two different IPs and might trip session-binding.
+    proxies = None
+    try:
+        p = _proxy_router.proxy_for_url(url)
+        if p:
+            proxies = {"http": p, "https": p}
+    except Exception:
+        log.exception("streamable tier-0: proxy_for_url() failed; falling back to direct")
+
+    try:
+        resp = requests.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(STREAM_CONNECT_TIMEOUT_S, 12),
+            allow_redirects=True,
+            proxies=proxies,
+        )
+    except requests.RequestException as exc:
+        log.info("streamable tier-0: probe failed for %s: %s: %s",
+                 _proxy_router._hostname_of(url),
+                 type(exc).__name__,
+                 _safe_log_msg(exc))
+        return None
+
+    try:
+        # 200 OK or 206 Partial Content both mean we got bytes.
+        # Anything else (3xx redirect chains beyond `allow_redirects`,
+        # 4xx access denied, 5xx server error) means this isn't a
+        # plain media URL we can stream.
+        if resp.status_code not in (200, 206):
+            return None
+        ct_raw = (resp.headers.get("Content-Type") or "").lower()
+        ct = ct_raw.split(";", 1)[0].strip()
+        if not ct.startswith(_DIRECT_OK_CONTENT_TYPES):
+            return None
+        # We pass the ORIGINAL URL through to the stream, NOT
+        # `resp.url` (the post-redirect URL). Some CDNs 302 to
+        # short-lived signed URLs whose tokens expire between the
+        # probe and the actual stream GET; re-walking the redirect
+        # chain at stream time always produces a fresh token. The
+        # extra ~50ms round trip is invisible compared to the
+        # streaming throughput.
+        # Filesize: prefer Content-Range total (under Range request)
+        # over Content-Length (which would be the partial size).
+        cr = resp.headers.get("Content-Range") or ""
+        filesize = None
+        if "/" in cr:
+            tail = cr.rsplit("/", 1)[-1].strip()
+            if tail.isdigit():
+                filesize = int(tail)
+        if filesize is None:
+            cl = resp.headers.get("Content-Length") or ""
+            if cl.isdigit():
+                filesize = int(cl)
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+    # Filename from URL path. We don't have a real title here -
+    # `_safe_name` in the caller normalises and adds the .mp4
+    # extension regardless.
+    title = path_lower.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "video"
+    mime_type = "video/mp4" if ct in _DIRECT_MP4_MIMES else (ct or "video/mp4")
+
+    return {
+        "method": "direct",
+        "url": url,
+        "headers": {"User-Agent": YDL_USER_AGENT},
+        "ext": "mp4",
+        "filesize": filesize,
+        "title": title,
+        "extractor": "direct-url",
+        "mime_type": mime_type,
+        "height": 0,
+    }
+
+
 def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dict]:
     """Resolve `url` to a streamable format. Two tiers, fastest-first.
 
@@ -1163,6 +1293,21 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     if fmt != "mp4":
         return None
     target_height = QUALITY_HEIGHTS.get(quality, MAX_VIDEO_HEIGHT)
+
+    # ----- Tier 0: plain direct media URL (no yt-dlp at all) -----
+    # If the URL path ends with a known video extension AND a
+    # quick HEAD-style GET confirms `Content-Type: video/*`, we
+    # don't need yt-dlp to extract anything - the URL itself IS
+    # the streamable resource. yt-dlp's `Generic` extractor often
+    # fills `vcodec`/`acodec` as `'none'` for direct URLs because
+    # it doesn't probe file contents, which used to fail both
+    # tier-1 and tier-2's codec checks and bounce to 422 even
+    # for trivially-streamable links like a sample MP4 hosted on
+    # a static CDN. Mirrors the slow path's `_direct_url_fast_path`
+    # which has been doing this since 0.4.x.
+    direct = _resolve_streamable_direct_url(url)
+    if direct is not None:
+        return direct
 
     info_opts = {
         "quiet": True,
@@ -1216,18 +1361,35 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     formats = info.get("formats") or []
 
     # ----- Tier 1: single-file HTTP MP4 (fastest path) -----
+    # Codec-field semantics in yt-dlp:
+    #   vcodec=h264, acodec=aac : muxed video+audio (what we want)
+    #   vcodec=h264, acodec=none: video-only, needs separate
+    #                             audio merge -> reject (tier 2)
+    #   vcodec=none, acodec=aac : audio-only -> reject (mp4 mode
+    #                             needs video; tier 2 won't help)
+    #   vcodec=none, acodec=none: unknown - usually means yt-dlp's
+    #                             Generic extractor returned the
+    #                             URL without probing file content.
+    #                             For an .mp4 ext it's almost
+    #                             always actually muxed, so we
+    #                             accept. The previous logic
+    #                             rejected this case and dropped
+    #                             a whole class of streamable URLs
+    #                             into the slow-path 422 fallback.
     direct_candidates = []
     for f in formats:
         if not isinstance(f, dict):
             continue
         if not f.get("url"):
             continue
-        if f.get("vcodec") in (None, "none"):
-            continue
-        if f.get("acodec") in (None, "none"):
-            continue
         if f.get("fragments"):
             continue
+        v = f.get("vcodec") or "none"
+        a = f.get("acodec") or "none"
+        if v == "none" and a != "none":
+            continue  # audio-only
+        if v != "none" and a == "none":
+            continue  # video-only (needs audio merge -> tier 2)
         proto = (f.get("protocol") or "").lower()
         if proto not in ("https", "http"):
             continue
@@ -1265,14 +1427,28 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     # ----- Tier 2: yt-dlp subprocess pipe -----
     # Anything yt-dlp can download qualifies. We don't pick a
     # specific format here - yt-dlp's own format selector in the
-    # subprocess invocation handles that. Just verify there's
-    # at least one video format so we don't issue a token for a
-    # URL that's actually audio-only or unsupported.
-    has_video = any(
-        isinstance(f, dict) and f.get("vcodec") and f.get("vcodec") != "none"
+    # subprocess invocation handles that. The check is "did
+    # extract_info return any format with a URL?" - if yes, the
+    # subprocess will be able to produce SOMETHING.
+    #
+    # We deliberately DON'T filter on `vcodec != 'none'` here.
+    # yt-dlp's `Generic` extractor (which a lot of url_transparent
+    # extractors delegate to - ThisVid, RedTube, etc.) often
+    # returns `vcodec='none'`/`acodec='none'` simply because it
+    # didn't probe the file content for codec info, NOT because
+    # there's no video. Filtering on those fields silently dropped
+    # entire classes of valid streamable URLs to 422-fallback,
+    # which is exactly the symptom that prompted this commit.
+    has_format = any(
+        isinstance(f, dict) and f.get("url")
         for f in formats
     )
-    if not has_video:
+    if not has_format:
+        log.info(
+            "streamable resolve: extract_info returned %d formats but none with URLs for %s",
+            len(formats),
+            _proxy_router._hostname_of(url),
+        )
         return None
 
     return {

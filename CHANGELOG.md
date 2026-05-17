@@ -20,6 +20,70 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.17.3-alpha] - 2026-05-17
+
+Streaming fast-path tier-0 + tier-1/2 filter relaxation. Adds a
+yt-dlp-free direct-URL probe and stops dropping perfectly-streamable
+formats just because yt-dlp's Generic extractor didn't probe codec
+info.
+
+### Why
+
+Smoke-test against `https://download.samplelib.com/mp4/sample-5s.mp4`
+(a plain static-CDN MP4, the simplest possible streamable URL)
+returned `422 needs_processing` after `mini-2026.05.17.2-alpha`.
+Reason: my fast-path resolver always invoked `yt-dlp` first, and
+yt-dlp's `Generic` extractor for a direct .mp4 URL returns a
+single format with `vcodec='none'` / `acodec='none'` because it
+never probes file contents. Tier 1 rejected that on the codec
+fields; tier 2 also rejected on `vcodec != 'none'`. So the
+trivially-streamable URL fell through to the 422-fallback path,
+defeating the entire fast path for the simplest possible input.
+
+The same shape - delegating to `Generic` via `url_transparent=True`
+without populating codec fields - is exactly what ThisVid /
+RedTube / many other tube extractors do, which is why the
+ThisVid probe was also 422'ing even after the proxy fix.
+
+### Added
+
+- **`_resolve_streamable_direct_url(url)` (Tier 0).** Skips yt-dlp
+  entirely for URLs whose path ends with a known video extension
+  (`.mp4`, `.m4v`, `.mov`, `.webm`, `.mkv`). Probes with a 1-byte
+  ranged GET (servers that don't honour HEAD usually still answer
+  Range), confirms `Content-Type: video/*` or `application/octet-
+  stream`, captures the post-redirect final URL only for filesize
+  resolution, and returns the original URL to the streaming
+  endpoint so a fresh redirect walk happens at stream time
+  (avoids signed-URL token expiry between probe and stream).
+- **Per-domain proxy on the Tier 0 probe.** Stays consistent with
+  the rest of the pipeline so probe and stream go through the
+  same egress IP - matters for CDNs that bind sessions to IP.
+
+### Changed
+
+- **Tier 1 codec filter.** Rejected `vcodec=none AND acodec=none`
+  unconditionally; now treats that as "unknown codecs" (the
+  Generic-extractor-without-probe case) and accepts. Still
+  rejects genuine audio-only and video-only formats so split-
+  stream sources still get routed to tier 2 for proper merge.
+- **Tier 2 video-existence check.** Was `any(f.vcodec != 'none')`;
+  now `any(f.url)`. Same root cause as the tier-1 fix: filtering
+  on `vcodec` silently dropped Generic-extracted formats that
+  were perfectly downloadable via the yt-dlp subprocess pipe.
+  When tier 2 falls through to None it now logs a `info` line
+  with format-count + hostname so future regressions are easier
+  to spot in HF logs.
+
+### Notes
+
+- Tier 0 + relaxed tier 1/2 are independent fixes; either alone
+  would have unblocked the samplelib URL, but they catch
+  different shapes of "extractor returned ambiguous data".
+  Tier 0 is the cheaper path (one HTTP probe, no Python yt-dlp
+  init, no JSON parse), tier 1/2 fix is the one that catches
+  url-transparent extractors that delegate to Generic.
+
 ## [mini-2026.05.17.2-alpha] - 2026-05-17
 
 Hotfix on top of `mini-2026.05.17.1-alpha`: tier-2 streaming was

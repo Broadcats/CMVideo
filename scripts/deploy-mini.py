@@ -149,17 +149,47 @@ def main() -> int:
     api = HfApi(token=token)
 
     # 1. Make sure the Space exists with the right SDK.
+    #    The HF create_repo endpoint requires create-permissions
+    #    on the target namespace EVEN WITH exist_ok=True - the
+    #    library only swallows HTTP 409 ("already exists"), not
+    #    HTTP 403 ("you can't create here at all"). Tokens that
+    #    are scoped to write a specific repo (the common case
+    #    for fine-grained / org-member tokens that aren't admins)
+    #    will 403 here even though the upload below would
+    #    succeed.
+    #
+    #    So we probe with `repo_info` first; if the Space exists
+    #    we skip the create call entirely and go straight to
+    #    upload. Only fall back to create_repo on 404 (truly
+    #    missing).
     try:
-        api.create_repo(
-            repo_id=repo_id,
-            repo_type="space",
-            space_sdk="docker",
-            private=args.private,
-            exist_ok=True,
-        )
-        print(f"[deploy-mini] Space exists / created: {repo_id}")
+        api.repo_info(repo_id=repo_id, repo_type="space")
+        print(f"[deploy-mini] Space already exists: {repo_id}")
     except HfHubHTTPError as exc:
-        sys.exit(f"[deploy-mini] Could not create/access Space: {exc}")
+        status = getattr(getattr(exc, "response", None), "status_code", 0) or 0
+        if int(status) == 404:
+            try:
+                api.create_repo(
+                    repo_id=repo_id,
+                    repo_type="space",
+                    space_sdk="docker",
+                    private=args.private,
+                    exist_ok=True,
+                )
+                print(f"[deploy-mini] Space created: {repo_id}")
+            except HfHubHTTPError as cexc:
+                sys.exit(
+                    f"[deploy-mini] Space {repo_id} doesn't exist and your "
+                    f"token can't create it: {cexc}\n"
+                    f"  Generate a token at https://huggingface.co/settings/tokens\n"
+                    f"  with 'Write' scope (or fine-grained: write to "
+                    f"{repo_id})."
+                )
+        else:
+            sys.exit(
+                f"[deploy-mini] Could not access Space {repo_id}: {exc}\n"
+                f"  Token may be revoked, expired, or lack read access."
+            )
 
     # 2. Upload the whole directory, with retry-with-backoff on
     #    transient HF backend errors. HF's commit endpoint

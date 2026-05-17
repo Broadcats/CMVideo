@@ -815,59 +815,6 @@ h1 {
 .shot-status.ok    { color: var(--success); }
 .shot-status.error { color: var(--danger); }
 
-/* YouTube cookie panel for the landing-page mini widget. */
-.yt-cookies-pane {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-.yt-cookies-pane summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: #d8dae3;
-  list-style: none;
-  position: relative;
-  padding-left: 16px;
-  user-select: none;
-}
-.yt-cookies-pane summary::-webkit-details-marker { display: none; }
-.yt-cookies-pane summary::before {
-  content: "\25B8";
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: var(--accent, #6366f1);
-  transition: transform 160ms ease;
-  display: inline-block;
-}
-.yt-cookies-pane[open] summary::before { transform: rotate(90deg); }
-.yt-cookies-body { margin-top: 10px; }
-.yt-cookies-body textarea {
-  width: 100%;
-  min-height: 120px;
-  resize: vertical;
-  border-radius: 10px;
-  border: 1px solid var(--border-hi);
-  background: var(--surface-deep);
-  color: var(--text);
-  padding: 10px;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.35;
-  margin-top: 8px;
-}
-.yt-cookies-actions {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-#mini-yt-cookies-state.applied { color: var(--success); }
-#mini-yt-cookies-state.error { color: var(--danger); }
-
 /* Progress bar shown while a mini job is in flight. Sits above the
  * status line; gets hidden as soon as we settle into ok/error. */
 .mini-progress {

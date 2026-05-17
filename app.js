@@ -223,33 +223,8 @@
     beep:     "Transcribing (\u2264 8 min cap)\u2026"
   };
   var modeNoteEl = document.getElementById("mini-mode-note");
-  var ytCookiesInput = document.getElementById("mini-yt-cookies-input");
-  var ytCookiesApplyBtn = document.getElementById("mini-yt-cookies-apply");
-  var ytCookiesClearBtn = document.getElementById("mini-yt-cookies-clear");
-  var ytCookiesState = document.getElementById("mini-yt-cookies-state");
-  var ytSessionToken = null;
 
-  function setYtCookieState(text, kind) {
-    if (!ytCookiesState) return;
-    ytCookiesState.textContent = text || "";
-    ytCookiesState.classList.remove("applied", "error");
-    if (kind) ytCookiesState.classList.add(kind);
-  }
-
-  function syncYtCookieButtons() {
-    if (ytCookiesApplyBtn) ytCookiesApplyBtn.disabled = !!ytSessionToken;
-    if (ytCookiesClearBtn) ytCookiesClearBtn.disabled = !ytSessionToken;
-  }
-
-  function withYtSession(body) {
-    if (!ytSessionToken) return body;
-    var out = {};
-    for (var k in body) out[k] = body[k];
-    out.yt_session = ytSessionToken;
-    return out;
-  }
-
-  function getMode()    { var s = form.querySelector('input[name="mini-mode"]:checked');    return s ? s.value : "download"; }
+  function getMode()    { return "download"; }
   // Format / quality moved from radio pills to <select> dropdowns
   // when the mini grew the y2down-parity option set
   // (mini-2026.05.18.0-alpha). The pills became unwieldy at 8 audio
@@ -300,64 +275,6 @@
     btn.disabled = b;
     btn.textContent = b ? (BUSY_LABELS[getMode()] || "Working\u2026") : (BTN_LABELS[getMode()] || "Download");
   }
-
-  if (ytCookiesApplyBtn && ytCookiesInput) {
-    ytCookiesApplyBtn.addEventListener("click", function () {
-      var txt = (ytCookiesInput.value || "").trim();
-      if (!txt) {
-        setYtCookieState("Paste the contents of cookies.txt first.", "error");
-        return;
-      }
-      ytCookiesApplyBtn.disabled = true;
-      setYtCookieState("Applying cookies...");
-      fetch(MINI_API_BASE + "/api/yt-cookies", {
-        method: "POST",
-        mode: "cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cookies_txt: txt }),
-      })
-        .then(function (res) {
-          if (!res.ok) {
-            return res.json().then(function (d) {
-              throw new Error((d && d.detail) || ("HTTP " + res.status));
-            }, function () {
-              throw new Error("HTTP " + res.status);
-            });
-          }
-          return res.json();
-        })
-        .then(function (data) {
-          ytSessionToken = data.yt_session || null;
-          ytCookiesInput.value = "";
-          setYtCookieState(
-            "Cookies applied (" + (data.n_yt_cookies || 0) + " entries, " +
-            Math.round((data.expires_in || 1800) / 60) + " min).",
-            "applied"
-          );
-        })
-        .catch(function (err) {
-          setYtCookieState((err && err.message) || String(err), "error");
-        })
-        .then(syncYtCookieButtons);
-    });
-  }
-
-  if (ytCookiesClearBtn) {
-    ytCookiesClearBtn.addEventListener("click", function () {
-      if (!ytSessionToken) return;
-      var tok = ytSessionToken;
-      ytSessionToken = null;
-      syncYtCookieButtons();
-      setYtCookieState("Forgetting cookies...");
-      fetch(MINI_API_BASE + "/api/yt-cookies/" + encodeURIComponent(tok), {
-        method: "DELETE",
-        mode: "cors",
-      })
-        .then(function () { setYtCookieState("Cookies forgotten.", "applied"); })
-        .catch(function () { setYtCookieState("Cookies forgotten locally; server TTL will purge.", "applied"); });
-    });
-  }
-  syncYtCookieButtons();
 
   /* ---- pill highlight + button-label sync ---- */
   var fpsRow         = document.getElementById("mini-fps-row");
@@ -565,10 +482,9 @@
       setStatus("Pick one: URL OR file, not both. Clearing the URL.", "error");
       if (urlInput) urlInput.value = "";
     }
-    if (mode === "download" && selectedFile) {
-      setStatus("Download mode is URL-only \u2014 you already have the file. Switching to Silence.", "error");
-      var s = form.querySelector('input[name="mini-mode"][value="silence"]');
-      if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
+    if (selectedFile) {
+      setStatus("Mini web is extract/download only. Paste a URL instead, or use the desktop app for file processing.", "error");
+      return;
     }
 
     // YouTube routing.
@@ -647,7 +563,7 @@
       preflight = fetch(MINI_API_BASE + "/api/info", {
         method: "POST", mode: "cors",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(withYtSession({ url: url }))
+        body: JSON.stringify({ url: url })
       }).then(function (res) {
         if (!res.ok) return null;       // info failed - let the backend handle it
         return res.json().catch(function () { return null; });
@@ -668,7 +584,6 @@
     var fd = new FormData();
     fd.append("format", fmt);
     fd.append("mode", mode);
-    if (ytSessionToken) fd.append("yt_session", ytSessionToken);
     if (fmt === "mp4") {
       fd.append("fps", getFPS());
       fd.append("quality", getQuality());
@@ -711,7 +626,7 @@
         return fetch(MINI_API_BASE + "/api/stream-download", {
           method: "POST", mode: "cors",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(withYtSession({ url: url, format: fmt, quality: getQuality() }))
+          body: JSON.stringify({ url: url, format: fmt, quality: getQuality() })
         }).then(function (res) {
           // 422 = backend says "this URL needs the slow path";
           // that's the expected branch for HLS, DASH, MP3, and

@@ -929,9 +929,6 @@ class CensorApp:
             ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
                 side="left", anchor="w"
             )
-        ttk.Label(title_holder, text=APP_TAGLINE, style="Tagline.TLabel").pack(
-            anchor="w", pady=(2, 0)
-        )
 
         # Indigo -> violet -> cyan strip between header and body.
         # Redrawn on resize via _redraw_accent_strip.

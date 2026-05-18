@@ -20,6 +20,13 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [desktop-v0.4.17.3-alpha] - 2026-05-18
+
+### Fixed
+- **Removed tagline** — "Automatic profanity removal for video and audio" subtitle removed from the header.
+
+---
+
 ## [desktop-v0.4.17.2-alpha] - 2026-05-18
 
 **Hotfix: colorful gradient wordmark.**

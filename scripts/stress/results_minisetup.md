@@ -1,8 +1,8 @@
-# Mini-app coverage stress test - 2026-05-17
+# Mini-app coverage stress test - 2026-05-18
 
-Sites tested: **59**  ·  yt-dlp metadata: **25** (42%)  ·  fast-path mp4 win: **23** (39%)  ·  yt-dlp version: 2026.03.17
+Sites tested: **59**  ·  yt-dlp metadata: **26** (44%)  ·  fast-path mp4 win: **22** (37%)  ·  yt-dlp version: 2026.03.17
 
-Tier breakdown: T0 5 · T1 12 · T2 6
+Tier breakdown: T0 5 · T1 10 · T2 7
 
 
 | # | Site | yt-dlp | V/A | mp4 fast-path | mp3 (audio in slow-path?) | Note |
@@ -31,7 +31,7 @@ Tier breakdown: T0 5 · T1 12 · T2 6
 | 22 | Kick-VOD | FAIL | - | no | no | ERROR: [kick:vod] 4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1: Unable to download JSON metadata:  |
 | 23 | LBC | FAIL | - | no | no | ERROR: Unsupported URL: https://www.lbc.co.uk/radio/presenters/nick-ferrari/ |
 | 24 | LearningContainer-MP4 | OK | -- | tier 0 (direct) | no |  |
-| 25 | Mixcloud-Set | FAIL | - | no | no | ERROR: [mixcloud] Unable to download JSON metadata: HTTP Error 503: Service Unavailable (c |
+| 25 | Mixcloud-Set | OK | -A | tier 2 (ytdlp-pipe) | yes |  |
 | 26 | Naver-TV | OK | -- | tier 1 (direct) | no |  |
 | 27 | NBC-News | FAIL | - | no | no | list index out of range |
 | 28 | Newgrounds | FAIL | - | no | no | ERROR: [Newgrounds] 717094: Unable to download webpage: HTTP Error 403: Forbidden (caused  |
@@ -48,8 +48,8 @@ Tier breakdown: T0 5 · T1 12 · T2 6
 | 39 | SpankBang | FAIL | - | no | no | ERROR: [SpankBang] 56b3d: Unable to download webpage: HTTP Error 404: Not Found (caused by |
 | 40 | TED | OK | V- | tier 1 (direct) | no |  |
 | 41 | TED-Embed | OK | V- | tier 1 (direct) | no |  |
-| 42 | ThisVid-Canon | OK | -- | tier 1 (direct) | no |  |
-| 43 | ThisVid-Embed | OK | -- | tier 1 (direct) | no |  |
+| 42 | ThisVid-Canon | OK | -- | no | no |  |
+| 43 | ThisVid-Embed | OK | -- | no | no |  |
 | 44 | TikTok-Verified | FAIL | - | no | no | ERROR: [TikTok] 7232611617498910981: Your IP address is blocked from accessing this post |
 | 45 | Twitch-Clip | FAIL | - | no | no | ERROR: [twitch:clips] SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR: This clip is no long |
 | 46 | Twitch-VOD | FAIL | - | no | no | ERROR: [twitch:vod] 2154723814: Video 2154723814 does not exist |

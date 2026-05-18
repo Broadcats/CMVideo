@@ -20,6 +20,34 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.18.11-alpha] - 2026-05-18
+
+**Bug fixes: PornHub 474, Mixcloud masked error, format preview filter, YouTube cookie upload + Piped fallback.**
+
+### Fixed PornHub IP-bound CDN 474 errors
+* Added `_YTDLP_PIPE_REQUIRED_DOMAINS = {"pornhub.com", "phncdn.com", "rt.pornhub.com"}`.
+* In `_resolve_streamable_format`, these domains now skip Tier-1 (direct HTTP passthrough) and fall directly to Tier-2 (yt-dlp subprocess pipe). The pipe subprocess passes `--proxy` to yt-dlp, which handles both URL resolution and byte-fetching through the same residential proxy exit IP — preventing the CDN IP-signature mismatch that caused HTTP 474.
+
+### Fixed Mixcloud error swallowed by friendly-error classifier
+* In `_friendly_ydl_error`, added a Mixcloud-specific guard *before* the generic `"unsupported url"` catch. Previously a download-stage error (503/CDN auth) that contained "unsupported" was mis-classified as "That site isn't supported." Now the real yt-dlp error string is surfaced to aid diagnosis.
+
+### Added format preview/trailer/sample filter to yt-dlp selector
+* `_video_format_selector` inner `tier()` function now adds `[format_id!*preview][format_id!*trailer][format_id!*sample]` to every selector arm. Prevents sites that expose named preview/teaser clips alongside full videos from accidentally serving the shorter clip.
+
+### Re-enabled YouTube cookie upload endpoint
+* Removed the `raise HTTPException(status_code=410, ...)` stub that had disabled `POST /api/yt-cookies`. The full session-token-based cookie pipeline (validated Netscape format, IP-bound 30-min TTL, rate-limited 10/hour) is now active. Users can paste a `cookies.txt` export from their browser to unlock YouTube downloads on the HF Space.
+
+### Added Piped/Invidious fallback for YouTube bot-wall
+* `extract_with_fallbacks()` in `extractors.py` now tries Piped frontend instances (`piped.video`, `piped.kavin.rocks`) after yt-dlp is bot-walled on a YouTube URL. The video ID is extracted and the URL is rewritten to the Piped `/watch?v=ID` form; yt-dlp then handles the Piped URL via its own extractor. This is a best-effort retry — Piped uptime varies — but adds a free second shot before the user is asked to provide cookies.
+
+### Stress test results (2026-05-18)
+* Mixcloud-Set: FAIL → OK (tier-2 ytdlp-pipe audio ✅)
+* ThisVid-Canon/Embed: now correctly show `fp=no` (fast-path correctly blocked, previously returned placeholder tier-1 clips)
+* PornHub/RedTube test URLs stale (410 Gone / upstream extractor bug) — fixes untestable with current site list
+* YouTube: still fails without cookies (expected)
+
+---
+
 ## [mini-2026.05.18.10-alpha] - 2026-05-18
 
 **Reliability maximization bundle (domain policy + retry matrix + format ladder).**

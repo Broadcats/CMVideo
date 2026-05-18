@@ -1,0 +1,210 @@
+[
+  {
+    "name": "ArchiveOrg",
+    "url": "https://archive.org/details/BigBuckBunny_124",
+    "family": "mainstream-video",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "job_id": "_Ag0aJEqHieyYYVNbfslxxDTPqF3MUHi",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "5YixdAalXSgjwaui7O_Z1_jDOl-CmMs1",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_video_ok": true,
+    "new_audio_ok": true
+  },
+  {
+    "name": "TED",
+    "url": "https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+    "family": "mainstream-video",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "job_id": "vBSCIQyd6Phl7vcsb9v_JRJtBpfjYdtA",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "IfuonRN2rjVL0zI2m-ayrGyUwhyq9c-c",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_video_ok": true,
+    "new_audio_ok": true
+  },
+  {
+    "name": "Mixcloud-Set",
+    "url": "https://www.mixcloud.com/dholbach/cryptkeeper/",
+    "family": "other",
+    "old_video_ok": false,
+    "old_audio_ok": false,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "job_id": "wh_GqfHiD5YDx199RRTNoKopnQaM7VCa",
+      "ready": false,
+      "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "KJqcx4mtkITW5Gkpogs0v3KOnr_KYrKe",
+      "ready": false,
+      "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "Niconico",
+    "url": "https://www.nicovideo.jp/watch/sm9",
+    "family": "other",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "job_id": "CPCiFxFkTeX14C3kiPfkI_BXZEx2X33c",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "EPo_aLqSxQhPN6uEIAbXxiT1r0lyPvp9",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_video_ok": true,
+    "new_audio_ok": true
+  },
+  {
+    "name": "XVideos",
+    "url": "https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+    "family": "adult-tube",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 504,
+    "new_info_ok": false,
+    "new_info_detail": "Source took too long to respond.",
+    "new_video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "job_id": "N7yjtw4hST57mqzRfZqLFXyfcwgVTlC1",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_audio": {
+      "submit_status": 503,
+      "fmt": "mp3",
+      "submit_body": {
+        "detail": "Mini service is busy - try again in a minute."
+      }
+    },
+    "new_video_ok": true,
+    "new_audio_ok": false
+  },
+  {
+    "name": "XNXX",
+    "url": "https://www.xnxx.com/video-55awb78/skyrim_test_video",
+    "family": "x-twitter",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "RedTube",
+    "url": "https://www.redtube.com/38864951",
+    "family": "adult-tube",
+    "old_video_ok": true,
+    "old_audio_ok": false,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "TXXX",
+    "url": "https://txxx.com/videos/16574965/digital-desire-malena-morgan/",
+    "family": "x-twitter",
+    "old_video_ok": false,
+    "old_audio_ok": false,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  }
+]

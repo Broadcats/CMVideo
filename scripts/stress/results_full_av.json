@@ -1,0 +1,343 @@
+[
+  {
+    "name": "ArchiveOrg",
+    "url": "https://archive.org/details/BigBuckBunny_124",
+    "info_status": 200,
+    "info_dt": 0.84,
+    "duration": 596,
+    "extractor": "ArchiveOrg",
+    "title": "Big Buck Bunny",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "w-u_xYefkmimaCc8zbzpiS63ZIcVjmVp",
+      "elapsed_s": 10.9,
+      "ready": true,
+      "filename": "Big_Buck_Bunny.mp4",
+      "bytes_done": 332243668,
+      "downloaded_bytes": 332035940,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 596.48,
+        "size_bytes": 332035940,
+        "n_streams": 2,
+        "video_codec": "mpeg4",
+        "audio_codec": "ac3"
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "QgKL_MXCGSCW5YbQZ5g7NAEDcS96N5c8",
+      "elapsed_s": 37.2,
+      "ready": true,
+      "filename": "Big_Buck_Bunny.mp3",
+      "bytes_done": 332243668,
+      "downloaded_bytes": 23861883,
+      "ffprobe": {
+        "format_name": "mp3",
+        "duration_s": 596.52,
+        "size_bytes": 23861883,
+        "n_streams": 1,
+        "video_codec": null,
+        "audio_codec": "mp3"
+      }
+    }
+  },
+  {
+    "name": "TED",
+    "url": "https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+    "info_status": 200,
+    "info_dt": 1.36,
+    "duration": 937,
+    "extractor": "TedTalk",
+    "title": "Distant time and the hint of a multiverse",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "NptE-LD_GnZwgtcA6L0-Danao17n1RJz",
+      "elapsed_s": 21.4,
+      "ready": true,
+      "filename": "Distant_time_and_the_hint_of_a_multiverse.mp4",
+      "bytes_done": 16509784,
+      "downloaded_bytes": 277863680,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 937.436009,
+        "size_bytes": 277863680,
+        "n_streams": 2,
+        "video_codec": "h264",
+        "audio_codec": "aac"
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "KkM5pZeMphrAw8E75kU5C6JUZSiEPRW_",
+      "elapsed_s": 31.9,
+      "ready": true,
+      "filename": "Distant_time_and_the_hint_of_a_multiverse.mp3",
+      "bytes_done": 16509784,
+      "downloaded_bytes": 37500485,
+      "ffprobe": {
+        "format_name": "mp3",
+        "duration_s": 937.482449,
+        "size_bytes": 37500485,
+        "n_streams": 1,
+        "video_codec": null,
+        "audio_codec": "mp3"
+      }
+    }
+  },
+  {
+    "name": "Mixcloud-Set",
+    "url": "https://www.mixcloud.com/dholbach/cryptkeeper/",
+    "info_status": 200,
+    "info_dt": 1.68,
+    "duration": 3723,
+    "extractor": "Mixcloud",
+    "title": "Cryptkeeper",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "JVfhdkYHuRcOroz3r54a54eceI7UyHkW",
+      "elapsed_s": 26.7,
+      "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "psJ4SGaeb9s-XjoZQlJKqL-EnV_EtCDA",
+      "elapsed_s": 21.4,
+      "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    }
+  },
+  {
+    "name": "Niconico",
+    "url": "https://www.nicovideo.jp/watch/sm9",
+    "info_status": 200,
+    "info_dt": 5.9,
+    "duration": 320,
+    "extractor": "Niconico",
+    "title": "\u65b0\u30fb\u8c6a\u8840\u5bfa\u4e00\u65cf -\u7169\u60a9\u89e3\u653e - \u30ec\u30c3\u30c4\u30b4\u30fc\uff01\u9670\u967d\u5e2b",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "9NCQOKz1EVEoztbuCxPqmCPiRUNQ4hCF",
+      "elapsed_s": 63.6,
+      "ready": true,
+      "filename": "_.mp4",
+      "bytes_done": 4185710,
+      "downloaded_bytes": 28432691,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 320.087007,
+        "size_bytes": 28432691,
+        "n_streams": 2,
+        "video_codec": "h264",
+        "audio_codec": "aac"
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "QMsG15_S3a-UsJC8YrhpCfqsBgJzIZbR",
+      "elapsed_s": 37.3,
+      "ready": true,
+      "filename": "_.mp3",
+      "bytes_done": 4185710,
+      "downloaded_bytes": 12806415,
+      "ffprobe": {
+        "format_name": "mp3",
+        "duration_s": 320.130612,
+        "size_bytes": 12806415,
+        "n_streams": 1,
+        "video_codec": null,
+        "audio_codec": "mp3"
+      }
+    }
+  },
+  {
+    "name": "XVideos",
+    "url": "https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+    "info_status": 200,
+    "info_dt": 9.09,
+    "duration": 1238,
+    "extractor": "XVideos",
+    "title": "A Beautiful Red-Haired Stranger Was Refused, But Still Came ",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "y2qcQxpAfedqIqWkKhKQ8wgO7ktZCzy2",
+      "elapsed_s": 111.3,
+      "ready": true,
+      "filename": "A_Beautiful_Red-Haired_Stranger_Was_Refused_But_Still_Came_To_My_Room_For_Sex.mp4",
+      "bytes_done": 215717780,
+      "downloaded_bytes": 203183293,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 1237.939667,
+        "size_bytes": 203183293,
+        "n_streams": 2,
+        "video_codec": "h264",
+        "audio_codec": "aac"
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "3fCNi1COgsu1qprn5Wrctc3Euzw5mRNB",
+      "elapsed_s": 128.3,
+      "ready": true,
+      "filename": "A_Beautiful_Red-Haired_Stranger_Was_Refused_But_Still_Came_To_My_Room_For_Sex.mp3",
+      "bytes_done": 438314292,
+      "downloaded_bytes": 49519950,
+      "ffprobe": {
+        "format_name": "mp3",
+        "duration_s": 1237.96898,
+        "size_bytes": 49519950,
+        "n_streams": 1,
+        "video_codec": null,
+        "audio_codec": "mp3"
+      }
+    }
+  },
+  {
+    "name": "XNXX",
+    "url": "https://www.xnxx.com/video-55awb78/skyrim_test_video",
+    "info_status": 200,
+    "info_dt": 18.52,
+    "duration": 469,
+    "extractor": "XNXX",
+    "title": "Skyrim Test Video",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "JODwWhxsNS4_T0Di56cqEcIsoVZKW0lN",
+      "elapsed_s": 37.5,
+      "ready": true,
+      "filename": "Skyrim_Test_Video.mp4",
+      "bytes_done": 85583804,
+      "downloaded_bytes": 76640040,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 469.073,
+        "size_bytes": 76640040,
+        "n_streams": 2,
+        "video_codec": "h264",
+        "audio_codec": "aac"
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "r6aKa2cfL8kwhE1kMfM76kkQytIxPUs_",
+      "elapsed_s": 47.8,
+      "ready": true,
+      "filename": "Skyrim_Test_Video.mp3",
+      "bytes_done": 173930268,
+      "downloaded_bytes": 18756064,
+      "ffprobe": {
+        "format_name": "mp3",
+        "duration_s": 468.871837,
+        "size_bytes": 18756064,
+        "n_streams": 1,
+        "video_codec": null,
+        "audio_codec": "mp3"
+      }
+    }
+  },
+  {
+    "name": "RedTube",
+    "url": "https://www.redtube.com/38864951",
+    "info_status": 200,
+    "info_dt": 21.01,
+    "duration": 646,
+    "extractor": "RedTube",
+    "title": "Public Sex on the Balcony in Freezing Paris! Amateur Couple ",
+    "over_cap": null,
+    "video": {
+      "submit_status": 200,
+      "fmt": "mp4",
+      "mode": "download",
+      "quality": "720p",
+      "job_id": "0M4nIsK4Fuu4gdfiTkacYDhgfak4TPIb",
+      "elapsed_s": 26.6,
+      "ready": true,
+      "filename": "playwright.mp4",
+      "bytes_done": 0,
+      "downloaded_bytes": 625494,
+      "ffprobe": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration_s": 16.26625,
+        "size_bytes": 625494,
+        "n_streams": 1,
+        "video_codec": "h264",
+        "audio_codec": null
+      }
+    },
+    "audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "mode": "download",
+      "quality": "standard",
+      "job_id": "X4IMADMuno5Q_1RYENbiqp1GkrgykNJD",
+      "elapsed_s": 31.9,
+      "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+    }
+  },
+  {
+    "name": "TXXX",
+    "url": "https://txxx.com/videos/16574965/digital-desire-malena-morgan/",
+    "info_status": 200,
+    "info_dt": 1.27,
+    "duration": 694,
+    "extractor": "Txxx",
+    "title": "Digital Desire - Malena Morgan",
+    "over_cap": null,
+    "video": {
+      "submit_status": 503,
+      "submit_body": {
+        "detail": "Mini service is busy - try again in a minute."
+      },
+      "fmt": "mp4"
+    },
+    "audio": {
+      "submit_status": 503,
+      "submit_body": {
+        "detail": "Mini service is busy - try again in a minute."
+      },
+      "fmt": "mp3"
+    }
+  }
+]

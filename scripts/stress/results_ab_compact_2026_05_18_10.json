@@ -1,0 +1,153 @@
+[
+  {
+    "name": "ArchiveOrg",
+    "url": "https://archive.org/details/BigBuckBunny_124",
+    "family": "mainstream-video",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 503,
+      "fmt": "mp4",
+      "submit_body": {
+        "detail": "Mini service is busy - try again in a minute."
+      }
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "lYtKEpc8X9O-OAIdIecJQv3dWYuhX7L6",
+      "ready": true,
+      "file_status": 200,
+      "file_ok": true
+    },
+    "new_video_ok": false,
+    "new_audio_ok": true
+  },
+  {
+    "name": "TED",
+    "url": "https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+    "family": "mainstream-video",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "detail": "Too many failed submissions from your IP - cooling down for 250s. The desktop app at cmvideo.online has no caps."
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "detail": "Too many failed submissions from your IP - cooling down for 183s. The desktop app at cmvideo.online has no caps."
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "Mixcloud-Set",
+    "url": "https://www.mixcloud.com/dholbach/cryptkeeper/",
+    "family": "other",
+    "old_video_ok": false,
+    "old_audio_ok": false,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "detail": "Too many failed submissions from your IP - cooling down for 146s. The desktop app at cmvideo.online has no caps."
+      }
+    },
+    "new_audio": {
+      "submit_status": 200,
+      "fmt": "mp3",
+      "job_id": "tLs6jwGQYrLwm-b4bxIAvwRkSIp5QkyX",
+      "ready": false,
+      "error": "Mini app hit an internal error. Try again or use the desktop app."
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "XVideos",
+    "url": "https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+    "family": "adult-tube",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 503,
+      "fmt": "mp4",
+      "submit_body": {
+        "detail": "Mini service is busy - try again in a minute."
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "XNXX",
+    "url": "https://www.xnxx.com/video-55awb78/skyrim_test_video",
+    "family": "adult-tube",
+    "old_video_ok": true,
+    "old_audio_ok": true,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  },
+  {
+    "name": "RedTube",
+    "url": "https://www.redtube.com/38864951",
+    "family": "adult-tube",
+    "old_video_ok": true,
+    "old_audio_ok": false,
+    "new_info_status": 200,
+    "new_info_ok": true,
+    "new_video": {
+      "submit_status": 429,
+      "fmt": "mp4",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_audio": {
+      "submit_status": 429,
+      "fmt": "mp3",
+      "submit_body": {
+        "error": "Rate limit exceeded: 20 per 1 hour"
+      }
+    },
+    "new_video_ok": false,
+    "new_audio_ok": false
+  }
+]

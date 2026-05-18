@@ -1,0 +1,584 @@
+[
+  {
+    "name": "YouTube-FirstVideo",
+    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    "info_status": 504,
+    "info_dt": 25.32,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "YouTube-RickRoll",
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "info_status": 504,
+    "info_dt": 25.3,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "YouTube-Embed",
+    "url": "https://www.youtube.com/embed/jNQXAC9IVRw",
+    "info_status": 504,
+    "info_dt": 25.28,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "YouTube-Short",
+    "url": "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+    "info_status": 504,
+    "info_dt": 25.3,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "Vimeo-StaffPick",
+    "url": "https://vimeo.com/76979871",
+    "info_status": 200,
+    "info_dt": 1.17,
+    "duration": 62,
+    "extractor": "Vimeo",
+    "title": "The New Vimeo Player (You Know, For Videos)",
+    "over_cap": null
+  },
+  {
+    "name": "Vimeo-Player",
+    "url": "https://player.vimeo.com/video/76979871",
+    "info_status": 200,
+    "info_dt": 0.29,
+    "duration": 62,
+    "extractor": "Vimeo",
+    "title": "The New Vimeo Player (You Know, For Videos)",
+    "over_cap": null
+  },
+  {
+    "name": "Dailymotion",
+    "url": "https://www.dailymotion.com/video/x84sh87",
+    "info_status": 200,
+    "info_dt": 2.0,
+    "duration": 25,
+    "extractor": "Dailymotion",
+    "title": "Dailymotion demo video",
+    "over_cap": null
+  },
+  {
+    "name": "Streamable",
+    "url": "https://streamable.com/moo",
+    "info_status": 200,
+    "info_dt": 0.5,
+    "duration": 12,
+    "extractor": "Streamable",
+    "title": "me irl",
+    "over_cap": null
+  },
+  {
+    "name": "BitChute",
+    "url": "https://www.bitchute.com/video/UGlrF9o9b-Q/",
+    "info_status": 200,
+    "info_dt": 0.83,
+    "duration": 16,
+    "extractor": "BitChute",
+    "title": "This is the first video on #BitChute !",
+    "over_cap": null
+  },
+  {
+    "name": "Rumble",
+    "url": "https://rumble.com/v6oka5o-elon-musk-was-supposed-to-stop-this.html",
+    "info_status": 400,
+    "info_dt": 0.51,
+    "error": "YouTube is rate-limiting this free server right now. Most other sites still work (Vimeo, Reddit, Twitter, TikTok, ~1,800 total), or grab the desktop app below \u2014 it runs from your own connection and isn't affected."
+  },
+  {
+    "name": "PeerTube-Frama",
+    "url": "https://framatube.org/w/iESGhh4Q9PnLNjFEHsTrSe",
+    "info_status": 400,
+    "info_dt": 0.78,
+    "error": "ERROR: [PeerTube] iESGhh4Q9PnLNjFEHsTrSe: Unable to download webpage: HTTP Error 400: Bad Request (caused by <HTTPError 400: Bad Request>)"
+  },
+  {
+    "name": "ArchiveOrg",
+    "url": "https://archive.org/details/BigBuckBunny_124",
+    "info_status": 200,
+    "info_dt": 0.84,
+    "duration": 596,
+    "extractor": "ArchiveOrg",
+    "title": "Big Buck Bunny",
+    "over_cap": null
+  },
+  {
+    "name": "Twitter-X",
+    "url": "https://x.com/elonmusk/status/1722127666497786143",
+    "info_status": 400,
+    "info_dt": 3.98,
+    "error": "ERROR: [twitter] 1722127666497786143: No video could be found in this tweet"
+  },
+  {
+    "name": "Reddit-Top",
+    "url": "https://www.reddit.com/r/aww/comments/k1xa8m/at_least_someone_loves_him.json",
+    "info_status": 400,
+    "info_dt": 1.21,
+    "error": "ERROR: [Reddit] k1xa8m: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Reddit-Video",
+    "url": "https://www.reddit.com/r/aww/comments/k1xa8m/at_least_someone_loves_him/",
+    "info_status": 400,
+    "info_dt": 1.54,
+    "error": "ERROR: [Reddit] k1xa8m: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "TikTok-Verified",
+    "url": "https://www.tiktok.com/@gordonramsayofficial/video/7232611617498910981",
+    "info_status": 400,
+    "info_dt": 2.27,
+    "error": "ERROR: [TikTok] 7232611617498910981: Your IP address is blocked from accessing this post"
+  },
+  {
+    "name": "Instagram-Reel",
+    "url": "https://www.instagram.com/reel/CqkqMZJyHxK/",
+    "info_status": 504,
+    "info_dt": 25.27,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "Tumblr",
+    "url": "https://www.tumblr.com/zenpencils/179873815866/zen-pencils-comic-179",
+    "info_status": 400,
+    "info_dt": 0.47,
+    "error": "ERROR: [Tumblr] 179873815866: Unable to download webpage: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')) (caused by TransportError(\"('Connection aborted.', RemoteDisconnected('Remote end closed "
+  },
+  {
+    "name": "Imgur",
+    "url": "https://i.imgur.com/3jLn4l8.mp4",
+    "info_status": 400,
+    "info_dt": 0.52,
+    "error": "ERROR: [Imgur] 3jLn4l8: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Twitch-VOD",
+    "url": "https://www.twitch.tv/videos/2154723814",
+    "info_status": 400,
+    "info_dt": 0.55,
+    "error": "ERROR: [twitch:vod] 2154723814: Video 2154723814 does not exist"
+  },
+  {
+    "name": "Twitch-Clip",
+    "url": "https://www.twitch.tv/xqc/clip/SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR",
+    "info_status": 400,
+    "info_dt": 0.53,
+    "error": "ERROR: [twitch:clips] SmellyFamousFalconKappaWealth-9DiZdK4iIXHzx9SR: This clip is no longer available"
+  },
+  {
+    "name": "Kick-VOD",
+    "url": "https://kick.com/destiny/videos/4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1",
+    "info_status": 400,
+    "info_dt": 0.59,
+    "error": "ERROR: [kick:vod] 4c5d4b5e-9f02-4d1d-aa3a-ec45f76e4da1: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "CNN-Video",
+    "url": "https://www.cnn.com/videos/world/2024/01/10/exp-japan-quake-update-trnd.cnn",
+    "info_status": 400,
+    "info_dt": 1.21,
+    "error": "ERROR: [CNN] Unable to download webpage: HTTP Error 404: OK (caused by <HTTPError 404: OK>)"
+  },
+  {
+    "name": "BBC-iPlayer",
+    "url": "https://www.bbc.co.uk/iplayer/episode/m000sb1g/the-graham-norton-show-series-29-episode-13",
+    "info_status": 400,
+    "info_dt": 2.45,
+    "error": "ERROR: [bbc.co.uk] m000sb1g: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Reuters-Video",
+    "url": "https://www.reuters.com/video/watch/idRWPVK010424012024RP1",
+    "info_status": 400,
+    "info_dt": 0.48,
+    "error": "ERROR: [generic] Unable to download webpage: HTTP Error 401: HTTP Forbidden (caused by <HTTPError 401: HTTP Forbidden>)"
+  },
+  {
+    "name": "ABC-News",
+    "url": "https://abcnews.go.com/US/wireStory/southern-california-mountain-roadway-snow-storm-jam-cars-117291843",
+    "info_status": 400,
+    "info_dt": 0.55,
+    "error": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "NBC-News",
+    "url": "https://www.nbcnews.com/now",
+    "info_status": 400,
+    "info_dt": 0.91,
+    "error": "Couldn't read that URL."
+  },
+  {
+    "name": "DW",
+    "url": "https://www.dw.com/en/germany/s-1432",
+    "info_status": 400,
+    "info_dt": 1.12,
+    "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+  },
+  {
+    "name": "EuroNews",
+    "url": "https://www.euronews.com/2024/01/15/germany-protests-spread-against-far-right-afd-meeting",
+    "info_status": 400,
+    "info_dt": 0.66,
+    "error": "ERROR: [generic] Unable to download webpage: HTTP Error 406: Not Acceptable (caused by <HTTPError 406: Not Acceptable>)"
+  },
+  {
+    "name": "Bloomberg",
+    "url": "https://www.bloomberg.com/news/videos/2024-01-15/apple-vision-pro-launch-strategy-video",
+    "info_status": 400,
+    "info_dt": 1.75,
+    "error": "YouTube is rate-limiting this free server right now. Most other sites still work (Vimeo, Reddit, Twitter, TikTok, ~1,800 total), or grab the desktop app below \u2014 it runs from your own connection and isn't affected."
+  },
+  {
+    "name": "PBS",
+    "url": "https://www.pbs.org/newshour/show/january-15-2024-pbs-newshour-full-episode",
+    "info_status": 400,
+    "info_dt": 2.07,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "TED",
+    "url": "https://www.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+    "info_status": 200,
+    "info_dt": 1.36,
+    "duration": 937,
+    "extractor": "TedTalk",
+    "title": "Distant time and the hint of a multiverse",
+    "over_cap": null
+  },
+  {
+    "name": "TED-Embed",
+    "url": "https://embed.ted.com/talks/sean_carroll_distant_time_and_the_hint_of_a_multiverse",
+    "info_status": 200,
+    "info_dt": 0.56,
+    "duration": 937,
+    "extractor": "TedTalk",
+    "title": "Distant time and the hint of a multiverse",
+    "over_cap": null
+  },
+  {
+    "name": "KhanAcademy",
+    "url": "https://www.khanacademy.org/economics-finance-domain/macroeconomics/macro-basic-economic-concepts/macro-introduction-to-macroeconomics/v/introduction-to-economics",
+    "info_status": 400,
+    "info_dt": 0.5,
+    "error": "ERROR: [khanacademy] economics-finance-domain/macroeconomics/macro-basic-economic-concepts/macro-introduction-to-macroeconomics/v/introduction-to-economics: Unable to download JSON metadata: HTTP Error 400: Bad Request (caused by <HTTPError"
+  },
+  {
+    "name": "SoundCloud-Track",
+    "url": "https://soundcloud.com/octobersveryown/drake-passionfruit",
+    "info_status": 400,
+    "info_dt": 0.6,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "SoundCloud-Pop",
+    "url": "https://soundcloud.com/sezairi/yh3btahn0vum",
+    "info_status": 400,
+    "info_dt": 0.55,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "Mixcloud-Set",
+    "url": "https://www.mixcloud.com/dholbach/cryptkeeper/",
+    "info_status": 200,
+    "info_dt": 1.68,
+    "duration": 3723,
+    "extractor": "Mixcloud",
+    "title": "Cryptkeeper",
+    "over_cap": null
+  },
+  {
+    "name": "Bandcamp-Track",
+    "url": "https://amandapalmer.bandcamp.com/track/runs-in-the-family",
+    "info_status": 200,
+    "info_dt": 0.84,
+    "duration": 164,
+    "extractor": "Bandcamp",
+    "title": "Amanda Palmer - Runs in the Family",
+    "over_cap": null
+  },
+  {
+    "name": "Bandcamp-Album",
+    "url": "https://amandapalmer.bandcamp.com/album/who-killed-amanda-palmer",
+    "info_status": 200,
+    "info_dt": 4.99,
+    "duration": null,
+    "extractor": "BandcampAlbum",
+    "title": "Who Killed Amanda Palmer",
+    "over_cap": null
+  },
+  {
+    "name": "Direct-MP4-5s",
+    "url": "https://download.samplelib.com/mp4/sample-5s.mp4",
+    "info_status": 200,
+    "info_dt": 0.55,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-5s",
+    "over_cap": null
+  },
+  {
+    "name": "Direct-MP4-15s",
+    "url": "https://download.samplelib.com/mp4/sample-15s.mp4",
+    "info_status": 200,
+    "info_dt": 0.56,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-15s",
+    "over_cap": null
+  },
+  {
+    "name": "Direct-MP4-30s",
+    "url": "https://download.samplelib.com/mp4/sample-30s.mp4",
+    "info_status": 200,
+    "info_dt": 0.79,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-30s",
+    "over_cap": null
+  },
+  {
+    "name": "Direct-MP3-3s",
+    "url": "https://download.samplelib.com/mp3/sample-3s.mp3",
+    "info_status": 200,
+    "info_dt": 0.54,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-3s",
+    "over_cap": null
+  },
+  {
+    "name": "Direct-MP3-15s",
+    "url": "https://download.samplelib.com/mp3/sample-15s.mp3",
+    "info_status": 200,
+    "info_dt": 0.57,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-15s",
+    "over_cap": null
+  },
+  {
+    "name": "W3Schools-MP4",
+    "url": "https://www.w3schools.com/html/mov_bbb.mp4",
+    "info_status": 200,
+    "info_dt": 0.49,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "mov_bbb",
+    "over_cap": null
+  },
+  {
+    "name": "LearningContainer-MP4",
+    "url": "https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4",
+    "info_status": 200,
+    "info_dt": 0.48,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "sample-mp4-file",
+    "over_cap": null
+  },
+  {
+    "name": "SampleVideos-MP4",
+    "url": "https://www.sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4",
+    "info_status": 400,
+    "info_dt": 15.64,
+    "error": "ERROR: [generic] Unable to download webpage: (<HTTPSConnection(host='www.sample-videos.com', port=443) at 0x7f2e0822a250>, 'Connection to www.sample-videos.com timed out. (connect timeout=15.0)') (caused by TransportError(\"(<HTTPSConnection"
+  },
+  {
+    "name": "BiliBili",
+    "url": "https://www.bilibili.com/video/BV1uT4y1P7CX/",
+    "info_status": 400,
+    "info_dt": 3.17,
+    "error": "ERROR: [BiliBili] 1uT4y1P7CX: This video may be deleted or geo-restricted. You might want to try a VPN or a proxy server (with --proxy)"
+  },
+  {
+    "name": "Niconico",
+    "url": "https://www.nicovideo.jp/watch/sm9",
+    "info_status": 200,
+    "info_dt": 5.9,
+    "duration": 320,
+    "extractor": "Niconico",
+    "title": "\u65b0\u30fb\u8c6a\u8840\u5bfa\u4e00\u65cf -\u7169\u60a9\u89e3\u653e - \u30ec\u30c3\u30c4\u30b4\u30fc\uff01\u9670\u967d\u5e2b",
+    "over_cap": null
+  },
+  {
+    "name": "NHK",
+    "url": "https://www3.nhk.or.jp/nhkworld/en/shows/sumo/",
+    "info_status": 200,
+    "info_dt": 5.12,
+    "duration": null,
+    "extractor": "NhkVodProgram",
+    "title": "GRAND SUMO Highlights",
+    "over_cap": null
+  },
+  {
+    "name": "ARTE",
+    "url": "https://www.arte.tv/en/videos/107985-000-A/yoga-of-life/",
+    "info_status": 400,
+    "info_dt": 1.11,
+    "error": "ERROR: [ArteTV] 107985-000-A: Video is not available in this language edition of Arte or broadcast rights expired"
+  },
+  {
+    "name": "ZDF-Mediathek",
+    "url": "https://www.zdf.de/nachrichten/heute-19-uhr-100.html",
+    "info_status": 400,
+    "info_dt": 1.38,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "SVT-Play",
+    "url": "https://www.svtplay.se/video/jbjV5Wz/aktuellt",
+    "info_status": 400,
+    "info_dt": 1.53,
+    "error": "ERROR: [svt:play] jbjV5Wz: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Naver-TV",
+    "url": "https://tv.naver.com/v/45683562",
+    "info_status": 200,
+    "info_dt": 1.91,
+    "duration": 61,
+    "extractor": "Naver",
+    "title": "\ubaa8\ub378 \uae40\ud0dc\ud638\uc758 \ud574\uc678\ud328\uc158\uc704\ud06c vlog 1\ud0c4 #\uc2a4\ud1a4\uc544\uc77c\ub79c\ub4dc \ud3b8 \ud83c\udfa5",
+    "over_cap": null
+  },
+  {
+    "name": "Aparat",
+    "url": "https://www.aparat.com/v/EuVyA",
+    "info_status": 400,
+    "info_dt": 0.54,
+    "error": "Couldn't read that URL."
+  },
+  {
+    "name": "ThisVid-Canon",
+    "url": "https://thisvid.com/videos/sitting-on-ball-tight-jeans/",
+    "info_status": 504,
+    "info_dt": 25.28,
+    "error": "Source took too long to respond."
+  },
+  {
+    "name": "ThisVid-Embed",
+    "url": "https://thisvid.com/embed/3533241/",
+    "info_status": 200,
+    "info_dt": 9.96,
+    "duration": null,
+    "extractor": "Generic",
+    "title": "Sitting on ball tight jeans",
+    "over_cap": null
+  },
+  {
+    "name": "XHamster",
+    "url": "https://xhamster.com/videos/femaleagent-shy-beauty-takes-the-bait-1509445",
+    "info_status": 400,
+    "info_dt": 15.44,
+    "error": "ERROR: [XHamster] Unable to download webpage: Failed to perform, curl: (28) Connection timed out after 15002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details. (caused by TransportError('Failed to perfor"
+  },
+  {
+    "name": "XVideos",
+    "url": "https://www.xvideos.com/video.ucuvbkfda4e/a_beautiful_red-haired_stranger_was_refused_but_still_came_to_my_room_for_sex",
+    "info_status": 200,
+    "info_dt": 9.09,
+    "duration": 1238,
+    "extractor": "XVideos",
+    "title": "A Beautiful Red-Haired Stranger Was Refused, But Still Came ",
+    "over_cap": null
+  },
+  {
+    "name": "XNXX",
+    "url": "https://www.xnxx.com/video-55awb78/skyrim_test_video",
+    "info_status": 200,
+    "info_dt": 18.52,
+    "duration": 469,
+    "extractor": "XNXX",
+    "title": "Skyrim Test Video",
+    "over_cap": null
+  },
+  {
+    "name": "Pornhub",
+    "url": "https://www.pornhub.com/view_video.php?viewkey=ph5d4e6589c29ba",
+    "info_status": 400,
+    "info_dt": 2.22,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "RedTube",
+    "url": "https://www.redtube.com/38864951",
+    "info_status": 200,
+    "info_dt": 21.01,
+    "duration": 646,
+    "extractor": "RedTube",
+    "title": "Public Sex on the Balcony in Freezing Paris! Amateur Couple ",
+    "over_cap": null
+  },
+  {
+    "name": "SpankBang",
+    "url": "https://spankbang.com/56b3d/video/the+slut+maker+hmv",
+    "info_status": 400,
+    "info_dt": 1.74,
+    "error": "ERROR: [SpankBang] 56b3d: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Eporner",
+    "url": "https://www.eporner.com/video-EpoRnEr-test/",
+    "info_status": 400,
+    "info_dt": 1.71,
+    "error": "ERROR: [Eporner] EpoRnEr: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Beeg",
+    "url": "https://beeg.com/-0983946056129650",
+    "info_status": 400,
+    "info_dt": 0.72,
+    "error": "ERROR: [Beeg] 0983946056129650: Unable to download JSON metadata: HTTP Error 500: Internal Server Error (caused by <HTTPError 500: Internal Server Error>)"
+  },
+  {
+    "name": "TXXX",
+    "url": "https://txxx.com/videos/16574965/digital-desire-malena-morgan/",
+    "info_status": 200,
+    "info_dt": 1.27,
+    "duration": 694,
+    "extractor": "Txxx",
+    "title": "Digital Desire - Malena Morgan",
+    "over_cap": null
+  },
+  {
+    "name": "9GAG",
+    "url": "https://9gag.com/gag/aP1q6m1",
+    "info_status": 400,
+    "info_dt": 1.77,
+    "error": "ERROR: [9gag] aP1q6m1: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Newgrounds",
+    "url": "https://www.newgrounds.com/portal/view/717094",
+    "info_status": 400,
+    "info_dt": 6.69,
+    "error": "This site\u2019s extractor is currently broken upstream (yt-dlp parser bug). It usually gets patched within a day or two. If it\u2019s urgent, file the URL at https://github.com/yt-dlp/yt-dlp/issues or try the desktop app, which auto-updates yt-dlp o"
+  },
+  {
+    "name": "Coub",
+    "url": "https://coub.com/view/3rwa3a",
+    "info_status": 400,
+    "info_dt": 2.58,
+    "error": "ERROR: [Coub] 3rwa3a: Unable to download JSON metadata: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "Veoh",
+    "url": "https://www.veoh.com/watch/v141509908ZZQzAaSk",
+    "info_status": 400,
+    "info_dt": 0.38,
+    "error": "Couldn't resolve that hostname."
+  },
+  {
+    "name": "Stitcher",
+    "url": "https://listen.stitcher.com/yvap/?af_dp=stitcher://episode/319175521",
+    "info_status": 400,
+    "info_dt": 0.58,
+    "error": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)"
+  },
+  {
+    "name": "LBC",
+    "url": "https://www.lbc.co.uk/radio/presenters/nick-ferrari/",
+    "info_status": 400,
+    "info_dt": 1.16,
+    "error": "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
+  }
+]

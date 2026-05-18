@@ -4,25 +4,25 @@
       "name": "Streamable",
       "url": "https://streamable.com/dnd1",
       "init_status": 200,
-      "init_dt": 1.06,
+      "init_dt": 1.37,
       "filename": "Mikel_Oiarzabal_scores_to_make_it_0-3_for_La_Real_against_Espanyol.mp4",
       "filesize_advertised": null,
       "stream": {
         "ok": true,
         "status": 200,
-        "bytes_received": 1002912,
+        "bytes_received": 1016947,
         "advertised_length": null,
         "content_type": "video/mp4",
         "first8_hex": "0000002066747970",
         "ftyp_at_offset_4": true,
-        "dt": 2.89
+        "dt": 2.86
       }
     },
     {
       "name": "Vimeo",
       "url": "https://vimeo.com/76979871",
       "init_status": 200,
-      "init_dt": 1.24,
+      "init_dt": 2.39,
       "filename": "The_New_Vimeo_Player_You_Know_For_Videos_.mp4",
       "filesize_advertised": 20302494,
       "stream": {
@@ -33,14 +33,14 @@
         "content_type": "video/mp4",
         "first8_hex": "0000002066747970",
         "ftyp_at_offset_4": true,
-        "dt": 0.71
+        "dt": 0.74
       }
     },
     {
       "name": "PeerTube",
       "url": "https://framatube.org/videos/watch/9c9de5e8-0a1e-484a-b099-e80766180a6d",
       "init_status": 200,
-      "init_dt": 1.34,
+      "init_dt": 1.43,
       "filename": "What_is_PeerTube_.mp4",
       "filesize_advertised": 10017104,
       "stream": {
@@ -51,14 +51,14 @@
         "content_type": "video/mp4",
         "first8_hex": "0000001866747970",
         "ftyp_at_offset_4": true,
-        "dt": 1.57
+        "dt": 1.4
       }
     },
     {
       "name": "BitChute",
       "url": "https://www.bitchute.com/video/UGlrF9o9b-Q/",
       "init_status": 200,
-      "init_dt": 0.75,
+      "init_dt": 1.42,
       "filename": "This_is_the_first_video_on_BitChute_.mp4",
       "filesize_advertised": 1170388,
       "stream": {
@@ -69,14 +69,14 @@
         "content_type": "video/mp4",
         "first8_hex": "0000001866747970",
         "ftyp_at_offset_4": true,
-        "dt": 0.99
+        "dt": 0.98
       }
     },
     {
       "name": "TED",
       "url": "https://www.ted.com/talks/candace_parker_how_to_break_down_barriers_and_not_accept_limits",
       "init_status": 200,
-      "init_dt": 1.26,
+      "init_dt": 1.18,
       "filename": "How_to_break_down_barriers_and_not_accept_limits.mp4",
       "filesize_advertised": 101850000,
       "stream": {
@@ -87,81 +87,86 @@
         "content_type": "video/mp4",
         "first8_hex": "0000002066747970",
         "ftyp_at_offset_4": true,
-        "dt": 0.77
+        "dt": 0.62
       }
     },
     {
       "name": "Reddit",
       "url": "https://www.reddit.com/r/videos/comments/6rrwyj/that_small_heart_attack/",
-      "init_status": 422,
-      "init_dt": 0.62,
-      "init_body": {
-        "detail": {
-          "reason": "needs_processing",
-          "fallback": "/api/process",
-          "message": "This URL needs server-side merging or re-encoding. Use /api/process."
-        }
+      "init_status": 200,
+      "init_dt": 5.49,
+      "filename": "That_small_heart_attack..mp4",
+      "filesize_advertised": null,
+      "stream": {
+        "ok": true,
+        "status": 200,
+        "bytes_received": 1005391,
+        "advertised_length": null,
+        "content_type": "video/mp4",
+        "first8_hex": "474011100042f025",
+        "ftyp_at_offset_4": false,
+        "dt": 12.77
       }
     },
     {
       "name": "AlJazeera",
       "url": "https://balkans.aljazeera.net/videos/2021/11/6/pojedini-domovi-u-sarajevu-jos-pod-vodom-mjestanima-se-dostavlja-hrana",
       "init_status": 200,
-      "init_dt": 1.37,
+      "init_dt": 0.61,
       "filename": "Pojedini_domovi_u_Sarajevu_jo_pod_vodom_mje_tanima_se_dostavlja_hrana.mp4",
       "filesize_advertised": null,
       "stream": {
         "ok": true,
         "status": 200,
-        "bytes_received": 1014406,
+        "bytes_received": 1019251,
         "advertised_length": null,
         "content_type": "video/mp4",
         "first8_hex": "474011100042f025",
         "ftyp_at_offset_4": false,
-        "dt": 8.04
+        "dt": 3.81
       }
     },
     {
       "name": "CNN",
       "url": "https://www.cnn.com/2024/05/31/sport/video/jadon-sancho-borussia-dortmund-champions-league-exclusive-spt-intl",
       "init_status": 200,
-      "init_dt": 1.3,
+      "init_dt": 1.18,
       "filename": "Borussia_Dortmund_star_Jadon_Sancho_seeks_Wembley_redemption_after_2020_Euros_hu.mp4",
       "filesize_advertised": null,
       "stream": {
         "ok": true,
         "status": 200,
-        "bytes_received": 1001322,
+        "bytes_received": 1015445,
         "advertised_length": null,
         "content_type": "video/mp4",
         "first8_hex": "474011100042f025",
         "ftyp_at_offset_4": false,
-        "dt": 5.9
+        "dt": 3.44
       }
     },
     {
       "name": "NFL",
       "url": "https://www.nfl.com/videos/baker-mayfield-s-game-changing-plays-from-3-td-game-week-14",
       "init_status": 200,
-      "init_dt": 2.27,
+      "init_dt": 1.53,
       "filename": "Baker_Mayfield_s_game-changing_plays_from_3-TD_game_Week_14.mp4",
       "filesize_advertised": null,
       "stream": {
         "ok": true,
         "status": 200,
-        "bytes_received": 1010894,
+        "bytes_received": 1006661,
         "advertised_length": null,
         "content_type": "video/mp4",
         "first8_hex": "474000100000b00d",
         "ftyp_at_offset_4": false,
-        "dt": 3.46
+        "dt": 4.02
       }
     },
     {
       "name": "samplelib",
       "url": "https://download.samplelib.com/mp4/sample-5s.mp4",
       "init_status": 200,
-      "init_dt": 0.36,
+      "init_dt": 0.37,
       "filename": "sample-5s.mp4",
       "filesize_advertised": 2848208,
       "stream": {
@@ -172,7 +177,7 @@
         "content_type": "video/mp4",
         "first8_hex": "0000002066747970",
         "ftyp_at_offset_4": true,
-        "dt": 0.77
+        "dt": 0.79
       }
     }
   ],
@@ -180,9 +185,10 @@
     {
       "name": "ThisVid embed",
       "url": "https://thisvid.com/embed/3533241/",
-      "status": 422,
-      "fastpath": false,
-      "reason": "needs_processing"
+      "status": 200,
+      "filename": "Sitting_on_ball_tight_jeans.mp4",
+      "filesize": null,
+      "fastpath": true
     },
     {
       "name": "ThisVid canonical (control)",
@@ -195,23 +201,25 @@
     {
       "name": "YouTube embed",
       "url": "https://www.youtube.com/embed/jNQXAC9IVRw",
-      "status": 422,
-      "fastpath": false,
-      "reason": "needs_processing"
+      "status": 0,
+      "body": {
+        "err": "HTTPSConnectionPool(host='dandyfeet-cmvideo-mini.hf.space', port=443): Read timed out. (read timeout=25)"
+      }
     },
     {
       "name": "YouTube watch",
       "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
-      "status": 422,
-      "fastpath": false,
-      "reason": "needs_processing"
+      "status": 0,
+      "body": {
+        "err": "HTTPSConnectionPool(host='dandyfeet-cmvideo-mini.hf.space', port=443): Read timed out. (read timeout=25)"
+      }
     },
     {
       "name": "Vimeo player embed",
       "url": "https://player.vimeo.com/video/76979871",
       "status": 200,
       "filename": "The_New_Vimeo_Player_You_Know_For_Videos_.mp4",
-      "filesize": null,
+      "filesize": 20302494,
       "fastpath": true
     }
   ],
@@ -308,5 +316,5 @@
       }
     }
   ],
-  "ts": 1779006315
+  "ts": 1779012802
 }

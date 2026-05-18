@@ -876,8 +876,9 @@ class CensorApp:
             height=28,
             cursor="arrow",
         )
-        self.egg_zone.pack(side="right", anchor="ne")
-        self.egg_zone.pack_propagate(False)
+        # place() keeps egg_zone out of the pack flow so the header height
+        # is determined by the wordmark image, not the 28px fixed frame.
+        self.egg_zone.place(relx=1.0, y=0, anchor="ne")
         self.egg_zone.bind("<Button-1>", self._on_easter_egg_click)
 
         title_holder = tk.Frame(header, bg=Theme.BG)

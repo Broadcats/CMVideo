@@ -20,6 +20,15 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [desktop-v0.4.17.1-alpha] - 2026-05-18
+
+**Hotfix: wordmark fully visible.**
+
+### Fixed
+- **Logo "Video" cut in half** — `egg_zone` (the easter-egg click target in the top-right of the header) was packed with `pack_propagate(False)` and a fixed `height=28`, which caused Tkinter's pack manager to size the `header` frame to 28 px — clipping the 55 px wordmark image at the halfway mark. Switched `egg_zone` from `pack()` to `place(relx=1.0, y=0, anchor="ne")` so it sits in the top-right corner without participating in the pack height calculation.
+
+---
+
 ## [desktop-v0.4.17-alpha] - 2026-05-18
 
 **UI polish and security hardening.**

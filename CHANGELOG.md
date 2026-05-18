@@ -20,6 +20,15 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [desktop-v0.4.17.2-alpha] - 2026-05-18
+
+**Hotfix: colorful gradient wordmark.**
+
+### Fixed
+- **Wordmark too small/plain** — rebuilt wordmarks using Inter ExtraBold (800 weight) at larger render targets (420→640→840px). The gradient "Video." and red camera icon are now clearly visible in the app header, matching the website's design.
+
+---
+
 ## [desktop-v0.4.17.1-alpha] - 2026-05-18
 
 **Hotfix: wordmark fully visible.**

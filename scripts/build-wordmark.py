@@ -36,12 +36,15 @@ LEFT_TEXT = "Clean My V"
 RIGHT_TEXT = "deo."
 
 
-# Inter Bold paths to try in order. The script only runs on dev
-# machines, so we only need ONE of these to resolve.
+# Inter ExtraBold (800) paths to try in order; fall back to Bold then DejaVu.
 INTER_BOLD_CANDIDATES = [
+    "/usr/share/fonts/truetype/inter-zorin-os/Inter-ExtraBold.ttf",
     "/usr/share/fonts/truetype/inter-zorin-os/Inter-Bold.ttf",
+    "/usr/share/fonts/truetype/inter/Inter-ExtraBold.ttf",
     "/usr/share/fonts/truetype/inter/Inter-Bold.ttf",
+    "/usr/share/fonts/Inter-ExtraBold.ttf",
     "/usr/share/fonts/Inter-Bold.ttf",
+    str(Path.home() / ".local" / "share" / "fonts" / "Inter-ExtraBold.ttf"),
     str(Path.home() / ".local" / "share" / "fonts" / "Inter-Bold.ttf"),
 ]
 DEJAVU_BOLD_FALLBACK = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -245,10 +248,14 @@ def render_wordmark(width: int) -> Image.Image:
 
 def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    targets = [256, 384, 512, 768]
-    for w in targets:
+    # Larger targets so the gradient and camera are visible at 1x.
+    # wordmark-256.png is loaded unscaled by the app; aim for ~420px wide
+    # so the font is big enough to read the gradient clearly.
+    targets = [420, 640, 840, 1260]
+    names   = ["wordmark-256.png", "wordmark-384.png", "wordmark-512.png", "wordmark-768.png"]
+    for w, name in zip(targets, names):
         img = render_wordmark(w)
-        out = OUT_DIR / f"wordmark-{w}.png"
+        out = OUT_DIR / name
         img.save(out, "PNG", optimize=True)
         print(f"  wrote {out.relative_to(REPO_ROOT)}  ({img.width}x{img.height})")
     return 0

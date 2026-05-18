@@ -29,4 +29,4 @@ build.
 
 from __future__ import annotations
 
-APP_VERSION = "0.4.17.1-alpha"
+APP_VERSION = "0.4.17.2-alpha"

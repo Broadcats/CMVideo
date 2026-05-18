@@ -186,12 +186,17 @@ def render_wordmark(width: int) -> Image.Image:
     v_glyph = _gradient_text("V", font)
     right_glyph = _gradient_text("deo.", font)
 
-    text_h = v_glyph.height
+    # Use the tallest of all three glyphs — "Clean My " includes the "y"
+    # descender which is taller than "V" alone; sizing from v_glyph.height
+    # made the canvas too short and clipped the descender.
+    cap_h = v_glyph.height   # cap-height reference for camera/stem ratios
+    text_h = max(left_white.height, v_glyph.height, right_glyph.height)
+
     # Stem dimensions: ~6% of cap height wide, ~58% tall
-    stem_w = max(2, int(text_h * 0.07))
-    stem_h = max(8, int(text_h * 0.58))
+    stem_w = max(2, int(cap_h * 0.07))
+    stem_h = max(8, int(cap_h * 0.58))
     # Camera height ~40% of cap height
-    cam_h = max(10, int(text_h * 0.42))
+    cam_h = max(10, int(cap_h * 0.42))
     camera = _camera_silhouette(cam_h)
 
     # i-stem fill = average gradient color at the stem's eventual x.
@@ -200,13 +205,13 @@ def render_wordmark(width: int) -> Image.Image:
     for y in range(stem_h):
         sd.line([(0, y), (stem_w, y)], fill=ACCENT_GLOW + (255,))
 
-    gap = max(2, int(text_h * 0.02))   # gap between camera and stem
+    gap = max(2, int(cap_h * 0.02))   # gap between camera and stem
     cluster_w = max(stem_w, camera.width)
     cluster_h = cam_h + gap + stem_h
 
-    pad_x = max(8, int(text_h * 0.10))
-    pad_y_top = max(3, int(text_h * 0.04))   # tight — header now shows full image
-    pad_y_bottom = max(3, int(text_h * 0.04))
+    pad_x = max(8, int(cap_h * 0.10))
+    pad_y_top = max(4, int(cap_h * 0.04))
+    pad_y_bottom = max(6, int(cap_h * 0.10))  # extra room for descenders
     total_w = (
         left_white.width
         + v_glyph.width

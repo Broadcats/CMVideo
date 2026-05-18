@@ -341,7 +341,8 @@ def _yt_video_id(url: str) -> str | None:
         if host in ("youtu.be",):
             vid = parsed.path.lstrip("/").split("/")[0].split("?")[0]
             return vid or None
-        if host in ("youtube.com", "youtube-nocookie.com"):
+        # Match youtube.com, m.youtube.com, music.youtube.com, etc.
+        if host == "youtube.com" or host.endswith(".youtube.com") or host == "youtube-nocookie.com":
             qs = urllib.parse.parse_qs(parsed.query)
             return (qs.get("v") or [None])[0]
     except Exception:
@@ -1593,7 +1594,7 @@ def extract_with_fallbacks(
                 site=_domain_of(url),
                 attempts=attempts + [f"llm: ok (conf={decision.confidence:.2f})"],
             )
-        except (ExtractionError, RuntimeError) as exc:
+        except Exception as exc:  # noqa: BLE001
             _emit("llm", str(exc))
             last_error = ExtractionError(str(exc))
 

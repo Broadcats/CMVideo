@@ -866,17 +866,19 @@ class CensorApp:
         # pack geometry manager from ever squeezing the header smaller than
         # the wordmark, regardless of window height or sibling widget sizes.
         self._brand_image: tk.PhotoImage | None = None
-        for _name in (
-            "assets/wordmark/wordmark-256.png",
-            "assets/wordmark/wordmark-384.png",
-            "assets/wordmark/wordmark-512.png",
+        # Try 512 (2x render, subsampled to display at half) first for crispness,
+        # then fall back to 256 (1x render).
+        for _name, _sub in (
+            ("assets/wordmark/wordmark-512.png", 2),
+            ("assets/wordmark/wordmark-256.png", 1),
+            ("assets/wordmark/wordmark-384.png", 1),
         ):
             _wm = HERE / _name
             if _wm.is_file():
                 try:
                     img = tk.PhotoImage(file=str(_wm))
-                    if "wordmark-512" in _name:
-                        img = img.subsample(2, 2)
+                    if _sub > 1:
+                        img = img.subsample(_sub, _sub)
                     self._brand_image = img
                     break
                 except tk.TclError:

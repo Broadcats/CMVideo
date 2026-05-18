@@ -896,14 +896,21 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
             "the desktop app runs from your own connection and is more reliable."
         )
     if yt_generic_signals and _is_youtube_host(url or ""):
-        # Generic transport errors when talking to YT: keep the old
-        # "free server is rate-limited" framing because the user
-        # really should just retry / use desktop. This is distinct
-        # from the cookie-fixable bot wall above.
         return (
             "YouTube is unstable on the mini web server right now. "
             "For reliable YouTube downloads, use the desktop app at cmvideo.online."
         )
+    # When every extractor in the fallback chain fails, the raw dump
+    # ("All extractors failed. Last error: ... (tried: yt-dlp: ..., llm: ...)")
+    # leaks through. Catch it and show a clean message instead.
+    if "all extractors failed" in low or ("tried:" in low and "last error:" in low):
+        if _is_youtube_host(url or ""):
+            return (
+                "YouTube couldn't be downloaded — the server is bot-walled. "
+                "Use the desktop app (runs on your own connection) or upload "
+                "your YouTube cookies via the cookie panel."
+            )
+        return "Download failed — all extraction methods exhausted. Try the desktop app."
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
         return "That video isn't available (private, region-locked, or removed)."
     # Mixcloud: yt-dlp recognises the URL but fails at the CDN/auth

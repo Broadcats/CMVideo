@@ -20,6 +20,22 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [desktop-v0.4.17.7-alpha] - 2026-05-18
+
+### Fixed
+- **Logo: 2x render for crispness** — wordmark-512 (757×98) is now loaded first and subsampled 2x to display at ~378×49, giving HiDPI-quality rendering instead of the 1x 376×52 PNG.
+
+---
+
+## [mini-2026.05.18.12-alpha] - 2026-05-18
+
+### Fixed
+- **YouTube "internal error"** — unhandled exceptions from the playwright/LLM tier now caught broadly, preventing a crash that showed "Mini app hit an internal error" instead of a real message.
+- **YouTube `m.youtube.com` Piped fallback** — `_yt_video_id` now recognises any `*.youtube.com` subdomain, so the Piped retry fires on mobile YouTube URLs.
+- **Raw extractor dump shown to user** — `_friendly_ydl_error` now catches "all extractors failed" and shows a clean "bot-walled, use desktop app / upload cookies" message instead of the raw debug string.
+
+---
+
 ## [desktop-v0.4.17.3-alpha] - 2026-05-18
 
 ### Fixed

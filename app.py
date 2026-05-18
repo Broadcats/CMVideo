@@ -924,7 +924,7 @@ class CensorApp:
         if self._brand_image is not None:
             tk.Label(
                 brand_row, image=self._brand_image, bg=Theme.BG
-            ).pack(side="left", padx=(0, 12), pady=(2, 0))
+            ).pack(side="left", padx=(0, 12))
         else:
             ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
                 side="left", anchor="w"

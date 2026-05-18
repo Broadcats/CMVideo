@@ -204,15 +204,9 @@ def render_wordmark(width: int) -> Image.Image:
     cluster_w = max(stem_w, camera.width)
     cluster_h = cam_h + gap + stem_h
 
-    # Total composition width. Vertical padding has to be generous
-    # enough that the camera silhouette never kisses the top edge of
-    # the bitmap. Some Tk themes shave a few pixels of the top of any
-    # widget hosting an image, so we err on the side of way too much
-    # top air (45 % of cap height) - the bitmap fits in the same
-    # header height because the header just centres it vertically.
     pad_x = max(8, int(text_h * 0.10))
-    pad_y_top = max(22, int(text_h * 0.45))
-    pad_y_bottom = max(8, int(text_h * 0.12))
+    pad_y_top = max(3, int(text_h * 0.04))   # tight — header now shows full image
+    pad_y_bottom = max(3, int(text_h * 0.04))
     total_w = (
         left_white.width
         + v_glyph.width

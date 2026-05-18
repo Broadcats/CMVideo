@@ -906,6 +906,12 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
         )
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
         return "That video isn't available (private, region-locked, or removed)."
+    # Mixcloud: yt-dlp recognises the URL but fails at the CDN/auth
+    # stage with messages that contain "unsupported" or similar generic
+    # text. The generic "unsupported url" catch below hides the real
+    # error and tells the user "that site isn't supported" \u2014 wrong.
+    if url and "mixcloud.com" in url.lower():
+        return msg or "Mixcloud download failed. The track may require a Mixcloud account or the CDN link expired."
     if "unsupported url" in low:
         return "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
     # Parser regressions: yt-dlp's extractor matched the URL but
@@ -1652,19 +1658,27 @@ def _video_format_selector(fps: str = "source", *, height: int | None = None) ->
         # On YouTube where 720p only exists as split tracks, the
         # same expression picks the 720p video-only AVC and merges
         # it with the best m4a. Either way: we get the right height.
+        #
+        # `!*preview` / `!*trailer` / `!*sample`: yt-dlp "does not
+        # contain" operator. Filters out preview-labelled format IDs
+        # that some tube sites expose alongside the full video. Sites
+        # that use numeric format IDs (RedTube: "240"/"720") are
+        # unaffected; the filter only fires when a format_id literally
+        # contains the word "preview", "trailer", or "sample".
+        no_preview = "[format_id!*preview][format_id!*trailer][format_id!*sample]"
         return (
             # 1) Best video at the cap, AVC/m4a where possible (mp4
             #    output without a transcode).
-            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            f"bestvideo*[height<={target}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4][vcodec^=avc1]{no_preview}+bestaudio[ext=m4a]/"
+            f"bestvideo*[height<={target}][ext=mp4][vcodec^=avc1]{no_preview}+bestaudio[ext=m4a]/"
             # 2) Best video at the cap, mp4 video container, any audio.
-            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4]+bestaudio/"
-            f"bestvideo*[height<={target}][ext=mp4]+bestaudio/"
+            f"bestvideo*[height<={target}]{fps_clause}[ext=mp4]{no_preview}+bestaudio/"
+            f"bestvideo*[height<={target}][ext=mp4]{no_preview}+bestaudio/"
             # 3) Best video at the cap, ANY container (webm/etc.) +
             #    best audio. yt-dlp will remux to mp4 via the
             #    FFmpegVideoRemuxer postprocessor we set in opts.
-            f"bestvideo*[height<={target}]{fps_clause}+bestaudio/"
-            f"bestvideo*[height<={target}]+bestaudio/"
+            f"bestvideo*[height<={target}]{fps_clause}{no_preview}+bestaudio/"
+            f"bestvideo*[height<={target}]{no_preview}+bestaudio/"
             # 4) Single-file at the EXACT cap height. This is the
             #    no-merge fast path for sites that ship progressive
             #    720p / 1080p (most non-YouTube CDNs). It's clause
@@ -1672,9 +1686,11 @@ def _video_format_selector(fps: str = "source", *, height: int | None = None) ->
             #    progressive resolution actually matches the cap -
             #    not when it's a low-res fallback that happens to
             #    sneak in under <=H.
-            f"best[height={target}]{fps_clause}[ext=mp4][acodec!=none]/"
-            f"best[height={target}][ext=mp4][acodec!=none]/"
-            # 5) Last resort at this tier - any single-file <=H.
+            f"best[height={target}]{fps_clause}[ext=mp4][acodec!=none]{no_preview}/"
+            f"best[height={target}][ext=mp4][acodec!=none]{no_preview}/"
+            # 5) Last resort at this tier — any single-file <=H,
+            #    still avoiding preview-labelled IDs where possible.
+            f"best[height<={target}]{no_preview}/"
             f"best[height<={target}]"
         )
 
@@ -2146,6 +2162,18 @@ _STREAM_FASTPATH_BLOCKED_DOMAINS = (
     "ttcache.com",
 )
 
+# These domains sign their CDN delivery URLs to a specific exit IP.
+# Tier-1 direct streaming resolves the URL via the proxy but then
+# GETs the bytes potentially through a different pool exit node,
+# breaking the IP-bound signature (HTTP 474 / 403 on the CDN).
+# Force these to Tier-2 (yt-dlp subprocess) so yt-dlp handles
+# both metadata resolution AND byte-fetching with the same --proxy.
+_YTDLP_PIPE_REQUIRED_DOMAINS = frozenset({
+    "pornhub.com",
+    "phncdn.com",
+    "rt.pornhub.com",
+})
+
 
 def _stream_fastpath_blocked(url: str) -> bool:
     host = _proxy_router._hostname_of(url)
@@ -2581,7 +2609,12 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
             continue
         direct_candidates.append(f)
 
-    if direct_candidates:
+    _host = _proxy_router._hostname_of(url)
+    _pipe_required = any(
+        _host == d or _host.endswith("." + d)
+        for d in _YTDLP_PIPE_REQUIRED_DOMAINS
+    )
+    if direct_candidates and not _pipe_required:
         direct_candidates.sort(
             key=lambda f: (
                 f.get("height") or 0,
@@ -3383,10 +3416,6 @@ class YTCookiesRequest(BaseModel):
 @app.post("/api/yt-cookies")
 @limiter.limit("10/hour;3/minute")
 async def api_yt_cookies(request: Request, body: YTCookiesRequest):
-    raise HTTPException(
-        status_code=410,
-        detail="YouTube cookie upload is disabled. Use the desktop app for YouTube downloads.",
-    )
     """Accept a Netscape cookies.txt blob from the client, materialize
     it server-side under a random session token, return the token.
 

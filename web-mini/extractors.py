@@ -315,6 +315,54 @@ def _looks_live(url: str) -> bool:
     return any(p.search(url) for p in LIVE_URL_PATTERNS)
 
 
+_YT_DOMAINS = frozenset({"youtube.com", "youtu.be", "youtube-nocookie.com"})
+
+_YT_BOT_WALL_SIGNALS = (
+    "sign in to confirm",
+    "not a bot",
+    "please sign in",
+    "login_required",
+    "failed to extract any player response",
+)
+
+# Piped instances to try, in order. These relay YT streams from their
+# own servers. Uptime varies, so we try each in turn.
+_PIPED_INSTANCES = (
+    "piped.video",
+    "piped.kavin.rocks",
+)
+
+
+def _yt_video_id(url: str) -> str | None:
+    """Extract a bare YouTube video ID from any YT URL form."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower().lstrip("www.")
+        if host in ("youtu.be",):
+            vid = parsed.path.lstrip("/").split("/")[0].split("?")[0]
+            return vid or None
+        if host in ("youtube.com", "youtube-nocookie.com"):
+            qs = urllib.parse.parse_qs(parsed.query)
+            return (qs.get("v") or [None])[0]
+    except Exception:
+        pass
+    return None
+
+
+def _piped_url_for(url: str) -> str | None:
+    """Return a Piped-frontend URL for a YouTube watch URL, or None."""
+    vid = _yt_video_id(url)
+    if not vid:
+        return None
+    instance = _PIPED_INSTANCES[0]
+    return f"https://{instance}/watch?v={vid}"
+
+
+def _is_yt_bot_wall_error(error_text: str) -> bool:
+    t = (error_text or "").lower()
+    return any(s in t for s in _YT_BOT_WALL_SIGNALS)
+
+
 # ---------------------------------------------------------------------------
 # yt-dlp adapter (the existing path; this module just standardises the
 # return shape so the dispatcher can treat it like the others).
@@ -1373,6 +1421,34 @@ def extract_with_fallbacks(
             last_error = exc
             if exc.terminal:
                 raise ExtractionError(exc.message, attempts=attempts, terminal=True) from exc
+
+    # YouTube bot-wall retry via Piped/Invidious frontend.
+    # When yt-dlp hits a "Sign in to confirm you're not a bot" / bot-wall
+    # on a YouTube URL, the other tools (gallery-dl, Cobalt, etc.) won't
+    # help either. But Piped and Invidious relay YT streams from their own
+    # servers so they aren't subject to the same IP-based bot detection.
+    # We rewrite the URL to a Piped instance and retry yt-dlp once before
+    # falling through to the rest of the chain.
+    if (
+        last_error is not None
+        and _ends_with_any(domain, _YT_DOMAINS)
+        and _is_yt_bot_wall_error(last_error.message)
+    ):
+        piped_url = _piped_url_for(url)
+        if piped_url:
+            _emit("piped-rewrite", f"YouTube bot-walled; retrying via {piped_url[:60]}")
+            for _instance in _PIPED_INSTANCES:
+                vid = _yt_video_id(url)
+                if not vid:
+                    break
+                candidate = f"https://{_instance}/watch?v={vid}"
+                try:
+                    r = yt_dlp_download(candidate, dst_dir, fmt=fmt, ydl_opts=ydl_opts)
+                    r.attempts = attempts + [f"piped({_instance}): ok"]
+                    return r
+                except ExtractionError as exc:
+                    _emit(f"piped({_instance})", exc.message)
+                    last_error = exc
 
     # On auth-hostile domains, skip every cheap CLI fallback - they
     # all fail without session cookies and just chew up the

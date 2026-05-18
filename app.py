@@ -861,38 +861,11 @@ class CensorApp:
         self.root.bind("<Configure>", self._on_resize)
 
     def _build_header(self, parent: tk.Frame) -> None:
-        header = tk.Frame(parent, bg=Theme.BG)
-        # 12 px above the wordmark gives the logo clean air below the
-        # title bar on every WM theme; 8 was too tight on some compositors.
-        header.pack(side="top", fill="x", pady=(12, 10))
-
-        # Invisible top-right click target. 69 hits reveals an image.
-        self._egg_clicks = 0
-        self._egg_window = None
-        self.egg_zone = tk.Frame(
-            header,
-            bg=Theme.BG,
-            width=28,
-            height=28,
-            cursor="arrow",
-        )
-        # place() keeps egg_zone out of the pack flow so the header height
-        # is determined by the wordmark image, not the 28px fixed frame.
-        self.egg_zone.place(relx=1.0, y=0, anchor="ne")
-        self.egg_zone.bind("<Button-1>", self._on_easter_egg_click)
-
-        title_holder = tk.Frame(header, bg=Theme.BG)
-        title_holder.pack(side="left", fill="x", expand=True)
-
-        brand_row = tk.Frame(title_holder, bg=Theme.BG)
-        brand_row.pack(anchor="w", fill="x")
+        # Load the brand image FIRST so we can size the header frame to it
+        # exactly and freeze it with pack_propagate(False). This prevents the
+        # pack geometry manager from ever squeezing the header smaller than
+        # the wordmark, regardless of window height or sibling widget sizes.
         self._brand_image: tk.PhotoImage | None = None
-        # Prefer the rendered wordmark (matches website); fall back to
-        # the icon + plain text combo if the wordmark assets don't ship.
-        # 256 is the most compact size (~47px tall with the new
-        # breathing room) and renders crisply at the header height.
-        # The 384/512 sizes ship for larger HiDPI scales the user can
-        # opt into in a future zoom setting.
         for _name in (
             "assets/wordmark/wordmark-256.png",
             "assets/wordmark/wordmark-384.png",
@@ -921,14 +894,23 @@ class CensorApp:
                         break
                     except tk.TclError:
                         self._brand_image = None
+
+        img_h = self._brand_image.height() if self._brand_image else 48
+        header = tk.Frame(parent, bg=Theme.BG, height=img_h)
+        header.pack(side="top", fill="x", pady=(12, 10))
+        header.pack_propagate(False)  # freeze at exactly img_h; pack can't shrink it
+
+        # Invisible top-right click target. 69 hits reveals an image.
+        self._egg_clicks = 0
+        self._egg_window = None
+        self.egg_zone = tk.Frame(header, bg=Theme.BG, width=28, height=28, cursor="arrow")
+        self.egg_zone.place(relx=1.0, y=0, anchor="ne")
+        self.egg_zone.bind("<Button-1>", self._on_easter_egg_click)
+
         if self._brand_image is not None:
-            tk.Label(
-                brand_row, image=self._brand_image, bg=Theme.BG
-            ).pack(side="left", padx=(0, 12))
+            tk.Label(header, image=self._brand_image, bg=Theme.BG).place(x=0, y=0, anchor="nw")
         else:
-            ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
-                side="left", anchor="w"
-            )
+            ttk.Label(header, text=APP_BRAND, style="Title.TLabel").place(x=0, y=0, anchor="nw")
 
         # Indigo -> violet -> cyan strip between header and body.
         # Redrawn on resize via _redraw_accent_strip.

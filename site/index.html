@@ -176,48 +176,26 @@
             <p class="shot-quality-note" id="mini-quality-note" hidden>
               <strong>Heads up:</strong> 1080p+ uses Source fps only on the
               mini &mdash; 30/60&nbsp;fps overrides at 1080p+ would time out
-              on the shared CPU. Censoring (silence / beep) is also limited
-              to 1080p and below. For 4K + 60&nbsp;fps + censoring,
-              use the desktop app.
+              on the shared CPU. For best speed/reliability at high frame
+              rates or heavy processing, use the desktop app.
             </p>
 
-            <div class="shot-row shot-mode-row" role="radiogroup" aria-label="Mode">
-              <label class="chip pill on" data-mode="download">
-                <input type="radio" name="mini-mode" value="download" checked />
-                <span class="chip-text">Download<span class="chip-hint">&le;1&nbsp;hr</span></span>
-              </label>
-              <label class="chip pill" data-mode="silence">
-                <input type="radio" name="mini-mode" value="silence" />
-                <span class="chip-text">Silence swears<span class="chip-hint">&le;8&nbsp;min</span></span>
-              </label>
-              <label class="chip pill" data-mode="beep">
-                <input type="radio" name="mini-mode" value="beep" />
-                <span class="chip-text">Beep swears<span class="chip-hint">&le;8&nbsp;min</span></span>
-              </label>
-            </div>
-
-            <p class="shot-mode-note" id="mini-mode-note" hidden>
-              <strong>Heads up:</strong> censor jobs are capped at
-              <strong>8&nbsp;minutes</strong> on the mini. Longer clips are
-              rejected before processing &mdash; use the
-              <a href="#downloads">desktop app</a> for full-length runs.
-            </p>
+            <input type="hidden" name="mini-mode" value="download" />
 
             <button class="shot-btn" id="mini-btn" type="submit">Download</button>
 
             <p class="shot-status" id="mini-status" aria-live="polite"></p>
 
             <p class="shot-caps">
-              <strong>Mini caps:</strong> download &le;<strong>1&nbsp;hr</strong>
+              <strong>Mini caps:</strong> download/extract &le;<strong>1&nbsp;hr</strong>
               / size cap scales with quality (200&nbsp;MB at 144p &rarr;
               <strong>4&nbsp;GB at 4K</strong>) &middot;
-              <strong>censor &le;8&nbsp;min</strong> / 100&nbsp;MB
-              (1080p&nbsp;max) &middot; video 144p&ndash;4K &middot; audio in
+              video 144p&ndash;4K &middot; audio in
               MP3 / M4A / AAC / OGG / OPUS / WAV / FLAC &middot; 20 jobs/hour.
               Multi-extractor stack (yt-dlp &rarr; gallery-dl &rarr;
               Cobalt &rarr; streamlink) covers most mainstream sites; a few will
               still need the desktop app. For censoring, batch processing,
-              fuzzy / leetspeak matching and TTS
+              fuzzy/leetspeak matching, and TTS
               &mdash; <a href="#downloads">download the app &darr;</a>
             </p>
 
@@ -238,19 +216,14 @@
             <details class="shot-legal">
               <summary>How does YouTube work here?</summary>
               <p>
-                <strong>Plain download (MP4 / MP3) works in the mini.</strong>
-                YouTube actively rate-limits cloud-hosted scrapers, so we route
-                YouTube traffic through a residential-IP proxy to look like a
-                normal home connection. Success rate is solid for short, public,
-                non-age-gated clips — call it "best-effort". If a particular video
-                fails, the desktop app is the safer next step.
+                <strong>YouTube is best in the desktop app.</strong>
+                The mini can be blocked by YouTube's anti-bot systems on shared
+                cloud IPs, so YouTube reliability is not guaranteed here.
               </p>
               <p>
-                <strong>Censoring (silence / beep) on YouTube redirects to the
-                desktop app.</strong> Censor mode needs the transcript API, which
-                YouTube guards more aggressively than the video itself. The
-                desktop app runs from your own connection, where the API behaves
-                normally.
+                <strong>Censoring (silence / beep) is desktop-only.</strong>
+                The web mini is intentionally focused on extract/download only.
+                For transcript-based censoring, use the desktop app.
               </p>
               <p>
                 <strong>Every other source works as a normal download here</strong>

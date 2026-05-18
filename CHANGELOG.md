@@ -20,6 +20,263 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [mini-2026.05.18.10-alpha] - 2026-05-18
+
+**Reliability maximization bundle (domain policy + retry matrix + format ladder).**
+
+### Added a single domain policy table
+* Consolidated per-domain extraction tuning into `_DOMAIN_POLICY` in `web-mini/app.py` with explicit keys:
+  `socket_timeout_s`, `info_budget_s`, `ydl_retries`, `fragment_retries`.
+* Moved ad-hoc timeout logic behind `_domain_policy_for(url)`, so `_socket_timeout_for` and `_info_resolve_budget_s` now read from one source of truth.
+* Seeded policy rows for YouTube and slow/throttled social domains (Instagram / Meta / X / Reddit family) to reduce false 504s.
+
+### Added extract-info retry matrix
+* New `_extract_info_with_retry_matrix()` runs a bounded recovery matrix for metadata probes:
+  proxy route fallback (`proxy -> direct` where applicable) and impersonation fallback (`on -> off` for eligible domains).
+* New `_is_retryable_extract_error()` classifier retries only transient transport/throttle failures (timeouts/TLS/429/5xx etc) and avoids useless retries on hard terminal errors.
+* `/api/info` and streamable resolver now use this matrix, making URL/embed metadata resolution substantially more resilient without blindly increasing retries everywhere.
+
+### Added automatic video format fallback ladder
+* New `_video_format_fallback_ladder()` builds descending quality selectors (`requested -> 1440 -> 1080 -> 720 -> 480 -> 360 -> 240 -> best`).
+* `/api/process` MP4 downloads now use the ladder instead of a single-selector path, increasing success rate when top renditions are flaky/unavailable.
+* Tier-2 stream pipe (`/api/stream`) now uses the same ladder for consistency between streaming and server-pull paths.
+
+### Outcome
+* Better resilience across mixed URL/embed sources and unstable CDN variants with no frontend changes required.
+* Behavior is easier to tune operationally: future per-domain changes are one policy-table edit instead of touching multiple call paths.
+
+## [mini-2026.05.18.9-alpha] - 2026-05-18
+
+**PoToken plugin engagement, end-to-end.** After `2026.05.18.1-alpha`
+unblocked the YouTube TLS handshake, every YT request still hit
+`Sign in to confirm you're not a bot` at the application layer. The
+bgutil PoToken sidecar shipped in `2026.05.18.0-alpha` was *running*
+(entrypoint logs confirmed `pid=7, log=/tmp/bgutil-server.log`) but
+not actually clearing the bot wall. Added a startup diagnostic that
+prints `[potoken-diag]` lines on every container boot — those lines
+walked us through three layered bugs and two operational surprises:
+
+### Self-inflicted bug: SSRF guard blocking our own sidecar
+* **Symptom.** `[potoken-diag] bgutil sidecar ping FAILED:
+  NameResolutionError: Failed to resolve '127.0.0.1' (blocked)`.
+* **Cause.** The socket-level SSRF guard (installed at app start to
+  prevent visitor URLs from being weaponised against internal AWS
+  metadata or private network) was a blunt instrument: it rejected
+  *every* loopback / private destination, including our own bgutil
+  sidecar at `127.0.0.1:4416`. The plugin's HTTP client tried to
+  POST to the sidecar, the wrapped `getaddrinfo` raised
+  `_SSRFBlocked`, the plugin failed open with no token, yt-dlp
+  fell back to no-PoToken mode, YT bot-walled us.
+* **Fix.** `_is_loopback_exempt(ip, port)` now allows loopback
+  destinations *only* on the configured PoToken port (default
+  `4416`, env `CMVIDEO_POTOKEN_PORT`). Surgical exemption: an
+  attacker URL still cannot reach `127.0.0.1:22` / `:80` / `:7860`
+  (uvicorn) etc, only the one port that hosts our internal
+  PoToken HTTP service.
+
+### Self-inflicted bug: diagnostic was un-registering the providers
+* **Symptom.** `Registered PoTokenProvider subclasses:
+  ['yt_dlp_plugins.extractor.getpot_bgutil.BgUtilPTPBase']` — only
+  the abstract base class, never the concrete `BgUtilHTTP` /
+  `BgUtilScriptNode` providers that actually do work.
+* **Cause.** The diagnostic was eagerly `__import__`-ing the
+  plugin modules to verify install. Each module decorates its
+  provider with `@register_provider`, which calls
+  `register_provider_generic()`, which has an internal assertion
+  that the same provider name isn't registered twice. yt-dlp's
+  *own* lazy auto-discovery (triggered later on `YoutubeDL()`
+  init) then tried to import the same modules again, hit the
+  `AssertionError: PoTokenProvider BgUtilHTTP already registered`,
+  and discarded the half-registered classes. End result: only the
+  base class survived, the actual providers were gone.
+* **Fix.** Diagnostic no longer manually imports the plugin
+  modules. Instead it uses `importlib.util.find_spec` to confirm
+  the `yt_dlp_plugins` package is on `sys.path` and lets yt-dlp
+  own the lifecycle. After this change verbose logs show the full
+  picture: `[pot] PO Token Providers: bgutil:http-1.3.1
+  (external), bgutil:script-node-1.3.1 (external, unavailable),
+  bgutil:script-deno-1.3.1 (external, unavailable)`. The HTTP
+  variant — the one we actually need — is `(external)`, i.e. live.
+  The two script variants are unavailable because the bgutil
+  plugin defaults its `script_path` to
+  `/home/user/bgutil-ytdlp-pot-provider/server/build/...` while
+  our Dockerfile installs the bgutil server at `/opt/bgutil-server/`.
+  We don't need the script variants — the HTTP variant is the
+  preferred path — so leaving these as `(unavailable)` is fine.
+
+### Operational surprise: iProyal residential pool now black-holes YT
+* **Symptom.** Every YouTube request through the proxy hung for
+  exactly 50.5s and 504'd. Verbose curl_cffi logs showed
+  `curl: (28) Connection timed out after 15002 milliseconds`,
+  three retries (15s × 3 = 45s), then giving up. Same proxy
+  worked fine for X / Twitter (different domain on the proxy
+  allowlist) — so the proxy *itself* was up and authenticated;
+  iProyal's exit pool was just silently dropping YouTube TLS
+  handshakes.
+* **Fix.** Removed `youtube.com`, `youtu.be`, `googlevideo.com`,
+  `ytimg.com` from `proxy_router._PROXY_DOMAIN_TUPLES`. The
+  combination of curl_cffi `impersonate=chrome` (added in
+  `2026.05.18.1`) and the bgutil PoToken sidecar (working as of
+  this build) is now sufficient cover *without* the residential
+  proxy. Net effect: YT info requests now resolve in ~13s (clean
+  bot-wall response) instead of timing out at 50s. Saves a
+  noticeable chunk of the iProyal GB allotment too.
+
+### Player-client list: pruned dead entries
+* **Symptom.** Verbose logs:
+  `WARNING: [youtube] Skipping unsupported client "tv_embedded"`
+  and `"mediaconnect"`. Both clients were renamed/dropped in
+  recent yt-dlp nightlies. They were dead weight that just made
+  the player-client probe loop slower.
+* **Fix.** `YDL_EXTRACTOR_ARGS["youtube"]["player_client"]` is
+  now `["tv", "web_creator", "mweb"]` — three entries that
+  yt-dlp's nightly actually supports. `web_creator` and `mweb`
+  are the two that the bgutil HTTP plugin mints PoTokens for.
+  Verified live: `[pot:bgutil:http] Generating a gvs PO Token
+  for mweb client via bgutil HTTP server` → `Retrieved a gvs
+  PO Token for mweb client`.
+
+### Friendly errors: separate "rate-limit" from "bot wall"
+* **Symptom.** Even with PoToken minted successfully, all three
+  player_clients return `playabilityStatus = LOGIN_REQUIRED`
+  and yt-dlp surfaces `Sign in to confirm you're not a bot` /
+  `Please sign in.` Our friendly classifier was conflating this
+  with "rate-limit" and telling users to "wait it out", which
+  is wrong — waiting doesn't help, *cookies* help.
+* **Fix.** Split the YouTube branch in `_friendly_ydl_error`
+  into two messages:
+  * Cookie-fixable bot wall (`sign in to confirm`, `please sign
+    in`, `not a bot`, `login_required`): "YouTube wants a
+    signed-in cookie session for this video. Open the
+    'Advanced: YouTube cookies' panel below and paste your
+    browser's cookies.txt, or grab the desktop app — it runs
+    from your own connection and uses your existing browser
+    session."
+  * Generic transport hiccup with a YT URL (TLS EOF, 403, 429):
+    keep the old "rate-limiting" message because retry / desktop
+    is genuinely the right move.
+
+### Runtime debug surface
+* `_potoken_runtime_diag()` is exposed on `/api/limits` *only*
+  when the caller IP is on the owner allowlist. Returns the
+  bgutil sidecar's last 3 kB of log + a fresh `/ping` + the
+  registered provider tree (parent + grandchildren so concrete
+  classes are visible). Anonymous callers see `{"disabled":
+  true}`. Useful when a regression hits — no redeploy needed
+  to inspect the PoToken stack.
+
+### Verbose logging on YT
+* `_do_info` now sets `verbose=True` only when the URL is on a
+  YT host. Lets us see future plugin engagement issues without
+  redeploying. Other sites still run `quiet=True, no_warnings=True`.
+
+### Outcome (verified live)
+* PoToken plugin engages: ✅ (verbose: `Retrieved a gvs PO Token`)
+* bgutil sidecar reachable: ✅ (`/ping` 200, `version=1.3.1`)
+* YT direct egress works: ✅ (12-32 s, was 50 s timeout)
+* YT bot wall: still hits us — *requires* user-supplied cookies
+  via `/api/yt-cookies`, which is the documented escape hatch.
+  PoToken alone is insufficient when YT classifies the IP as
+  high-risk; that's a YouTube policy decision, not a plugin bug.
+
+## [mini-2026.05.18.1-alpha] - 2026-05-18
+
+**YouTube + Instagram reliability hotfix.** Two surgical fixes
+landed after a 72-URL stress sweep against the live mini revealed
+both platforms failing 100% of the time at *extraction*, before any
+of our streaming / cap-bypass logic could even run. Both root
+causes are network-layer, not pipeline-layer.
+
+### YouTube TLS handshake fix
+* **Problem.** Every YouTube probe (info, stream-download,
+  process) was returning a 504 with `[SSL: UNEXPECTED_EOF_WHILE_READING]
+  EOF occurred in violation of protocol`. YouTube's edge actively
+  drops TLS handshakes from unrecognised fingerprints. Our
+  requests were going out with stock urllib3's TLS profile, so
+  the connection died before our HTTP request even left the
+  socket. The PoToken sidecar shipped in `2026.05.18.0-alpha`
+  was running fine but never got the chance to mint a token —
+  the handshake terminated upstream.
+* **Fix.** Added `youtube.com`, `youtu.be`, `youtube-nocookie.com`,
+  `googlevideo.com`, `ytimg.com` to `_IMPERSONATE_DOMAINS` so
+  yt-dlp uses curl_cffi's chrome browser fingerprint when
+  resolving any YouTube URL. The PoToken sidecar then handles
+  the second-line "are you a bot" challenge as designed.
+
+### Instagram socket_timeout fix
+* **Problem.** Every Instagram probe was failing with `Read timed
+  out (read timeout=15.0)`. IG's web frontend through our
+  residential proxy reliably takes 18–25s to first byte; the
+  default 15s `socket_timeout` aborted before IG had finished
+  responding.
+* **Fix.** Added a per-host `_socket_timeout_for(url, default)`
+  helper that returns 30s for `instagram.com` and `cdninstagram.com`,
+  default elsewhere. Wired into `_do_info`, `_resolve_streamable_format`,
+  and `_do_download` so all three resolver paths respect it.
+  Other platforms keep the tight 15s default — keeping dead-URL
+  feedback fast for visitors.
+
+### Friendly-error misclassification fix
+* **Problem.** Errors like `HTTP Error 429`, `HTTP Error 403`,
+  and `[SSL: UNEXPECTED_EOF_WHILE_READING]` were being mapped to
+  the YouTube-specific "YouTube is rate-limiting this free
+  server" message even when the URL wasn't a YouTube URL. The
+  72-URL stress run surfaced this on Rumble and Bloomberg, both
+  of which legitimately return 429 from their own rate limiters
+  — visitors were seeing a misleading message that named the
+  wrong platform.
+* **Fix.** Split the YouTube-error classifier into two tiers:
+  - **YT-specific phrases** (`sign in to confirm`, `not a bot`,
+    `confirm you're not a bot`, `failed to extract any player
+    response`) still trigger the YT message URL-agnostic — these
+    strings genuinely don't appear in non-YT error paths.
+  - **Generic transport errors** (HTTP 429 / 403 / TLS EOFs)
+    only trigger the YT message when `_is_youtube_host(url)` is
+    true. For non-YT URLs, the actual upstream error string is
+    surfaced instead.
+* `_friendly_ydl_error` now takes an optional `url` argument;
+  passed through at all three call sites.
+
+### Stress-test harness for the curated list
+* New `scripts/stress/stress_full_av.py` — two-phase battery
+  that probes every URL in `sites_curated.txt` for liveness +
+  duration ≥300s, then runs both video (mp4 720p) and audio
+  (mp3) downloads on the qualifying subset, ffprobe-verifying
+  each output. Saves to `phase1_qualifying.json` /
+  `phase1_full.json` / `results_full_av.json`. Handles both
+  flavours of 429 (failure-cooldown and bucket-exhaustion) so a
+  long run doesn't burn out on rate-limit retries. Companion
+  `stress_full_av_resume.py` script re-runs only the sites that
+  failed, preserving the persisted results.
+
+### Verified results from the 72-URL sweep (pre-hotfix)
+The hotfix targets the two highest-impact failure modes from
+this run:
+* **9 / 72 sites** had a live ≥5min URL (the curated list is
+  ~50% URL-rotted from 2024).
+* **5 / 8** tested sites passed both video and audio cleanly:
+  ArchiveOrg, TED, Niconico, XVideos, XNXX. XVideos's 20:38
+  source (1238s, well over the historical 360s cap) downloaded
+  in 111s, ffprobe-clean, dispositively proving the streaming
+  pipeline does the cap-bypass it claims to.
+* All YouTube and Instagram URLs failed at the network layer —
+  exactly what this hotfix targets.
+
+### Known remaining issues (deferred)
+* **Mixcloud** — `/api/info` resolves cleanly (62-min stream
+  fully described) but `/api/process` errors with the generic
+  "site not supported" friendly message. Real upstream error
+  is being masked by the friendly-error layer; needs deeper
+  diagnosis.
+* **RedTube** — `/api/process` returns a 16s/0.6MB preview clip
+  instead of the full 646s video. Format-selection mismatch in
+  the RedTube extractor.
+* **PornHub IP-bound CDN URLs** — PH issues signed CDN URLs
+  pinned to the resolver's IP (the residential proxy exit). Our
+  streamer reads from HF's egress IP, mismatch, 474. Fix
+  requires routing the streaming GET through the same proxy
+  that did the resolve.
+
 ## [mini-2026.05.18.0-alpha] - 2026-05-18
 
 **y2down feature parity.** The mini was lagging y2down.cc on two

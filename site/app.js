@@ -224,7 +224,7 @@
   };
   var modeNoteEl = document.getElementById("mini-mode-note");
 
-  function getMode()    { var s = form.querySelector('input[name="mini-mode"]:checked');    return s ? s.value : "download"; }
+  function getMode()    { return "download"; }
   // Format / quality moved from radio pills to <select> dropdowns
   // when the mini grew the y2down-parity option set
   // (mini-2026.05.18.0-alpha). The pills became unwieldy at 8 audio
@@ -482,10 +482,9 @@
       setStatus("Pick one: URL OR file, not both. Clearing the URL.", "error");
       if (urlInput) urlInput.value = "";
     }
-    if (mode === "download" && selectedFile) {
-      setStatus("Download mode is URL-only \u2014 you already have the file. Switching to Silence.", "error");
-      var s = form.querySelector('input[name="mini-mode"][value="silence"]');
-      if (s) { s.checked = true; s.dispatchEvent(new Event("change")); mode = "silence"; }
+    if (selectedFile) {
+      setStatus("Mini web is extract/download only. Paste a URL instead, or use the desktop app for file processing.", "error");
+      return;
     }
 
     // YouTube routing.

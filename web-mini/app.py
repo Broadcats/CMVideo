@@ -676,6 +676,32 @@ class _SSRFBlocked(socket.gaierror):
     pass
 
 
+# Loopback exemptions for our own internal services. The SSRF guard
+# blocks ALL private/loopback IPs by default, but the bgutil PoToken
+# sidecar runs on 127.0.0.1:CMVIDEO_POTOKEN_PORT and the bgutil
+# yt-dlp plugin needs to reach it - blocking that breaks YouTube
+# extraction in a way that's invisible (the plugin fails open with
+# "no provider available", yt-dlp falls back to no-PoToken, YT bot-
+# walls us). We exempt that ONE specific (host, port) pair.
+#
+# The exemption is intentionally narrow: only loopback host + the
+# bgutil port. An attacker controlling a request URL still cannot
+# reach `127.0.0.1:22` or `127.0.0.1:80` etc.
+def _bgutil_port() -> int:
+    try:
+        return int(os.environ.get("CMVIDEO_POTOKEN_PORT", "4416"))
+    except (TypeError, ValueError):
+        return 4416
+
+
+def _is_loopback_exempt(ip: "ipaddress._BaseAddress", port: int) -> bool:
+    """True if (ip, port) is one of our own internal services that
+    must be reachable despite the SSRF guard."""
+    if not ip.is_loopback:
+        return False
+    return port == _bgutil_port()
+
+
 def _guarded_getaddrinfo(host, port, *args, **kwargs):
     infos = _REAL_GETADDRINFO(host, port, *args, **kwargs)
     # If `host` itself is literally one of our blocked metadata names,
@@ -683,11 +709,23 @@ def _guarded_getaddrinfo(host, port, *args, **kwargs):
     # validator already catches these by name.)
     if isinstance(host, str) and host.lower() in _BLOCKED_HOSTS_LITERAL:
         raise _SSRFBlocked(f"blocked host: {host}")
+    # `port` arg can be int, str, or None depending on caller. Coerce
+    # to int for the exemption check; non-numeric ports never match
+    # our bgutil port so the check correctly returns False.
+    try:
+        port_int = int(port) if port is not None else 0
+    except (TypeError, ValueError):
+        port_int = 0
     for family, _, _, _, sockaddr in infos:
         ip_str = sockaddr[0]
         try:
             ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
         except ValueError:
+            continue
+        if _is_loopback_exempt(ip, port_int):
+            # Internal service that we explicitly allow ourselves to
+            # reach. Don't log every plugin call - that'd spam the
+            # logs; just let it through.
             continue
         if _ip_is_internal(ip):
             raise _SSRFBlocked(f"blocked internal IP: {ip_str}")
@@ -707,9 +745,107 @@ def _install_socket_ssrf_guard() -> None:
 _install_socket_ssrf_guard()
 
 
-def _friendly_ydl_error(e: Exception) -> str:
+def _log_potoken_diagnostics() -> None:
+    """Run once at startup. Tells us at a glance whether the PoToken
+    plugin is engaged. The deployed mini's been getting "Sign in to
+    confirm you're not a bot" YouTube errors despite the bgutil Node
+    sidecar starting cleanly per the entrypoint logs - this prints
+    enough to tell us which layer is silently broken on next deploy.
+
+    Logs:
+      * yt-dlp version (some PoToken plugin versions require recent yt-dlp)
+      * Whether the `bgutil_ytdlp_pot_provider` package imports cleanly
+      * Whether the local bgutil sidecar responds on its ping endpoint
+      * The list of PoTokenProvider classes yt-dlp has actually
+        registered. Empty list -> plugin discovery is broken.
+    """
+    try:
+        import yt_dlp as _ytdlp
+        # yt-dlp moved __version__ between modules across releases; check
+        # version.py if the module attribute is absent.
+        ver = getattr(_ytdlp, "__version__", None)
+        if not ver:
+            try:
+                from yt_dlp.version import __version__ as ver
+            except Exception:
+                ver = "?"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[potoken-diag] yt-dlp import failed: %s", exc)
+        return
+    log.info("[potoken-diag] yt-dlp version: %s", ver)
+
+    # NOTE: Don't manually __import__ the plugin modules here. Each
+    # bgutil plugin module decorates its provider class with
+    # @register_provider, which calls
+    # yt_dlp.extractor.youtube.pot._provider.register_provider_generic().
+    # That helper has an internal assertion that the same provider
+    # name isn't registered twice. If we import the modules now AND
+    # then yt-dlp's auto-discovery imports them again later (via
+    # YoutubeDL() init), the second import raises AssertionError
+    # mid-decoration and yt-dlp throws away the concrete provider
+    # classes (BgUtilHTTP, BgUtilScriptNode) - leaving only the
+    # PoTokenProvider base class registered, which is useless. Diagnosed
+    # this by seeing the registered-subclasses list contain only
+    # `BgUtilPTPBase`. Let yt-dlp own discovery; we just confirm the
+    # `yt_dlp_plugins` package is on sys.path.
+    try:
+        import importlib.util as _imputil
+        spec = _imputil.find_spec("yt_dlp_plugins")
+        if spec is not None:
+            log.info("[potoken-diag] yt_dlp_plugins package found at %s", spec.origin or spec.submodule_search_locations)
+        else:
+            log.warning("[potoken-diag] yt_dlp_plugins package NOT FOUND on sys.path")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[potoken-diag] package locate FAILED: %s", exc)
+
+    try:
+        import requests as _r
+        port = os.environ.get("CMVIDEO_POTOKEN_PORT", "4416")
+        r = _r.get(f"http://127.0.0.1:{port}/ping", timeout=2)
+        log.info("[potoken-diag] bgutil sidecar ping -> %s, body=%s",
+                 r.status_code, r.text[:120])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[potoken-diag] bgutil sidecar ping FAILED: %s: %s",
+                    type(exc).__name__, str(exc)[:200])
+
+    # Force yt-dlp to run its plugin discovery now (it normally happens
+    # lazily on first extractor use). Then list registered providers.
+    try:
+        from yt_dlp.plugins import directories as _plug_dirs  # noqa: F401
+    except Exception:
+        pass
+    try:
+        # Triggering YoutubeDL() init runs plugin loading. Cheap; we
+        # destroy it immediately.
+        import yt_dlp as _ytdlp2
+        with _ytdlp2.YoutubeDL({"quiet": True, "no_warnings": True}) as _y:
+            pass
+    except Exception as exc:  # noqa: BLE001
+        log.info("[potoken-diag] YoutubeDL probe init: %s", exc)
+
+    try:
+        from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider
+        subs = PoTokenProvider.__subclasses__()
+        log.info("[potoken-diag] Registered PoTokenProvider subclasses: %s",
+                 [c.__module__ + "." + c.__name__ for c in subs] or "<none>")
+    except Exception as exc:  # noqa: BLE001
+        log.info("[potoken-diag] PoTokenProvider listing unsupported on this yt-dlp build: %s",
+                 type(exc).__name__)
+
+
+_log_potoken_diagnostics()
+
+
+def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
     """yt-dlp errors are long and Pythonic. Distill them into the
-    one line that a visitor on cmvideo.online can act on."""
+    one line that a visitor on cmvideo.online can act on.
+
+    `url` is optional but strongly recommended: the YouTube-specific
+    "rate-limited" message is only emitted if the URL's hostname is
+    on a YT-family domain. Generic-looking errors like "HTTP error
+    429" or TLS EOFs come up for plenty of non-YouTube sites
+    (Rumble, Bloomberg, Cloudflare-fronted tubes) and we were
+    misclassifying those as YT failures, which confused users."""
     raw = str(e or "").strip()
     # `splitlines()[-1]` blows up on empty strings - guard so the
     # error pipeline can't crash itself trying to format another
@@ -717,22 +853,56 @@ def _friendly_ydl_error(e: Exception) -> str:
     lines = raw.splitlines() if raw else []
     msg = lines[-1] if lines else ""
     low = msg.lower()
-    yt_blocked = any(needle in low for needle in (
+    # YT-specific signals that ONLY map to "YT is bot-walling us":
+    # "sign in to confirm" and the "not a bot" variants. These
+    # phrases don't appear on other sites' error paths, so we can
+    # match them URL-agnostic.
+    yt_specific = any(needle in low for needle in (
         "sign in to confirm",
         "not a bot",
         "confirm you're not a bot",
+        "failed to extract any player response",
+        # yt-dlp's bare `Please sign in` from the YT player API when
+        # all configured player_clients return playabilityStatus =
+        # LOGIN_REQUIRED. Same root cause as "sign in to confirm" -
+        # cookies are the fix, not waiting it out.
+        "please sign in",
+        "login_required",
+    ))
+    # Generic transport-layer signals that COULD mean YT bot wall
+    # but only when we're actually talking to YT. For non-YT URLs
+    # they usually mean something else (Rumble's own rate limiter,
+    # Cloudflare 1015, an upstream TLS hiccup) and the user
+    # deserves the actual error string, not a misleading
+    # YT-flavoured message.
+    yt_generic_signals = any(needle in low for needle in (
         "unexpected_eof_while_reading",
         "eof occurred in violation",
         "unable to download api page",
         "http error 403",
         "http error 429",
-        "failed to extract any player response",
     ))
-    if yt_blocked:
+    if yt_specific:
+        # The YT-specific signals ("sign in to confirm", "not a bot")
+        # mean YT decided we look like a bot. Even with the bgutil
+        # PoToken sidecar minting tokens (verified live), YT can still
+        # set `playabilityStatus = LOGIN_REQUIRED` for our datacenter
+        # IP. The actionable fix for the user is browser cookies via
+        # the "Advanced: YouTube cookies" panel - NOT "wait it out",
+        # which is what "rate-limiting" implies.
         return (
-            "YouTube is rate-limiting this free server right now. "
-            "Most other sites still work (Vimeo, Reddit, Twitter, TikTok, ~1,800 total), "
-            "or grab the desktop app below \u2014 it runs from your own connection and isn't affected."
+            "YouTube downloads are recommended in the desktop app. "
+            "The mini web server is frequently bot-walled by YouTube; "
+            "the desktop app runs from your own connection and is more reliable."
+        )
+    if yt_generic_signals and _is_youtube_host(url or ""):
+        # Generic transport errors when talking to YT: keep the old
+        # "free server is rate-limited" framing because the user
+        # really should just retry / use desktop. This is distinct
+        # from the cookie-fixable bot wall above.
+        return (
+            "YouTube is unstable on the mini web server right now. "
+            "For reliable YouTube downloads, use the desktop app at cmvideo.online."
         )
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
         return "That video isn't available (private, region-locked, or removed)."
@@ -922,7 +1092,20 @@ def _transcript_intervals(video_id: str, words: set) -> list[dict]:
 # See yt-dlp issue #10128 and friends for the current state of play.
 YDL_EXTRACTOR_ARGS = {
     "youtube": {
-        "player_client": ["tv", "tv_embedded", "mediaconnect", "web_creator", "mweb"],
+        # Tightened May 2026 after verbose-log analysis showed yt-dlp
+        # warning `Skipping unsupported client "tv_embedded"` and
+        # `"mediaconnect"` - those names were renamed/dropped upstream
+        # so the entries were dead weight that just made the player-
+        # client probe loop slower. The remaining three are:
+        #   * `tv`         - tv-app surface, no PoToken needed
+        #   * `web_creator`- desktop web variant, bgutil HTTP plugin
+        #                    mints a PoToken for it (verified live)
+        #   * `mweb`       - mobile web variant, ditto
+        # When YT bot-walls our datacenter IP the plugin still mints
+        # the token successfully but YT returns LOGIN_REQUIRED -
+        # cookies via /api/yt-cookies are the real remediation, not
+        # more clients.
+        "player_client": ["tv", "web_creator", "mweb"],
         "player_skip": ["configs"],
     },
 }
@@ -971,7 +1154,104 @@ _IMPERSONATE_DOMAINS: tuple[str, ...] = (
     "thisvid.com", "ttcache.com",
     # Discord CDN media URLs sometimes fingerprint-check.
     "cdn.discordapp.com",
+    # YouTube actively drops our TLS handshake from datacenter IPs
+    # without a recognised browser fingerprint - we observed
+    # `[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation
+    # of protocol` on every yt-dlp probe. Adding google's tube +
+    # CDN domains to the impersonate list lets curl_cffi's chrome
+    # fingerprint clear the gate. The bgutil PoToken sidecar then
+    # handles the second-line "are you a bot" challenge.
+    "youtube.com", "youtu.be", "youtube-nocookie.com",
+    "googlevideo.com", "ytimg.com",
 )
+
+# Domain policy table. This is the single tuning surface for the mini's
+# extractor behavior. Keeps "how aggressive should we be for host X?"
+# decisions in one place instead of scattering timeout/retry magic
+# numbers throughout the request paths.
+#
+# Keys:
+#   socket_timeout_s   -> yt-dlp socket_timeout
+#   info_budget_s      -> outer asyncio.wait_for budget on /api/info and
+#                         streamable resolver
+#   ydl_retries        -> yt-dlp request retries
+#   fragment_retries   -> yt-dlp fragment retries (HLS/DASH)
+#
+# The first matching suffix wins.
+_DOMAIN_POLICY: tuple[tuple[tuple[str, ...], dict[str, int]], ...] = (
+    # YouTube: PoToken + player_client probing means extract_info can
+    # legitimately run long. Give it more wall time before we cut it.
+    (("youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com", "ytimg.com"), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 65,
+        "ydl_retries": 2,
+        "fragment_retries": 3,
+    }),
+    # Social + Meta stack: slower first-byte through proxy and more
+    # frequent transient throttles.
+    (("instagram.com", "cdninstagram.com", "facebook.com", "fbcdn.net", "threads.net",
+      "x.com", "twitter.com", "twimg.com", "reddit.com", "redd.it", "v.redd.it"), {
+        "socket_timeout_s": 30,
+        "info_budget_s": 45,
+        "ydl_retries": 2,
+        "fragment_retries": 3,
+    }),
+)
+
+
+def _hostname(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _domain_policy_for(url: str) -> dict[str, int]:
+    host = _hostname(url)
+    # Global defaults - intentionally conservative to keep dead-URL
+    # feedback quick for the long tail.
+    out = {
+        "socket_timeout_s": 15,
+        "info_budget_s": 25,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
+    }
+    if not host:
+        return out
+    for suffixes, policy in _DOMAIN_POLICY:
+        if any(host == s or host.endswith("." + s) for s in suffixes):
+            out.update(policy)
+            break
+    return out
+
+
+def _is_slow_resolve_host(url: str) -> bool:
+    return _domain_policy_for(url).get("socket_timeout_s", 15) >= 30
+
+
+def _socket_timeout_for(url: str, default: int = 15) -> int:
+    """Return the per-host socket_timeout to use for yt-dlp."""
+    policy = _domain_policy_for(url)
+    return int(policy.get("socket_timeout_s", default))
+
+
+def _info_resolve_budget_s(url: str) -> int:
+    """Outer asyncio.wait_for budget for /api/info and stream resolver."""
+    return int(_domain_policy_for(url).get("info_budget_s", 25))
+
+
+def _is_youtube_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    return any(
+        host == s or host.endswith("." + s)
+        for s in ("youtube.com", "youtu.be", "youtube-nocookie.com",
+                  "googlevideo.com", "ytimg.com")
+    )
 
 
 def _should_impersonate(url: str) -> bool:
@@ -1276,8 +1556,12 @@ def _ydl_common_opts(
     max_duration: int,
     max_filesize: int,
     *,
+    url: str = "",
     progress_hook=None,
 ) -> dict:
+    policy = _domain_policy_for(url) if url else {}
+    retries = int(policy.get("ydl_retries", 1))
+    frag_retries = int(policy.get("fragment_retries", 2))
     opts = {
         "outtmpl": str(tmpdir / "%(title).80s.%(ext)s"),
         "noplaylist": True,
@@ -1290,7 +1574,7 @@ def _ydl_common_opts(
             f"duration <? {max_duration}"
         ),
         "socket_timeout": 12,
-        "retries": 1,
+        "retries": retries,
         # Pull HLS / DASH segments in parallel. yt-dlp defaults to 1
         # which is the bottleneck on Twitch / IG / TikTok and most
         # of the *.tube tubes (each segment is ~6 s; 4-way parallel
@@ -1302,7 +1586,7 @@ def _ydl_common_opts(
         # a CDN that flaps. Two retries per fragment (default 10) is
         # the balance between giving up too soon and burning timeout
         # on a fundamentally bad mirror.
-        "fragment_retries": 2,
+        "fragment_retries": frag_retries,
         # Don't stop the whole job on a single failed fragment. We
         # can usually drop one and still produce a watchable file.
         "skip_unavailable_fragments": True,
@@ -1401,6 +1685,37 @@ def _video_format_selector(fps: str = "source", *, height: int | None = None) ->
     if h > 720:
         base += "/" + tier(720)
     return base + "/best"
+
+
+def _video_format_fallback_ladder(fps: str = "source", *, height: int | None = None) -> str:
+    """Build a quality fallback ladder for yt-dlp selectors.
+
+    Example for 1080p request:
+      1080p selector -> 720p -> 480p -> 360p -> best
+
+    This maximizes success on sites whose top variant is flaky,
+    geo-filtered, or transiently unavailable while still preferring the
+    requested height first.
+    """
+    requested = int(height or MAX_VIDEO_HEIGHT)
+    # Conservative lower tiers that are widely available across
+    # extractor families and CDNs.
+    candidates = [requested, 1440, 1080, 720, 480, 360, 240]
+    seen: set[int] = set()
+    parts: list[str] = []
+    for h in candidates:
+        if h > requested and h != requested:
+            continue
+        if h in seen:
+            continue
+        seen.add(h)
+        sel = _video_format_selector(fps, height=h)
+        if sel.endswith("/best"):
+            sel = sel[:-5]
+        parts.append(sel)
+    if not parts:
+        return _video_format_selector(fps, height=requested)
+    return "/".join(parts) + "/best"
 
 
 # Direct-media-URL fast path: extensions that point straight at a
@@ -1565,7 +1880,13 @@ def _do_download(
     if direct is not None:
         log.info("extractor win: direct fast-path -> %s", direct.name)
         return direct
-    opts = _ydl_common_opts(tmpdir, max_duration, max_filesize, progress_hook=progress_hook)
+    opts = _ydl_common_opts(
+        tmpdir, max_duration, max_filesize, url=url, progress_hook=progress_hook
+    )
+    # Per-host socket_timeout override - sites on _SLOW_RESOLVE_DOMAINS
+    # (Instagram and friends) are reliably too slow for the default
+    # 12s and time out before they finish loading their JSON page.
+    opts["socket_timeout"] = _socket_timeout_for(url, default=opts.get("socket_timeout", 12))
     # Per-domain residential-proxy routing. yt-dlp's `proxy` opt
     # routes ALL fetches in this run (page + segments) through the
     # proxy, which is what we want - the segment downloads are
@@ -1582,7 +1903,7 @@ def _do_download(
     _maybe_impersonate(opts, url)
     if fmt == "mp4":
         opts.update({
-            "format": _video_format_selector(fps, height=height),
+            "format": _video_format_fallback_ladder(fps, height=height),
             "merge_output_format": "mp4",
             "postprocessors": [
                 {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"},
@@ -1649,39 +1970,134 @@ def _do_download(
     return result.path
 
 
+_RETRYABLE_EXTRACT_ERR_SIGNALS = (
+    "timed out",
+    "timeout",
+    "connection reset",
+    "connection aborted",
+    "temporarily unavailable",
+    "temporary failure",
+    "http error 429",
+    "http error 5",
+    "tls",
+    "ssl",
+    "unexpected eof",
+    "unable to download webpage",
+    "unable to download api page",
+    "failed to perform, curl",
+    "proxyerror",
+)
+
+
+def _is_retryable_extract_error(exc: Exception) -> bool:
+    low = str(exc or "").lower()
+    return any(sig in low for sig in _RETRYABLE_EXTRACT_ERR_SIGNALS)
+
+
+def _extract_info_with_retry_matrix(
+    url: str,
+    base_opts: dict,
+    *,
+    purpose: str,
+) -> dict:
+    """Run yt-dlp extract_info with a bounded retry matrix.
+
+    Matrix dimensions:
+      - proxy route: configured proxy (if any) -> direct
+      - impersonation: on -> off (only for impersonate-eligible hosts)
+
+    This catches two common production failures:
+      1) proxy pool issues (timeouts / TLS flap) where direct succeeds
+      2) occasional curl_cffi/impersonation regressions where plain
+         urllib backend succeeds.
+    """
+    host = _proxy_router._hostname_of(url)
+    proxy_candidates: list[Optional[str]] = [None]
+    try:
+        p = _proxy_router.proxy_for_url(url)
+        if p:
+            proxy_candidates = [p, None]
+    except Exception:
+        log.exception("%s retry-matrix: proxy_for_url failed; using direct only", purpose)
+        proxy_candidates = [None]
+
+    use_impersonate = _should_impersonate(url)
+    imp_candidates = [True, False] if use_impersonate else [False]
+
+    attempts: list[tuple[Optional[str], bool]] = []
+    for px in proxy_candidates:
+        for imp in imp_candidates:
+            attempts.append((px, imp))
+
+    last_exc: Exception | None = None
+    total = len(attempts)
+    for idx, (px, imp) in enumerate(attempts, start=1):
+        opts = dict(base_opts)
+        if px:
+            opts["proxy"] = px
+        else:
+            opts.pop("proxy", None)
+        if imp:
+            _maybe_impersonate(opts, url)
+        else:
+            opts.pop("impersonate", None)
+
+        # Later attempts get a slightly bigger timeout/retry budget.
+        if idx > 1:
+            opts["socket_timeout"] = min(int(opts.get("socket_timeout", 15)) + 8, 45)
+            opts["retries"] = max(int(opts.get("retries", 1)), 2)
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if info is None:
+                raise RuntimeError("extract_info returned None")
+            return info
+        except Exception as exc:
+            last_exc = exc
+            log.info(
+                "%s retry-matrix %d/%d host=%s proxy=%s impersonate=%s timeout=%s retries=%s err=%s: %s",
+                purpose, idx, total, host, bool(px), imp,
+                opts.get("socket_timeout"), opts.get("retries"),
+                type(exc).__name__, _safe_log_msg(exc),
+            )
+            if not _is_retryable_extract_error(exc):
+                raise
+            # Otherwise continue to next matrix cell.
+            continue
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("extract_info failed without exception detail")
+
+
 def _do_info(url: str) -> dict:
+    # Verbose mode for YouTube URLs while we debug the PoToken plugin
+    # engagement. The bgutil HTTP plugin emits its activity at yt-dlp's
+    # INFO level, which `quiet=True` suppresses. Flipping verbose on
+    # for YT only lets us see the plugin's mint requests and yt-dlp's
+    # client_client cycling without spamming logs for every other
+    # request. Remove this once the plugin engagement is confirmed.
+    yt_debug = _is_youtube_host(url)
     info_opts = {
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": not yt_debug,
+        "no_warnings": not yt_debug,
+        "verbose": yt_debug,
         "noplaylist": True,
         "skip_download": True,
-        "socket_timeout": 15,
+        # Per-host: 30s for IG / cdninstagram, 15s elsewhere.
+        # Instagram's web frontend often takes 18-25s to first byte
+        # through the residential proxy and the default 15s causes
+        # spurious "Source took too long to respond" 504s.
+        "socket_timeout": _socket_timeout_for(url, default=15),
+        "retries": int(_domain_policy_for(url).get("ydl_retries", 1)),
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
     cf = _request_cookiefile_for_url(url)
     if cf:
         info_opts["cookiefile"] = cf
-    # Per-domain residential proxy. Datacenter-hostile sites
-    # (Meta / TikTok / X / tube sites / YouTube etc.) need this
-    # for the metadata-extract call, not just the eventual byte
-    # download. Falls through to direct for sites that aren't on
-    # the allowlist - only burns paid GB where it matters.
-    # Mirrors the slow-path pattern at the top of `_do_download`:
-    # only set the key when non-None to avoid passing an explicit
-    # `proxy=None` into yt-dlp's params.
-    try:
-        _info_proxy = _proxy_router.proxy_for_url(url)
-    except Exception:
-        log.exception("info proxy_for_url() failed; falling back to direct")
-        _info_proxy = None
-    if _info_proxy:
-        info_opts["proxy"] = _info_proxy
-    _maybe_impersonate(info_opts, url)
-    with yt_dlp.YoutubeDL(info_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    if info is None:
-        raise RuntimeError("Could not read media info from that URL.")
+    info = _extract_info_with_retry_matrix(url, info_opts, purpose="info")
     duration = info.get("duration")
     return {
         "title": (info.get("title") or "Untitled")[:200],
@@ -1706,6 +2122,36 @@ _DIRECT_OK_CONTENT_TYPES = (
     "application/mp4", "application/octet-stream", "binary/octet-stream",
 )
 _DIRECT_MP4_MIMES = ("video/mp4", "video/x-m4v", "application/mp4", "video/quicktime")
+
+# Placeholder/holding clips some hosts return while the "real" video is
+# still being prepared (e.g. `processing.mp4`). Serving these as success
+# is worse than a clear failure because users think the download worked.
+_PLACEHOLDER_MEDIA_HINTS = (
+    "processing", "transcoding", "encoding", "rendering",
+    "pending", "not_ready", "please_wait", "coming_soon",
+    "placeholder",
+)
+
+
+def _looks_placeholder_media_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(h in u for h in _PLACEHOLDER_MEDIA_HINTS)
+
+
+# Some hosts return tiny "processing" teaser MP4s through their embed/CDN
+# endpoints. Fast-path streaming should be disabled there so the client
+# falls back to /api/process, which resolves the real media asset.
+_STREAM_FASTPATH_BLOCKED_DOMAINS = (
+    "thisvid.com",
+    "ttcache.com",
+)
+
+
+def _stream_fastpath_blocked(url: str) -> bool:
+    host = _proxy_router._hostname_of(url)
+    if not host:
+        return False
+    return any(host == d or host.endswith("." + d) for d in _STREAM_FASTPATH_BLOCKED_DOMAINS)
 
 
 def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
@@ -1732,6 +2178,8 @@ def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
     except Exception:
         return None
     if not any(path_lower.endswith(ext) for ext in _DIRECT_VIDEO_EXTS):
+        return None
+    if _looks_placeholder_media_url(url):
         return None
 
     headers = {
@@ -1804,6 +2252,11 @@ def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
             resp.close()
         except Exception:
             pass
+
+    # Reject tiny placeholder clips ("processing.mp4", etc.) that are
+    # technically valid MP4s but not the requested content.
+    if filesize is not None and filesize < 64 * 1024 and _looks_placeholder_media_url(url):
+        return None
 
     # Filename from URL path. We don't have a real title here -
     # `_safe_name` in the caller normalises and adds the .mp4
@@ -1965,6 +2418,8 @@ def _resolve_streamable_page_scrape(url: str) -> Optional[dict]:
                 resolved = cand
             # Decode common HTML entities that sneak into JSON-LD.
             resolved = resolved.replace("&amp;", "&")
+            if _looks_placeholder_media_url(resolved):
+                continue
             # Probe via tier 0 to confirm it's actually a streamable
             # MP4 (and to fill in filesize / mime).
             tier0 = _resolve_streamable_direct_url(resolved)
@@ -2020,6 +2475,9 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
     """
     if fmt != "mp4":
         return None
+    if _stream_fastpath_blocked(url):
+        log.info("streamable resolve: fast-path disabled for %s", _proxy_router._hostname_of(url))
+        return None
     target_height = QUALITY_HEIGHTS.get(quality, MAX_VIDEO_HEIGHT)
 
     # ----- Tier 0: plain direct media URL (no yt-dlp at all) -----
@@ -2042,32 +2500,17 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         "no_warnings": True,
         "noplaylist": True,
         "skip_download": True,
-        "socket_timeout": 15,
+        # Per-host: 30s for slow-frontend domains (IG), 15s elsewhere.
+        "socket_timeout": _socket_timeout_for(url, default=15),
+        "retries": int(_domain_policy_for(url).get("ydl_retries", 1)),
         "extractor_args": YDL_EXTRACTOR_ARGS,
         "http_headers": {"User-Agent": YDL_USER_AGENT},
     }
     cf = _request_cookiefile_for_url(url)
     if cf:
         info_opts["cookiefile"] = cf
-    # Per-domain residential proxy for the extract_info call.
-    # Without this, datacenter-hostile sites (tube sites, Meta,
-    # TikTok, X, YT, etc.) reject the metadata probe from HF's
-    # datacenter IP and we return None -> 422 -> the slow path
-    # falls back to /api/process, defeating the point of the
-    # fast-path tier-2 streamer. Falls through to direct for
-    # sites not on the allowlist (matches the slow-path pattern
-    # of only setting `proxy` when non-None).
     try:
-        _resolve_proxy = _proxy_router.proxy_for_url(url)
-    except Exception:
-        log.exception("streamable resolve: proxy_for_url() failed; falling back to direct")
-        _resolve_proxy = None
-    if _resolve_proxy:
-        info_opts["proxy"] = _resolve_proxy
-    _maybe_impersonate(info_opts, url)
-    try:
-        with yt_dlp.YoutubeDL(info_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _extract_info_with_retry_matrix(url, info_opts, purpose="streamable-resolve")
     except Exception as exc:
         # Logged at INFO (not exception) - extractor failure for
         # an unsupported / dead URL is a normal outcome on the
@@ -2638,7 +3081,7 @@ async def _run_pipeline_async(
                 if "max-filesize" in msg.lower():
                     job.error = f"Source exceeds the {max_size // (1024 * 1024)} MB mini-app cap."
                 else:
-                    job.error = _friendly_ydl_error(e)
+                    job.error = _friendly_ydl_error(e, clean_url)
                 job.stage = "error"
                 return
             _set_stage(job, "fetching", 100)
@@ -2901,7 +3344,10 @@ async def api_info(request: Request, body: InfoRequest):
         # `asyncio.to_thread` so `_do_info` reads it.
         token = _request_cookiefile.set(cf)
         try:
-            info = await asyncio.wait_for(asyncio.to_thread(_do_info, url), timeout=25)
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_do_info, url),
+                timeout=_info_resolve_budget_s(url),
+            )
         finally:
             _request_cookiefile.reset(token)
     except asyncio.TimeoutError:
@@ -2909,7 +3355,7 @@ async def api_info(request: Request, body: InfoRequest):
         raise HTTPException(status_code=504, detail="Source took too long to respond.")
     except yt_dlp.utils.DownloadError as e:
         _record_failure(_client_ip(request))
-        raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
+        raise HTTPException(status_code=400, detail=_friendly_ydl_error(e, url))
     except HTTPException:
         raise
     except Exception:
@@ -2937,6 +3383,10 @@ class YTCookiesRequest(BaseModel):
 @app.post("/api/yt-cookies")
 @limiter.limit("10/hour;3/minute")
 async def api_yt_cookies(request: Request, body: YTCookiesRequest):
+    raise HTTPException(
+        status_code=410,
+        detail="YouTube cookie upload is disabled. Use the desktop app for YouTube downloads.",
+    )
     """Accept a Netscape cookies.txt blob from the client, materialize
     it server-side under a random session token, return the token.
 
@@ -2985,6 +3435,10 @@ async def api_yt_cookies(request: Request, body: YTCookiesRequest):
 
 @app.delete("/api/yt-cookies/{token}")
 async def api_yt_cookies_delete(token: str, request: Request):
+    raise HTTPException(
+        status_code=410,
+        detail="YouTube cookie upload is disabled. Use the desktop app for YouTube downloads.",
+    )
     """Manually revoke a cookie session. The user might want to
     do this if they're done downloading and want to clean up
     their cookies before the TTL expires - useful from a
@@ -3181,7 +3635,7 @@ async def api_process(
                 msg = str(e).splitlines()[-1]
                 if "max-filesize" in msg.lower():
                     raise HTTPException(status_code=413, detail=f"Source exceeds the {max_size // (1024 * 1024)} MB mini-app cap.")
-                raise HTTPException(status_code=400, detail=_friendly_ydl_error(e))
+                raise HTTPException(status_code=400, detail=_friendly_ydl_error(e, clean_url))
         else:
             src = await _save_upload(file, tmpdir)
             if src.stat().st_size > MAX_CENSOR_FILESIZE_BYTES:
@@ -3464,7 +3918,7 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
         try:
             resolved = await asyncio.wait_for(
                 asyncio.to_thread(_resolve_streamable_format, clean_url, fmt, quality_choice),
-                timeout=25,
+                timeout=_info_resolve_budget_s(clean_url),
             )
         finally:
             _request_cookiefile.reset(token_ctx)
@@ -3659,17 +4113,11 @@ def _serve_stream_ytdlp_pipe(resolved: dict, release_slot) -> StreamingResponse:
     source_url = resolved["source_url"]
     target_height = int(resolved.get("target_height") or MAX_VIDEO_HEIGHT)
 
-    # Format selector: prefer best video + best audio combo at-or-
-    # below the requested height, fall back to best combined, fall
-    # back to absolute best. yt-dlp's selector grammar handles the
-    # priority order left-to-right (`/` = "or").
-    fmt_selector = (
-        f"bv*[height<={target_height}][ext=mp4]+ba[ext=m4a]"
-        f"/b[height<={target_height}][ext=mp4]"
-        f"/bv*[height<={target_height}]+ba"
-        f"/b[height<={target_height}]"
-        f"/b"
-    )
+    # Same ladder strategy as the slow /api/process path: try requested
+    # height first, then descend through common lower tiers before
+    # giving up to absolute best. Keeps stream mode resilient on hosts
+    # with flaky top renditions.
+    fmt_selector = _video_format_fallback_ladder("source", height=target_height)
 
     cmd = [
         sys.executable, "-m", "yt_dlp",
@@ -3842,7 +4290,6 @@ async def api_limits(request: Request):
         "quality_download_caps_mb": {k: v // (1024 * 1024) for k, v in QUALITY_DOWNLOAD_CAPS.items()},
         "audio_download_caps_mb": {k: v // (1024 * 1024) for k, v in AUDIO_DOWNLOAD_CAPS.items()},
         "yt_cookies_loaded": bool(YT_COOKIES_FILE),
-        "yt_user_cookie_sessions": _yt_session_status(),
         "hardening": {
             "killswitch_active": _killswitch_active(),
             "job_max_inflight": JOB_MAX_INFLIGHT,
@@ -3874,4 +4321,53 @@ async def api_limits(request: Request):
         "extractor_versions": _extractors.tool_versions(),
         "memory": _extractors.memory_status(),
         "llm": _llm_status_safe(),
+        # Diagnostic for the bgutil PoToken sidecar that fronts
+        # YouTube. Owner-IP only (creds-free) so we can debug
+        # plugin engagement without redeploying. Returns 200 with
+        # a `disabled: true` flag for non-owner callers.
+        "potoken_diag": _potoken_runtime_diag() if _is_owner_ip(caller_ip) else {"disabled": True},
     }
+
+
+def _potoken_runtime_diag() -> dict:
+    """Owner-only runtime snapshot of the bgutil PoToken stack.
+
+    Returns the last 3kB of the bgutil-server log plus a fresh ping.
+    Never read by the frontend; only useful when curl-ing /api/limits
+    from the maintainer's IP."""
+    out: dict = {}
+    try:
+        import requests as _r
+        port = os.environ.get("CMVIDEO_POTOKEN_PORT", "4416")
+        r = _r.get(f"http://127.0.0.1:{port}/ping", timeout=2)
+        out["sidecar_ping_status"] = r.status_code
+        out["sidecar_ping_body"] = r.text[:200]
+    except Exception as exc:  # noqa: BLE001
+        out["sidecar_ping_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+    log_path = os.environ.get("CMVIDEO_POTOKEN_LOG", "/tmp/bgutil-server.log")
+    try:
+        from pathlib import Path as _P
+        p = _P(log_path)
+        if p.exists():
+            data = p.read_bytes()
+            tail = data[-3000:].decode("utf-8", "replace")
+            out["sidecar_log_tail"] = tail
+            out["sidecar_log_size"] = p.stat().st_size
+        else:
+            out["sidecar_log"] = f"missing: {log_path}"
+    except Exception as exc:  # noqa: BLE001
+        out["sidecar_log_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+    # Also surface the registered PoTokenProvider grandchildren (the
+    # actual concrete BgUtilHTTP / BgUtilScriptNode classes), not just
+    # the abstract base.
+    try:
+        from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider
+        seen = []
+        for sub in PoTokenProvider.__subclasses__():
+            seen.append(f"{sub.__module__}.{sub.__name__}")
+            for grand in sub.__subclasses__():
+                seen.append(f"  -> {grand.__module__}.{grand.__name__}")
+        out["registered_providers"] = seen or ["<none>"]
+    except Exception as exc:  # noqa: BLE001
+        out["registered_providers_error"] = f"{type(exc).__name__}"
+    return out

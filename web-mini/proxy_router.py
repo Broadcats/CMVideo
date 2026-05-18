@@ -98,19 +98,29 @@ _PROXY_DOMAIN_TUPLES: tuple[tuple[str, str], ...] = (
     ("rdgcdn.com", "RedGifs CDN"),
 
     # --- YouTube ---
-    # YouTube actively datacenter-throttles + does TLS fingerprint
-    # checks; residential IP alone doesn't unlock everything (some
-    # videos need cookies for PoToken / age-gated content). With
-    # proxy enabled, success rate jumps from ~5% to maybe ~60-70%
-    # for short / popular / non-restricted videos. Without proxy
-    # YT is broken from the HF Space entirely, hence why we used
-    # to short-circuit YT to "use the desktop app". Now the user
-    # can at least try via the mini and only fall back to desktop
-    # when it actually fails.
-    ("youtube.com", "YouTube page domain"),
-    ("youtu.be", "YouTube short-link"),
-    ("googlevideo.com", "YouTube media CDN (video / audio segments)"),
-    ("ytimg.com", "YouTube thumbnail / metadata CDN"),
+    # YouTube was on the proxy because raw datacenter egress got
+    # bot-walled and TLS-dropped. Two upstream changes have flipped
+    # that math:
+    #   1. We now apply curl_cffi `impersonate=chrome` to YouTube
+    #      domains (see `_IMPERSONATE_DOMAINS` in app.py). That
+    #      single change moved YT past the TLS-handshake-EOF wall.
+    #   2. We run the bgutil PoToken sidecar (entrypoint.sh starts
+    #      it on :4416) and the bgutil-ytdlp-pot-provider plugin
+    #      auto-mints PoTokens for the `web_creator` / `mweb`
+    #      player_clients yt-dlp tries.
+    # In May 2026 the iProyal residential pool started silently
+    # black-holing TLS handshakes to YT/googlevideo from many of
+    # its exit IPs (verified: 50s curl-(28) timeouts on every
+    # retry). Going DIRECT (datacenter egress + chrome
+    # impersonation + PoToken) bypasses that broken pool entirely
+    # AND eliminates the residential-proxy GB cost for the most-
+    # requested platform. Direct still fails for some videos
+    # (bot-wall, age-gate, geo-block) but those failed via the
+    # proxy too. Keeping YT off the proxy so we don't pay the 50s
+    # timeout tax for the common case.
+    #
+    # If direct egress regresses (e.g. Google blocks HF Space's
+    # IP range), restore these four entries.
 
     # --- East-Asian video portals (often geo + datacenter-hostile) ---
     ("bilibili.com", "Bilibili page + variants"),

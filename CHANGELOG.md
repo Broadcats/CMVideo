@@ -20,6 +20,20 @@ All notable changes to CMVideo are recorded here.
 > * Desktop: `desktop-v0.X.Y-alpha` (legacy `v0.X.Y-alpha` still accepted by CI)
 > * Mini:    `mini-YYYY.MM.DD.N-alpha`
 
+## [desktop-v0.4.17-alpha] - 2026-05-18
+
+**UI polish and security hardening.**
+
+### Fixed
+- **Blocky outline on checkboxes and radio buttons** — `CTkCheckBox` and `CTkRadioButton` now receive an explicit `bg_color` matching the card surface, eliminating the rectangular grey box that appeared around each option widget on Linux X11.
+- **Text too small in options panel** — body, status, tool, and drop-subtitle fonts bumped 1–2pt (`font_body` 13→14, `font_drop` 15→16, `font_drop_sub`/`font_status`/`font_tool` 12→13) for clearer reading at 1080p.
+- **Logo clipping** — header top padding increased from 8→12px and the wordmark image label gets 2px vertical breathing room, preventing the logo from sitting flush against the title bar on some window managers.
+
+### Security (backported from mini audit)
+- `RuntimeError` from the censor pipeline no longer leaks raw ffmpeg stderr to the UI error message. The full error is logged; the user sees a generic "Processing failed" message.
+
+---
+
 ## [mini-2026.05.18.11-alpha] - 2026-05-18
 
 **Bug fixes: PornHub 474, Mixcloud masked error, format preview filter, YouTube cookie upload + Piped fallback.**

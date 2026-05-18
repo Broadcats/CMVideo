@@ -911,7 +911,8 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
     # text. The generic "unsupported url" catch below hides the real
     # error and tells the user "that site isn't supported" \u2014 wrong.
     if url and "mixcloud.com" in url.lower():
-        return msg or "Mixcloud download failed. The track may require a Mixcloud account or the CDN link expired."
+        safe_msg = _proxy_router.redact_secrets(msg) if msg else ""
+        return safe_msg or "Mixcloud download failed. The track may require a Mixcloud account or the CDN link expired."
     if "unsupported url" in low:
         return "That site isn't supported. The full desktop app uses the same yt-dlp under the hood, so it won't help either \u2014 try a direct video URL."
     # Parser regressions: yt-dlp's extractor matched the URL but
@@ -2795,7 +2796,8 @@ async def index(request: Request):
 
 
 @app.get("/healthz", include_in_schema=False)
-async def healthz():
+@limiter.limit("60/minute")
+async def healthz(request: Request):
     return {"ok": True, "words": len(_wordlist_tokens()), "yt_cookies": bool(YT_COOKIES_FILE)}
 
 
@@ -3153,7 +3155,8 @@ async def _run_pipeline_async(
                 job.stage = "error"
                 return
             except RuntimeError as e:
-                job.error = str(e)
+                log.error("pipeline RuntimeError: %s", e)
+                job.error = "Processing failed. Try a different clip or use the desktop app."
                 job.stage = "error"
                 return
             _set_stage(job, "rendering", 100)
@@ -3463,15 +3466,9 @@ async def api_yt_cookies(request: Request, body: YTCookiesRequest):
 
 
 @app.delete("/api/yt-cookies/{token}")
+@limiter.limit("20/hour;5/minute")
 async def api_yt_cookies_delete(token: str, request: Request):
-    raise HTTPException(
-        status_code=410,
-        detail="YouTube cookie upload is disabled. Use the desktop app for YouTube downloads.",
-    )
-    """Manually revoke a cookie session. The user might want to
-    do this if they're done downloading and want to clean up
-    their cookies before the TTL expires - useful from a
-    privacy-minded user's perspective.
+    """Manually revoke a cookie session before its TTL expires.
 
     Token-IP binding still applies: a stranger who somehow has
     the token cannot use it to delete the session unless they're
@@ -3486,8 +3483,7 @@ async def api_yt_cookies_delete(token: str, request: Request):
             return {"ok": True, "revoked": False}
         path, owner_ip, _ = entry
         if owner_ip != client_ip and not _is_owner_ip(client_ip):
-            # Don't reveal whether the token exists for a
-            # different IP - return the same shape.
+            # Don't reveal whether the token exists for a different IP.
             return {"ok": True, "revoked": False}
         _yt_sessions.pop(token, None)
     try:
@@ -3685,7 +3681,11 @@ async def api_process(
                     detail=f"Censoring exceeded the {CENSOR_TIMEOUT_SECONDS}s mini-app cap. Try a shorter clip or use the desktop app.",
                 )
             except RuntimeError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+                log.error("pipeline RuntimeError (sync path): %s", e)
+                raise HTTPException(
+                    status_code=400,
+                    detail="Processing failed. Try a different clip or use the desktop app.",
+                )
 
         # 3) Final filesize gate (catches outputs that grew during re-encode).
         # See _run_pipeline_async for why active_cap is per-quality:
@@ -4002,6 +4002,7 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
 
 
 @app.get("/api/stream/{token}", include_in_schema=False)
+@limiter.limit("60/minute")
 async def api_stream_serve(token: str, request: Request):
     """Pop the token, dispatch to the streaming method recorded at
     issue time. NO filesize cap, NO total-time timeout in either
@@ -4292,6 +4293,7 @@ def _llm_status_safe():
 
 
 @app.get("/api/limits", include_in_schema=False)
+@limiter.limit("30/minute")
 async def api_limits(request: Request):
     with _jobs_lock:
         live_jobs = sum(1 for j in _jobs.values() if not j.ready and j.error is None)

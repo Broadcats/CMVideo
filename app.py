@@ -380,6 +380,7 @@ def _make_check(parent, *, text, variable, font=None):  # type: ignore[no-untype
             corner_radius=4,
             border_width=2,
             font=_ctk_font(font),
+            bg_color=Theme.SURFACE,
         )
     return ttk.Checkbutton(
         parent,
@@ -401,6 +402,7 @@ def _make_radio(parent, *, text, variable, value, font=None):  # type: ignore[no
             border_color=Theme.BORDER_HI,
             text_color=Theme.TEXT,
             font=_ctk_font(font),
+            bg_color=Theme.SURFACE,
         )
     return ttk.Radiobutton(
         parent,
@@ -669,17 +671,14 @@ class CensorApp:
         sans = ["Inter", "SF Pro Display", "Segoe UI", "Ubuntu", "Cantarell", "DejaVu Sans", "Helvetica"]
         self.font_title = _pick_font(sans, 22, "bold")
         self.font_tagline = _pick_font(sans, 13)
-        # Body / section / status / drop-sub bumped to 13/12/12/12 so
-        # the labels read clearly inside the taller CTk widgets and on
-        # 1080p displays from a normal viewing distance.
-        self.font_body = _pick_font(sans, 13)
+        self.font_body = _pick_font(sans, 14)
         self.font_section = _pick_font(sans, 12, "bold")
         self.font_button = _pick_font(sans, 15, "bold")
-        self.font_status = _pick_font(sans, 12)
+        self.font_status = _pick_font(sans, 13)
         self.font_footer = _pick_font(sans, 11)
-        self.font_drop = _pick_font(sans, 15, "bold")
-        self.font_drop_sub = _pick_font(sans, 12)
-        self.font_tool = _pick_font(sans, 12, "bold")
+        self.font_drop = _pick_font(sans, 16, "bold")
+        self.font_drop_sub = _pick_font(sans, 13)
+        self.font_tool = _pick_font(sans, 13, "bold")
 
     def _init_styles(self) -> None:
         style = ttk.Style()
@@ -863,9 +862,9 @@ class CensorApp:
 
     def _build_header(self, parent: tk.Frame) -> None:
         header = tk.Frame(parent, bg=Theme.BG)
-        # 8 px above the wordmark so the camera silhouette has clean
-        # air between it and the title bar on every WM theme.
-        header.pack(side="top", fill="x", pady=(8, 10))
+        # 12 px above the wordmark gives the logo clean air below the
+        # title bar on every WM theme; 8 was too tight on some compositors.
+        header.pack(side="top", fill="x", pady=(12, 10))
 
         # Invisible top-right click target. 69 hits reveals an image.
         self._egg_clicks = 0
@@ -924,7 +923,7 @@ class CensorApp:
         if self._brand_image is not None:
             tk.Label(
                 brand_row, image=self._brand_image, bg=Theme.BG
-            ).pack(side="left", padx=(0, 12))
+            ).pack(side="left", padx=(0, 12), pady=(2, 0))
         else:
             ttk.Label(brand_row, text=APP_BRAND, style="Title.TLabel").pack(
                 side="left", anchor="w"

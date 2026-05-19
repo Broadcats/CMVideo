@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CMVideo Mini - URL to MP4, MP3, M4A, WAV, FLAC, OPUS, OGG, AAC</title>
-  <meta name="description" content="The mini web version of CMVideo. Paste a URL, pick a format and a quality, get a clean file back. Supports MP4 (144p..4K), MP3, M4A, WAV, FLAC, OPUS, OGG, AAC. Caps apply - the full desktop app at cmvideo.online has no caps and can also remove swears." />
+  <meta name="description" content="The mini web version of CMVideo. Paste a URL, pick a format and a quality, get a clean file back. Supports MP4 (144p..4K), WebM (VP9), MP3, M4A, WAV, FLAC, OPUS, OGG, AAC. Caps apply - the full desktop app at cmvideo.online has no caps and can also remove swears." />
   <meta name="theme-color" content="#0d1018" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
@@ -44,6 +44,10 @@
         <select id="fmt-select" class="select-control" aria-label="Output format">
           <optgroup label="Video">
             <option value="mp4" selected>MP4 (H.264 + AAC)</option>
+            <option value="webm">WebM (VP9 + Opus)</option>
+            <option value="mkv">MKV (any codec, universal)</option>
+            <option value="mov">MOV (H.264 + AAC, Apple)</option>
+            <option value="avi">AVI (H.264 + AAC, legacy)</option>
           </optgroup>
           <optgroup label="Audio &middot; lossy">
             <option value="mp3">MP3 &middot; {{ audio_bitrate_kbps }} kbps</option>
@@ -93,6 +97,34 @@
           <div class="preview-sub" id="preview-sub"></div>
         </div>
       </div>
+    </section>
+
+    <section class="card yt-cookies-card">
+      <details id="yt-cookies-details">
+        <summary class="yt-cookies-summary">
+          <span>YouTube not working? Add your cookies</span>
+          <span class="yt-session-badge hidden" id="yt-session-badge">&#10003;&nbsp;Cookies active</span>
+        </summary>
+        <div class="yt-cookies-body">
+          <p class="muted small" style="margin:0 0 12px">
+            YouTube blocks requests from shared servers. Paste your browser
+            cookies to bypass it &mdash; they stay in memory only, expire after
+            30&nbsp;minutes, and are never logged or saved. Export with
+            <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener noreferrer">Get&nbsp;cookies.txt&nbsp;LOCALLY</a>
+            (Chrome/Brave) or
+            <a href="https://addons.mozilla.org/firefox/addon/cookies-txt/" target="_blank" rel="noopener noreferrer">cookies.txt</a>
+            (Firefox). Sign in to YouTube first, then export.
+          </p>
+          <textarea id="yt-cookies-input" class="yt-cookies-textarea"
+            placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	...&#10;&#10;Paste the full cookies.txt content here."
+            rows="5" spellcheck="false" autocomplete="off"></textarea>
+          <div class="yt-cookies-row">
+            <button type="button" id="yt-cookies-btn" class="btn btn-ghost">Activate cookies</button>
+            <button type="button" id="yt-cookies-clear" class="btn btn-ghost hidden">Clear session</button>
+            <span id="yt-cookies-msg" class="muted small"></span>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="caps muted">

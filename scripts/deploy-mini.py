@@ -121,6 +121,50 @@ def _allowed(path: Path) -> bool:
     return True
 
 
+def _push_space_secrets(api, repo_id: str, args) -> None:
+    """Push HF Space secrets (encrypted env vars) for the live container.
+
+    Secrets are sourced in priority order:
+      1. CLI flag  (--cobalt-url / --cobalt-key)
+      2. Env var   (COBALT_API_BASE / COBALT_API_KEY)
+      3. Nothing   (secret is not touched)
+
+    Calling `add_space_secret` on an existing secret overwrites it, so
+    re-running deploy after rotating a key always stays current.
+    """
+    secrets_to_push: dict[str, str] = {}
+
+    cobalt_url = args.cobalt_url or os.environ.get("COBALT_API_BASE", "")
+    cobalt_key = args.cobalt_key or os.environ.get("COBALT_API_KEY", "")
+    if cobalt_url:
+        secrets_to_push["COBALT_API_BASE"] = cobalt_url.rstrip("/")
+    if cobalt_key:
+        secrets_to_push["COBALT_API_KEY"] = cobalt_key
+
+    # Residential proxy — carry through if set in the deployer's env.
+    for var in ("RESIDENTIAL_PROXY", "PROXY_URL", "CMVIDEO_PROXY"):
+        val = os.environ.get(var, "")
+        if val:
+            secrets_to_push[var] = val
+            break  # only push the first one found
+
+    if not secrets_to_push:
+        return
+
+    try:
+        from huggingface_hub import add_space_secret  # type: ignore[attr-defined]
+    except ImportError:
+        print("[deploy-mini] WARN: huggingface_hub too old to call add_space_secret — update with `pip install -U huggingface_hub`")
+        return
+
+    for key, val in secrets_to_push.items():
+        try:
+            add_space_secret(repo_id=repo_id, key=key, value=val)
+            print(f"[deploy-mini] Secret set: {key} = {'*' * 8}{val[-4:] if len(val) > 8 else '****'}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[deploy-mini] WARN: could not set secret {key}: {exc}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--owner", default="Dandyfeet")
@@ -128,6 +172,12 @@ def main() -> int:
     ap.add_argument("--token", default=None)
     ap.add_argument("--private", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    # Cobalt sidecar. Values can also come from env vars with the same names.
+    # Run scripts/cobalt/setup.sh first; it prints both values.
+    ap.add_argument("--cobalt-url",  default=None,
+                    help="Cobalt API base URL (or set COBALT_API_BASE env var)")
+    ap.add_argument("--cobalt-key",  default=None,
+                    help="Cobalt API key (or set COBALT_API_KEY env var)")
     args = ap.parse_args()
 
     if not WEB_MINI.is_dir():
@@ -291,6 +341,13 @@ def main() -> int:
         # or super_squash_history. We still uploaded successfully so
         # don't fail the whole deploy.
         print(f"[deploy-mini] (storage check skipped: {exc})")
+
+    # 4. Push Space secrets (Cobalt URL/key, and any others from env).
+    #    HF Space secrets are encrypted at rest and exposed as env vars
+    #    inside the running container. We push them after every deploy
+    #    so a deploy with --cobalt-url always syncs the secret even if
+    #    the code files didn't change.
+    _push_space_secrets(api, repo_id, args)
 
     direct_url = f"https://{args.owner.lower()}-{args.space}.hf.space"
     page_url = f"https://huggingface.co/spaces/{repo_id}"

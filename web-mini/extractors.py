@@ -189,6 +189,10 @@ HOSTILE_TOOL_TIMEOUT_S = 30
 
 # Source: https://github.com/imputnet/cobalt-api/blob/main/api.cobalt.tools/services
 COBALT_DOMAINS = {
+    # YouTube: Cobalt uses its own YouTube session management which
+    # bypasses the datacenter bot-wall that blocks yt-dlp. Listed here
+    # so Cobalt fires as a fallback after yt-dlp + Piped both fail.
+    "youtube.com", "youtu.be", "youtube-nocookie.com",
     "twitter.com", "x.com",
     "reddit.com", "www.reddit.com", "old.reddit.com",
     "tiktok.com", "www.tiktok.com",
@@ -326,10 +330,15 @@ _YT_BOT_WALL_SIGNALS = (
 )
 
 # Piped instances to try, in order. These relay YT streams from their
-# own servers. Uptime varies, so we try each in turn.
+# own servers. Uptime varies, so we try each in turn. Roughly ordered
+# by historical uptime; the loop tries all of them on a bot-wall hit.
 _PIPED_INSTANCES = (
     "piped.video",
     "piped.kavin.rocks",
+    "piped.adminforge.de",
+    "piped.projectsegfau.lt",
+    "piped.mint.lgbt",
+    "piped.smnz.de",
 )
 
 
@@ -344,7 +353,16 @@ def _yt_video_id(url: str) -> str | None:
         # Match youtube.com, m.youtube.com, music.youtube.com, etc.
         if host == "youtube.com" or host.endswith(".youtube.com") or host == "youtube-nocookie.com":
             qs = urllib.parse.parse_qs(parsed.query)
-            return (qs.get("v") or [None])[0]
+            # Standard /watch?v=<id>
+            vid = (qs.get("v") or [None])[0]
+            if vid:
+                return vid
+            # /live/<id>, /shorts/<id>, /embed/<id> — id is path segment after prefix
+            parts = [p for p in parsed.path.split("/") if p]
+            if len(parts) >= 2 and parts[0] in ("live", "shorts", "embed"):
+                candidate = parts[1].split("?")[0]
+                if re.match(r"^[A-Za-z0-9_-]{11}$", candidate):
+                    return candidate
     except Exception:
         pass
     return None
@@ -1421,7 +1439,18 @@ def extract_with_fallbacks(
             _emit("yt-dlp", exc.message)
             last_error = exc
             if exc.terminal:
-                raise ExtractionError(exc.message, attempts=attempts, terminal=True) from exc
+                # YouTube "login required" can be bot-wall in disguise: all
+                # player_clients returned LOGIN_REQUIRED because the datacenter
+                # IP is fully blocked, not because the video is private. Cobalt
+                # uses its own YouTube session and may succeed where yt-dlp
+                # couldn't. Fall through for YT login-required so Cobalt gets
+                # a shot; for all other terminal errors and non-YT sites, stop.
+                is_yt_login_block = (
+                    _ends_with_any(domain, _YT_DOMAINS)
+                    and "login required" in exc.message.lower()
+                )
+                if not is_yt_login_block:
+                    raise ExtractionError(exc.message, attempts=attempts, terminal=True) from exc
 
     # YouTube bot-wall retry via Piped/Invidious frontend.
     # When yt-dlp hits a "Sign in to confirm you're not a bot" / bot-wall
@@ -1958,9 +1987,13 @@ def _ffmpeg_capture_url(
     extra_lines: list[str] = []
     for k, v in headers.items():
         if isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip():
-            extra_lines.append(f"{k.strip()}: {v.strip()}")
+            k_safe = k.strip().replace("\r", "").replace("\n", "")
+            v_safe = v.strip().replace("\r", "").replace("\n", "")
+            if k_safe:
+                extra_lines.append(f"{k_safe}: {v_safe}")
     if cookie_header:
-        extra_lines.append(f"Cookie: {cookie_header}")
+        safe_cookie = cookie_header.replace("\r", "").replace("\n", "")
+        extra_lines.append(f"Cookie: {safe_cookie}")
     if extra_lines:
         ff_cmd += ["-headers", "\\r\\n".join(extra_lines) + "\\r\\n"]
     ff_cmd += [
@@ -2153,8 +2186,15 @@ def available_tools() -> dict[str, bool]:
     return out
 
 
+_tool_versions_cache: dict[str, str] | None = None
+
+
 def tool_versions() -> dict[str, str]:
-    """Best-effort version probe for diagnostics."""
+    """Best-effort version probe for diagnostics. Results are cached for the
+    lifetime of the process since binary versions never change at runtime."""
+    global _tool_versions_cache
+    if _tool_versions_cache is not None:
+        return _tool_versions_cache
     versions: dict[str, str] = {}
     try:
         import yt_dlp
@@ -2170,11 +2210,6 @@ def tool_versions() -> dict[str, str]:
             versions[name] = ((r.stdout or r.stderr).strip().splitlines() or ["installed"])[0][:80]
         except Exception:  # noqa: BLE001
             versions[name] = "installed"
-    # Cobalt + LLM endpoints can be self-hosted internal URLs or
-    # fingerprint the provider; we surface "configured" instead of
-    # the raw URL so /api/limits doesn't volunteer that detail to
-    # anonymous callers. Operators can still confirm a value was
-    # parsed - they just have to read their own env vars.
     if cobalt_available():
         versions["cobalt"] = "configured"
     else:
@@ -2187,6 +2222,7 @@ def tool_versions() -> dict[str, str]:
             versions["llm"] = "not configured (set CMVIDEO_LLM_BASE_URL + _API_KEY)"
     except ImportError:
         versions["llm"] = "module missing"
+    _tool_versions_cache = versions
     return versions
 
 

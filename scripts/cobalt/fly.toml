@@ -1,0 +1,61 @@
+# Fly.io deployment config for the Cobalt API sidecar.
+#
+# Cobalt handles: YouTube, Twitter/X, TikTok, Instagram (public),
+# Reddit, Vimeo, Dailymotion, Twitch, SoundCloud, BiliBili,
+# Streamable, Loom, RuTube, OK.ru, and ~20 other platforms.
+#
+# Usage:
+#   1. Edit `app` below (must be globally unique on fly.io).
+#   2. Run: bash scripts/cobalt/setup.sh
+#
+# The setup script handles `fly launch`, secrets, and prints the
+# COBALT_API_BASE + COBALT_API_KEY values to add to the HF Space.
+
+app = "cmv-cobalt"
+primary_region = "iad"
+
+[build]
+  image = "ghcr.io/imputnet/cobalt:10"
+
+[env]
+  # API_URL is set by setup.sh after the app is created (needs the
+  # .fly.dev hostname which isn't known until first deploy).
+  CORS_WILDCARD    = "1"
+  # No API key required — the URL itself is the secret (not publicly
+  # listed anywhere; only the HF Space knows it). Rate limit below
+  # keeps accidental scraping contained if the URL ever leaks.
+  # To add auth later: fly secrets set API_AUTH_REQUIRED=1 API_KEY_URL=https://<gist>
+  API_AUTH_REQUIRED = "0"
+  # Max video/audio duration: 3 hours. Matches the HF Space cap.
+  DURATION_LIMIT   = "10800"
+  # Rate limit: 200 req/min per IP. Generous for the mini (which
+  # sends at most one request per user action), strict enough to
+  # limit accidental scrapers if the URL ever leaks.
+  RATELIMIT_WINDOW = "60"
+  RATELIMIT_MAX    = "200"
+
+[http_service]
+  internal_port      = 9000
+  force_https        = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Keep one machine warm so the first request after idle doesn't
+  # pay the cold-start penalty (~3-5s for Node). Zero cost on the
+  # Fly.io free tier as long as total active time stays under the
+  # monthly free allowance.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 30
+    soft_limit = 25
+
+[[vm]]
+  # 512 MB is the sweet spot: Cobalt's Node process peaks at
+  # ~250-350 MB under concurrent requests. 256 MB OOMs; 1 GB is
+  # wasteful. The shared-CPU Fly.io plan at 512 MB costs ~$3/mo
+  # if you exceed the free allowance, which requires >2,760 machine
+  # hours/month (the mini is nowhere near that).
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1

@@ -141,6 +141,7 @@ RATE_LIMIT_PER_HOUR = os.environ.get("CMVIDEO_RATE_LIMIT_PER_HOUR", "20/hour")
 # Audio formats. yt-dlp's FFmpegExtractAudio supports all of these
 # via its `preferredcodec` arg. Lossless formats (wav, flac) skip
 # the bitrate parameter entirely.
+ALLOWED_VIDEO_FORMATS = {"mp4", "webm", "mov", "avi", "mkv"}
 ALLOWED_AUDIO_FORMATS = {"mp3", "m4a", "aac", "ogg", "opus", "wav", "flac"}
 DEFAULT_AUDIO_FORMAT = "mp3"
 LOSSLESS_AUDIO_FORMATS = {"wav", "flac"}
@@ -170,10 +171,9 @@ AUDIO_DOWNLOAD_CAPS = {
     "flac": 600 * 1024 * 1024,
 }
 
-# Top-level format slot. "mp4" => video path; everything else =>
-# audio path with FFmpegExtractAudio. Validation in the route
-# handlers splits the two flows.
-ALLOWED_FORMATS = {"mp4"} | ALLOWED_AUDIO_FORMATS
+# Top-level format slot. ALLOWED_VIDEO_FORMATS => video path;
+# ALLOWED_AUDIO_FORMATS => audio path with FFmpegExtractAudio.
+ALLOWED_FORMATS = ALLOWED_VIDEO_FORMATS | ALLOWED_AUDIO_FORMATS
 ALLOWED_MODES = {"download", "silence", "beep"}
 ALLOWED_FPS = {"source", "30", "60"}
 
@@ -543,6 +543,15 @@ _EMBED_REWRITES: tuple[tuple[re.Pattern, str], ...] = (
         ),
         "youtube_watch",
     ),
+    # YouTube /live/<id> -> /watch?v=<id>. These are permanent video
+    # URLs that look like live channels but are really archived streams.
+    (
+        re.compile(
+            r"^(?:https?://)?(?:www\.|m\.)?youtube\.com/live/([A-Za-z0-9_-]{11})(\?.*)?$",
+            re.I,
+        ),
+        "youtube_watch",
+    ),
     # Vimeo player.vimeo.com/video/<id> -> vimeo.com/<id>
     (
         re.compile(
@@ -891,14 +900,16 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
         # the "Advanced: YouTube cookies" panel - NOT "wait it out",
         # which is what "rate-limiting" implies.
         return (
-            "YouTube downloads are recommended in the desktop app. "
-            "The mini web server is frequently bot-walled by YouTube; "
-            "the desktop app runs from your own connection and is more reliable."
+            "YouTube is blocking this server's IP. To fix it: open the "
+            "‘YouTube not working?’ panel and paste your browser "
+            "cookies — that bypasses the block for 30 minutes. "
+            "Or use the desktop app (runs on your own connection)."
         )
     if yt_generic_signals and _is_youtube_host(url or ""):
         return (
-            "YouTube is unstable on the mini web server right now. "
-            "For reliable YouTube downloads, use the desktop app at cmvideo.online."
+            "YouTube is unstable on this server right now. Try the "
+            "‘YouTube not working?’ cookie panel, or use the "
+            "desktop app at cmvideo.online."
         )
     # When every extractor in the fallback chain fails, the raw dump
     # ("All extractors failed. Last error: ... (tried: yt-dlp: ..., llm: ...)")
@@ -913,6 +924,11 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
         return "Download failed — all extraction methods exhausted. Try the desktop app."
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
         return "That video isn't available (private, region-locked, or removed)."
+    # Eporner: known yt-dlp extractor regression — "unable to extract hash"
+    # (upstream issue #16277). Let the Playwright tier handle it instead of
+    # showing a confusing parser-error message.
+    if "eporner" in (url or "").lower() and "unable to extract" in low and "hash" in low:
+        return "Eporner's yt-dlp extractor has a known issue — trying the browser fallback instead."
     # Mixcloud: yt-dlp recognises the URL but fails at the CDN/auth
     # stage with messages that contain "unsupported" or similar generic
     # text. The generic "unsupported url" catch below hides the real
@@ -970,9 +986,18 @@ _AUDIO_MEDIA_TYPES: dict[str, str] = {
 }
 
 
+_VIDEO_MEDIA_TYPES: dict[str, str] = {
+    "mp4":  "video/mp4",
+    "webm": "video/webm",
+    "mov":  "video/quicktime",
+    "avi":  "video/x-msvideo",
+    "mkv":  "video/x-matroska",
+}
+
+
 def _media_type(fmt: str) -> str:
-    if fmt == "mp4":
-        return "video/mp4"
+    if fmt in _VIDEO_MEDIA_TYPES:
+        return _VIDEO_MEDIA_TYPES[fmt]
     return _AUDIO_MEDIA_TYPES.get(fmt, "application/octet-stream")
 
 
@@ -1106,20 +1131,24 @@ def _transcript_intervals(video_id: str, words: set) -> list[dict]:
 # See yt-dlp issue #10128 and friends for the current state of play.
 YDL_EXTRACTOR_ARGS = {
     "youtube": {
-        # Tightened May 2026 after verbose-log analysis showed yt-dlp
-        # warning `Skipping unsupported client "tv_embedded"` and
-        # `"mediaconnect"` - those names were renamed/dropped upstream
-        # so the entries were dead weight that just made the player-
-        # client probe loop slower. The remaining three are:
-        #   * `tv`         - tv-app surface, no PoToken needed
-        #   * `web_creator`- desktop web variant, bgutil HTTP plugin
-        #                    mints a PoToken for it (verified live)
-        #   * `mweb`       - mobile web variant, ditto
-        # When YT bot-walls our datacenter IP the plugin still mints
-        # the token successfully but YT returns LOGIN_REQUIRED -
-        # cookies via /api/yt-cookies are the real remediation, not
-        # more clients.
-        "player_client": ["tv", "web_creator", "mweb"],
+        # Player client probe order. Each client is tried in sequence;
+        # yt-dlp stops at the first one that returns a playable format.
+        #   * `android_vr`  - VR surface, bypasses bot-wall on most
+        #                     datacenter IPs without PoToken or cookies.
+        #                     Listed first so it short-circuits before
+        #                     the heavier web clients.
+        #   * `tv`          - TV-app surface, no PoToken needed.
+        #   * `ios`         - iOS app client; requires GVS PO Token which
+        #                     bgutil mints. Independent code path from the
+        #                     web clients — covers videos those miss.
+        #   * `web_creator` - Desktop web variant; bgutil HTTP plugin
+        #                     mints a PoToken for it (verified live).
+        #   * `mweb`        - Mobile web variant, ditto.
+        # When YT bot-walls our datacenter IP even android_vr fails and
+        # all web clients return LOGIN_REQUIRED despite valid PoTokens.
+        # The real remediation is cookies via /api/yt-cookies or the
+        # YT_COOKIES_TXT operator secret.
+        "player_client": ["android_vr", "tv", "ios", "web_creator", "mweb"],
         "player_skip": ["configs"],
     },
 }
@@ -1168,6 +1197,11 @@ _IMPERSONATE_DOMAINS: tuple[str, ...] = (
     "thisvid.com", "ttcache.com",
     # Discord CDN media URLs sometimes fingerprint-check.
     "cdn.discordapp.com",
+    # Rumble is Cloudflare-fronted and blocks datacenter TLS
+    # handshakes without a recognised browser fingerprint.
+    "rumble.com", "rumblecdn.com",
+    # Odysee / LBRY: Cloudflare fronted; impersonation clears the bot check.
+    "odysee.com", "lbry.tv",
     # YouTube actively drops our TLS handshake from datacenter IPs
     # without a recognised browser fingerprint - we observed
     # `[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation
@@ -1209,6 +1243,63 @@ _DOMAIN_POLICY: tuple[tuple[tuple[str, ...], dict[str, int]], ...] = (
         "info_budget_s": 45,
         "ydl_retries": 2,
         "fragment_retries": 3,
+    }),
+    # MindGeek tubes: PornHub CDN signs URLs per-IP, so yt-dlp
+    # needs a consistent proxy session (handled by ytdlp-pipe tier).
+    # Give a full budget so the pipe finishes before the outer timer fires.
+    (("pornhub.com", "phncdn.com", "rt.pornhub.com", "youporn.com", "ypncdn.com",
+      "tube8.com", "tube8cdn.com", "redtube.com", "rdtcdn.com"), {
+        "socket_timeout_s": 25,
+        "info_budget_s": 45,
+        "ydl_retries": 2,
+        "fragment_retries": 3,
+    }),
+    # xHamster: DataDome bot-check + frequent decipher regressions.
+    # More retries help on transient 429s; budget lets yt-dlp try the
+    # full impersonation handshake before falling through to Playwright.
+    (("xhamster.com", "xhcdn.com"), {
+        "socket_timeout_s": 25,
+        "info_budget_s": 40,
+        "ydl_retries": 2,
+        "fragment_retries": 3,
+    }),
+    # SpankBang: moderate datacenter hostility; proxy + impersonation
+    # usually sufficient. Shorter budget so Playwright fires quickly.
+    (("spankbang.com",), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 30,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
+    }),
+    # Eporner: known yt-dlp hash-extraction regression (issue #16277).
+    # Short budget so we fall through to Playwright fast when yt-dlp fails.
+    (("eporner.com", "epornercdn.com"), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 30,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
+    }),
+    # xVideos / xNXX: generally stable yt-dlp extractors. Moderate settings.
+    (("xvideos.com", "xvideos-cdn.com", "xnxx.com", "xnxx-cdn.com"), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 30,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
+    }),
+    # ThisVid (KVS): embed links removed May 2026. yt-dlp may fail
+    # on embed-shaped URLs; keep budget short so Playwright catches it.
+    (("thisvid.com", "ttcache.com"), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 30,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
+    }),
+    # Rumble: Cloudflare bot-check + dedicated CDN. Impersonation helps.
+    (("rumble.com", "rumblecdn.com"), {
+        "socket_timeout_s": 20,
+        "info_budget_s": 35,
+        "ydl_retries": 1,
+        "fragment_retries": 2,
     }),
 )
 
@@ -1742,6 +1833,89 @@ def _video_format_fallback_ladder(fps: str = "source", *, height: int | None = N
     return "/".join(parts) + "/best"
 
 
+def _webm_format_selector(fps: str, *, height: int) -> str:
+    """yt-dlp format selector that targets native VP9/VP8+Opus/Vorbis WebM
+    streams first, avoiding H.264/AAC sources that can't be muxed into a
+    valid WebM container without an expensive transcode."""
+    no_preview = "[format_id!*preview][format_id!*trailer][format_id!*sample]"
+    fps_clause = {"source": "", "30": "[fps<=30]", "60": "[fps>=50]"}.get(fps, "")
+    return (
+        # 1) VP9 video + Opus audio in WebM (YouTube native, no transcode)
+        f"bestvideo[height<={height}]{fps_clause}[ext=webm][vcodec^=vp]{no_preview}+bestaudio[ext=webm][acodec=opus]/"
+        f"bestvideo[height<={height}][ext=webm][vcodec^=vp]{no_preview}+bestaudio[ext=webm]/"
+        # 2) Any WebM video + best WebM-compatible audio
+        f"bestvideo[height<={height}]{fps_clause}[ext=webm]{no_preview}+bestaudio[ext=webm]/"
+        f"bestvideo[height<={height}][ext=webm]{no_preview}+bestaudio[ext=webm]/"
+        # 3) Single-file WebM at the cap height
+        f"best[height={height}]{fps_clause}[ext=webm][acodec!=none]{no_preview}/"
+        f"best[height={height}][ext=webm][acodec!=none]{no_preview}/"
+        # 4) Any single-file WebM ≤ cap
+        f"best[height<={height}]{fps_clause}[ext=webm]{no_preview}/"
+        f"best[height<={height}][ext=webm]{no_preview}/"
+        # 5) Absolute last resort: best webm-or-any (yt-dlp tries webm mux)
+        f"bestvideo[height<={height}]{no_preview}+bestaudio/"
+        f"best[height<={height}]"
+    )
+
+
+def _webm_format_fallback_ladder(fps: str = "source", *, height: int | None = None) -> str:
+    """Same multi-tier height fallback as `_video_format_fallback_ladder` but
+    using the webm-native selector at each tier."""
+    requested = int(height or MAX_VIDEO_HEIGHT)
+    candidates = [requested, 1440, 1080, 720, 480, 360, 240]
+    seen: set[int] = set()
+    parts: list[str] = []
+    for h in candidates:
+        if h > requested and h != requested:
+            continue
+        if h in seen:
+            continue
+        seen.add(h)
+        sel = _webm_format_selector(fps, height=h)
+        if sel.endswith("/best"):
+            sel = sel[:-5]
+        parts.append(sel)
+    if not parts:
+        return _webm_format_selector(fps, height=requested)
+    return "/".join(parts) + "/best"
+
+
+def _mkv_format_selector(fps: str, *, height: int) -> str:
+    """yt-dlp format selector for MKV output. MKV accepts any codec so we
+    go straight for best quality without codec restrictions — VP9, AVC,
+    AV1, Opus, AAC, all mux cleanly into MKV without a transcode pass."""
+    no_preview = "[format_id!*preview][format_id!*trailer][format_id!*sample]"
+    fps_clause = {"source": "", "30": "[fps<=30]", "60": "[fps>=50]"}.get(fps, "")
+    return (
+        f"bestvideo[height<={height}]{fps_clause}{no_preview}+bestaudio/"
+        f"bestvideo[height<={height}]{no_preview}+bestaudio/"
+        f"best[height={height}]{fps_clause}[acodec!=none]{no_preview}/"
+        f"best[height={height}][acodec!=none]{no_preview}/"
+        f"best[height<={height}]{no_preview}/"
+        f"best[height<={height}]"
+    )
+
+
+def _mkv_format_fallback_ladder(fps: str = "source", *, height: int | None = None) -> str:
+    requested = int(height or MAX_VIDEO_HEIGHT)
+    candidates = [requested, 1440, 1080, 720, 480, 360, 240]
+    seen: set[int] = set()
+    parts: list[str] = []
+    for h in candidates:
+        if h > requested and h != requested:
+            continue
+        if h in seen:
+            continue
+        seen.add(h)
+        sel = _mkv_format_selector(fps, height=h)
+        if sel.endswith("/best"):
+            sel = sel[:-5]
+        parts.append(sel)
+    if not parts:
+        return _mkv_format_selector(fps, height=requested)
+    return "/".join(parts) + "/best"
+
+
 # Direct-media-URL fast path: extensions that point straight at a
 # downloadable file (no yt-dlp scrape needed). When the URL ends in
 # one of these AND the host responds with a matching Content-Type,
@@ -1788,9 +1962,18 @@ def _direct_url_fast_path(
     # request meant `format=flac` + an mp4 source served back the
     # mp4 unmodified, breaking caller expectations.
     src_ext = "." + path_lower.rsplit(".", 1)[-1]
-    if fmt == "mp4" and src_ext not in (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".flv"):
+    # For video formats, only fast-path when the source IS already in
+    # an acceptable container for the requested format — no remux here.
+    _VIDEO_FAST_PATH_EXTS: dict[str, set[str]] = {
+        "mp4":  {".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".flv"},
+        "webm": {".webm"},
+        "mov":  {".mov", ".mp4", ".m4v"},  # MOV and MP4 are ISOBMFF siblings
+        "mkv":  {".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v"},
+        "avi":  {".avi"},
+    }
+    if fmt in _VIDEO_FAST_PATH_EXTS and src_ext not in _VIDEO_FAST_PATH_EXTS[fmt]:
         return None
-    if fmt != "mp4":
+    if fmt not in ALLOWED_VIDEO_FORMATS:
         # Audio formats: src_ext must equal `.{fmt}` exactly.
         # `.m4a` is treated as a synonym of `.aac` because both
         # contain raw AAC and don't need a re-encode pass.
@@ -1932,6 +2115,24 @@ def _do_download(
             "postprocessors": [
                 {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"},
             ],
+        })
+    elif fmt == "webm":
+        opts.update({
+            "format": _webm_format_fallback_ladder(fps, height=height),
+            "merge_output_format": "webm",
+        })
+    elif fmt == "mkv":
+        opts.update({
+            "format": _mkv_format_fallback_ladder(fps, height=height),
+            "merge_output_format": "mkv",
+        })
+    elif fmt in ("mov", "avi"):
+        # MOV is ISOBMFF (same as MP4, Apple-compatible container).
+        # AVI is legacy — prefer AVC+AAC to avoid VP9→H.264 transcode.
+        # Both reuse the MP4 format ladder (AVC+AAC streams preferred).
+        opts.update({
+            "format": _video_format_fallback_ladder(fps, height=height),
+            "merge_output_format": fmt,
         })
     else:
         # Audio path. `fmt` is the requested audio container/codec
@@ -2134,15 +2335,12 @@ def _do_info(url: str) -> dict:
     }
 
 
-# Tier 0 only handles the MP4 container family (.mp4 / .m4v /
-# .mov are all ISOBMFF and play interchangeably in browsers when
-# served with `Content-Disposition: ...mp4`). Other containers
-# (.webm, .mkv, .avi, .flv) MUST go through yt-dlp tier 2 so it
-# can re-mux into mp4 - serving raw .mkv bytes labeled `.mp4`
-# would download a file the browser refuses to play.
-_DIRECT_VIDEO_EXTS = (".mp4", ".m4v", ".mov")
+# Tier 0 handles all common video containers directly.
+_DIRECT_VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi")
 _DIRECT_OK_CONTENT_TYPES = (
     "video/mp4", "video/x-m4v", "video/quicktime",
+    "video/webm",
+    "video/x-matroska", "video/x-msvideo",
     "application/mp4", "application/octet-stream", "binary/octet-stream",
 )
 _DIRECT_MP4_MIMES = ("video/mp4", "video/x-m4v", "application/mp4", "video/quicktime")
@@ -2295,16 +2493,27 @@ def _resolve_streamable_direct_url(url: str) -> Optional[dict]:
         return None
 
     # Filename from URL path. We don't have a real title here -
-    # `_safe_name` in the caller normalises and adds the .mp4
-    # extension regardless.
+    # `_safe_name` in the caller normalises and adds the extension.
     title = path_lower.rsplit("/", 1)[-1].rsplit(".", 1)[0] or "video"
-    mime_type = "video/mp4" if ct in _DIRECT_MP4_MIMES else (ct or "video/mp4")
+    _EXT_TO_FMT = {
+        ".webm": ("webm", "video/webm"),
+        ".mkv":  ("mkv",  "video/x-matroska"),
+        ".avi":  ("avi",  "video/x-msvideo"),
+        ".mov":  ("mov",  "video/quicktime"),
+        ".m4v":  ("mp4",  "video/mp4"),
+    }
+    src_ext_key = "." + path_lower.rsplit(".", 1)[-1] if "." in path_lower else ""
+    if src_ext_key in _EXT_TO_FMT:
+        out_ext, mime_type = _EXT_TO_FMT[src_ext_key]
+    else:
+        out_ext = "mp4"
+        mime_type = "video/mp4" if ct in _DIRECT_MP4_MIMES else (ct or "video/mp4")
 
     return {
         "method": "direct",
         "url": url,
         "headers": {"User-Agent": YDL_USER_AGENT},
-        "ext": "mp4",
+        "ext": out_ext,
         "filesize": filesize,
         "title": title,
         "extractor": "direct-url",
@@ -2507,9 +2716,9 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         assembly, cookies, and per-domain proxy via the same code
         paths as the slow `/api/process` pipeline.
 
-    MP3 always returns None (needs ffmpeg post-encode -> slow path).
+    Audio formats always return None (need ffmpeg post-encode -> slow path).
     """
-    if fmt != "mp4":
+    if fmt not in ALLOWED_VIDEO_FORMATS:
         return None
     if _stream_fastpath_blocked(url):
         log.info("streamable resolve: fast-path disabled for %s", _proxy_router._hostname_of(url))
@@ -2610,7 +2819,17 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         proto = (f.get("protocol") or "").lower()
         if proto not in ("https", "http"):
             continue
-        if f.get("ext") != "mp4":
+        # Only direct-passthrough when source container matches request.
+        # MOV and MP4 are ISOBMFF siblings; MKV accepts any single-file
+        # source since it just re-wraps the streams.
+        _TIER1_EXTS: dict[str, set[str]] = {
+            "mp4":  {"mp4"},
+            "webm": {"webm"},
+            "mov":  {"mp4", "m4v", "mov"},
+            "mkv":  {"mp4", "webm", "mkv", "m4v"},
+            "avi":  {"avi"},
+        }
+        if f.get("ext") not in _TIER1_EXTS.get(fmt, {"mp4"}):
             continue
         height = f.get("height") or 0
         if height > target_height:
@@ -2638,11 +2857,11 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
             "method": "direct",
             "url": best["url"],
             "headers": headers,
-            "ext": "mp4",
+            "ext": fmt if fmt in ALLOWED_VIDEO_FORMATS else "mp4",
             "filesize": best.get("filesize") or best.get("filesize_approx"),
             "title": title,
             "extractor": extractor,
-            "mime_type": "video/mp4",
+            "mime_type": _VIDEO_MEDIA_TYPES.get(fmt, "video/mp4"),
             "height": best.get("height") or 0,
         }
 
@@ -2684,9 +2903,10 @@ def _resolve_streamable_format(url: str, fmt: str, quality: str) -> Optional[dic
         "method": "ytdlp-pipe",
         "source_url": url,
         "target_height": target_height,
+        "target_fmt": fmt,
         "title": title,
         "extractor": extractor,
-        "mime_type": "video/mp4",
+        "mime_type": _VIDEO_MEDIA_TYPES.get(fmt, "video/mp4"),
         "filesize": None,
         "height": target_height,  # cap; actual could be lower
     }
@@ -3535,7 +3755,7 @@ async def api_process(
     # FPS / video-quality are video-only; coerce sane defaults for
     # audio formats so the pipeline doesn't try to set fps on an
     # mp3.
-    if fmt != "mp4":
+    if fmt not in ALLOWED_VIDEO_FORMATS:
         fps_choice = "source"
         quality_choice = DEFAULT_QUALITY  # height is meaningless for audio
     # >=1080p + fps override = libx264 ultrafast at 1080p+ on 2 shared
@@ -3933,10 +4153,9 @@ async def api_stream_download_init(request: Request, body: StreamDownloadRequest
             detail=f"Format must be one of: {', '.join(sorted(ALLOWED_FORMATS))}",
         )
     quality_choice = _normalize_quality(body.quality)
-    # Fast-path is mp4-only. Audio formats always need the
-    # FFmpegExtractAudio postprocessor, which means hitting the
-    # full /api/process pipeline. Tell the client to fall back.
-    if fmt != "mp4":
+    # Fast-path handles video containers (mp4, webm). Audio formats
+    # always need the FFmpegExtractAudio postprocessor → slow path.
+    if fmt not in ALLOWED_VIDEO_FORMATS:
         raise HTTPException(
             status_code=422,
             detail={
@@ -4149,19 +4368,24 @@ def _serve_stream_ytdlp_pipe(resolved: dict, release_slot) -> StreamingResponse:
 
     source_url = resolved["source_url"]
     target_height = int(resolved.get("target_height") or MAX_VIDEO_HEIGHT)
+    target_fmt = resolved.get("target_fmt", "mp4")
 
-    # Same ladder strategy as the slow /api/process path: try requested
-    # height first, then descend through common lower tiers before
-    # giving up to absolute best. Keeps stream mode resilient on hosts
-    # with flaky top renditions.
-    fmt_selector = _video_format_fallback_ladder("source", height=target_height)
+    # Pick the right format ladder and merge container.
+    if target_fmt == "webm":
+        fmt_selector = _webm_format_fallback_ladder("source", height=target_height)
+    elif target_fmt == "mkv":
+        fmt_selector = _mkv_format_fallback_ladder("source", height=target_height)
+    else:
+        # mp4, mov, avi — all prefer AVC+AAC, differ only in container
+        fmt_selector = _video_format_fallback_ladder("source", height=target_height)
+    merge_fmt = target_fmt if target_fmt in ("mp4", "webm", "mkv", "mov", "avi") else "mp4"
 
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "--quiet", "--no-warnings", "--no-progress", "--no-call-home",
         "--no-mtime", "--no-part",
         "--format", fmt_selector,
-        "--merge-output-format", "mp4",
+        "--merge-output-format", merge_fmt,
         "--output", "-",
         "--user-agent", YDL_USER_AGENT,
         "--socket-timeout", "30",

@@ -248,6 +248,73 @@ input[type="url"]:focus {
 .caps ul { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 14px; }
 .caps strong { color: var(--text); }
 
+/* ---------- YouTube cookie panel ---------- */
+.yt-cookies-card {
+  padding: 0;
+  overflow: hidden;
+}
+.yt-cookies-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 26px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: color 0.12s;
+  gap: 12px;
+}
+.yt-cookies-summary::-webkit-details-marker { display: none; }
+.yt-cookies-summary:hover { color: var(--text); }
+#yt-cookies-details[open] .yt-cookies-summary {
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.yt-session-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.yt-cookies-body {
+  padding: 18px 26px 22px;
+}
+.yt-cookies-textarea {
+  width: 100%;
+  min-height: 80px;
+  background: var(--surface-deep);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  resize: vertical;
+  outline: none;
+  display: block;
+  margin-bottom: 12px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.yt-cookies-textarea:focus {
+  border-color: var(--accent-hi);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+.yt-cookies-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.small { font-size: 13px; }
+
 /* ---------- upsell ---------- */
 .upsell {
   margin: 40px 0 60px;

@@ -67,7 +67,7 @@ RUN pip install --no-cache-dir --upgrade --pre 'yt-dlp[default,curl-cffi]' \
 # which clears most 'Sign in to confirm you're not a bot' walls
 # from datacenter IPs. If the sidecar is missing, the plugin
 # no-ops and yt-dlp falls back to its built-in client rotation.
-RUN pip install --no-cache-dir bgutil-ytdlp-pot-provider \
+RUN pip install --no-cache-dir 'bgutil-ytdlp-pot-provider==1.3.1' \
     || echo "WARN: bgutil-ytdlp-pot-provider plugin install failed; YouTube without user cookies may be flaky"
 
 # Build the bgutil PoToken provider Node service. We pin to a

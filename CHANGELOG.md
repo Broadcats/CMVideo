@@ -27,6 +27,78 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.4-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube: "login required" no longer short-circuits the fallback chain** — when yt-dlp's entire player_client list (android_vr, tv, ios, web_creator, mweb) returns LOGIN_REQUIRED due to IP-level blocking, the error was previously classified as `terminal=True`, which stopped the chain before Cobalt ever got a chance. Cobalt uses its own YouTube session management and succeeds on many of these blocked videos. The fix: for YouTube URLs only, "login required" is now treated as recoverable — Cobalt and other fallbacks still fire.
+- **bgutil PoToken sidecar: readiness wait** — `entrypoint.sh` now polls `http://127.0.0.1:4416/ping` for up to 30 s before starting uvicorn. Previously, the Node process was launched in the background and uvicorn started immediately; the first YouTube requests to arrive before the sidecar completed its botGuard challenge fetch (~5–15 s) got no PoToken and hit the bot-wall. Now the sidecar is confirmed live before traffic reaches it.
+- **bgutil version pin** — `bgutil-ytdlp-pot-provider` pip package is now pinned to `==1.3.1` (matching `BGUTIL_VERSION=1.3.1` in the Dockerfile). Since v1.2.0, the server rejects requests from a mismatched pip package version; without the pin, a future `pip install` picking up a newer package while the Node server stays at 1.3.1 would silently break PoToken minting.
+
+### Changed
+- **YouTube player client list** — `ios` added between `tv` and `web_creator`. The iOS client with a GVS PO Token (minted by bgutil) is an independent code path that covers videos the web clients miss. Full list: `android_vr`, `tv`, `ios`, `web_creator`, `mweb`.
+
+---
+
+## [mini-2026.05.19.3-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube: Cobalt fallback now fires** — `youtube.com`, `youtu.be`, and `youtube-nocookie.com` added to `COBALT_DOMAINS`. When yt-dlp + Piped both fail (datacenter bot-wall / YouTube SABR blocking yt-dlp clients), the extractor chain now tries Cobalt as the next step. Cobalt v10 uses its own YouTube session management and consistently returns a tunnel URL from the same Fly.io datacenter IP where yt-dlp is blocked. Tested: Cobalt returns `status: tunnel` for YouTube from the same datacenter IP where yt-dlp returns "Sign in to confirm you're not a bot."
+- **YouTube error message** — now points users to the cookie panel instead of only the desktop app.
+
+---
+
+## [mini-2026.05.19.2-alpha] - 2026-05-19
+
+### Added
+- **YouTube cookie upload UI** — collapsible "YouTube not working? Add your cookies" panel below the main form. User exports their browser cookies as Netscape `cookies.txt` (via Get cookies.txt LOCALLY / Firefox cookies.txt extension), pastes into the textarea, clicks Activate. The token is stored in `sessionStorage` (survives refresh, gone on tab close) and injected as `yt_session` into every API call body. The server already had the full backend (`/api/yt-cookies`, 30-min session, IP-bound, never logged); this wires up the frontend that was previously stubbed out. When cookies are active a green "Cookies active" badge appears in the panel header.
+- **`android_vr` player client** — added as the first client in yt-dlp's YouTube probe list. It often bypasses the bot-wall on datacenter IPs without needing a PoToken or cookies, letting it short-circuit before the heavier `web_creator`/`mweb` clients.
+
+---
+
+## [mini-2026.05.19.1-alpha] - 2026-05-19
+
+### Fixed
+- **`/api/limits` DoS under concurrent load** — `tool_versions()` in `extractors.py` spawned 5 subprocesses (gallery-dl, streamlink, lux, you-get, playwright `--version`) on every request with no caching. Under 20+ concurrent hits this created 100+ simultaneous subprocess spawns, starving the uvicorn worker and timing out all queued requests. Results are now cached for the process lifetime since binary versions never change at runtime.
+- **Security: header injection in ffmpeg `-headers`** — Playwright-harvested CDN header keys and values are now stripped of `\r\n` before being concatenated into the ffmpeg `-headers` argument, preventing a crafted CDN response from injecting additional headers or commands.
+
+### Other
+- **Stress-test URL refresh** — 7 stale/dead URLs in `scripts/stress/sites.txt` replaced with working ones (9GAG, SoundCloud-Pop, Reddit-Video, Coub, SpankBang, BigBuckBunny-MP4 direct link, Imgur, Twitch-Clip).
+
+---
+
+## [mini-2026.05.18.16-alpha] - 2026-05-18
+
+### Added
+- **Cobalt Fly.io deployment** — `scripts/cobalt/fly.toml` (512 MB shared VM, auth-required, 200 req/min rate limit), `scripts/cobalt/setup.sh` (one-shot: creates app, generates UUID API key, base64-encodes the Cobalt key-store JSON into a Fly.io secret, deploys, smoke-tests, prints `COBALT_API_BASE` + `COBALT_API_KEY` values), `scripts/cobalt/verify.sh` (health check + YouTube + Twitter/X smoke test against any running instance).
+- **`deploy-mini.py` secrets push** — new `--cobalt-url` / `--cobalt-key` flags (also read from `COBALT_API_BASE` / `COBALT_API_KEY` env vars); `_push_space_secrets()` calls `add_space_secret()` after every deploy so the HF Space container always has current credentials. Residential proxy env var (`RESIDENTIAL_PROXY` / `PROXY_URL` / `CMVIDEO_PROXY`) is also forwarded if set in the deployer's environment.
+
+---
+
+## [mini-2026.05.18.15-alpha] - 2026-05-18
+
+### Added
+- **MOV / AVI / MKV output formats** — three new container options in the Video format group. MKV uses a codec-agnostic format selector (VP9, AVC, AV1, Opus, AAC all mux without transcode); MOV reuses the AVC+AAC ladder (ISOBMFF sibling of MP4, Apple-compatible); AVI also uses the AVC+AAC ladder to avoid a slow VP9→H.264 transcode on the shared Space. `_DIRECT_VIDEO_EXTS` and `_DIRECT_OK_CONTENT_TYPES` extended to include `.mkv`/`.avi` and their MIME types. Tier-1 ext matching, tier-2 mime types, and yt-dlp pipe merge format all updated. `VIDEO_FMTS` set in `app.js` centralises the video-vs-audio decision for quality-row, fast-path, and `isAudio` flag.
+
+---
+
+## [mini-2026.05.18.14-alpha] - 2026-05-18
+
+### Added
+- **WebM output format** — new `webm` option in the format dropdown (VP9 + Opus). The format selector prefers native VP9+Opus WebM streams (YouTube, Vimeo, and others serve these natively, no transcode cost). Tier-0 direct-URL fast-path now passes `.webm` sources through with `video/webm` content type. `_resolve_streamable_format` tier-1/tier-2 adapted for WebM. `_serve_stream_ytdlp_pipe` reads `target_fmt` from the resolved dict and passes `--merge-output-format webm` when appropriate. Quality/FPS controls stay enabled for WebM (video format, not audio). JavaScript fast-path and `isAudio` flag updated to treat `webm` as a video format alongside `mp4`.
+
+---
+
+## [mini-2026.05.18.13-alpha] - 2026-05-18
+
+### Added / Improved
+- **More Piped instances** — `_PIPED_INSTANCES` expanded from 2 to 6 (added `piped.adminforge.de`, `piped.projectsegfau.lt`, `piped.mint.lgbt`, `piped.smnz.de`). All are tried in sequence when YouTube bot-walls the server, improving the chance at least one relay is online.
+- **YouTube `/live/<id>` URL support** — `_yt_video_id` now extracts the video ID from `youtube.com/live/<id>` URLs (same fix also covers `/shorts/<id>` and `/embed/<id>` ID extraction in Piped retry). `_EMBED_REWRITES` includes a new rule that canonicalises `youtube.com/live/<id>` → `youtube.com/watch?v=<id>`.
+- **Domain policies for tube sites** — `_DOMAIN_POLICY` now has per-site entries for PornHub/phncdn, xHamster, SpankBang, Eporner, xVideos/xNXX, ThisVid, and Rumble. Each entry tunes `socket_timeout_s`, `info_budget_s`, retries, and fragment retries so yt-dlp fails fast on known-broken extractors and the Playwright fallback fires sooner.
+- **Impersonation for Rumble and Odysee** — added both to `_IMPERSONATE_DOMAINS` so curl_cffi's Chrome TLS fingerprint is used, clearing Cloudflare's bot-check on those domains. Both are now in `_PROXY_DOMAIN_TUPLES` (proxy_router.py) as well.
+- **Eporner hash bug friendly error** — `_friendly_ydl_error` now surfaces a clear "known extractor issue — browser fallback" message for the Eporner hash-extraction regression (yt-dlp upstream issue #16277) instead of the generic parser-error text.
+
+---
+
 ## [mini-2026.05.18.12-alpha] - 2026-05-18
 
 ### Fixed

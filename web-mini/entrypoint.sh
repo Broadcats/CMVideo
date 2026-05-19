@@ -35,6 +35,23 @@ elif command -v node >/dev/null 2>&1 && [ -f "$POT_BIN" ]; then
     # container shuts down.
     trap 'kill "$POT_PID" 2>/dev/null || true' INT TERM
     cd /app
+    # Wait up to 30 s for the sidecar to respond on its ping endpoint.
+    # The Node process needs time to load the botGuard JS from YouTube
+    # and solve the initial challenge before it can mint tokens. Without
+    # this wait, yt-dlp's first few YouTube requests may fire before the
+    # provider is ready and get no PoToken, triggering a bot-wall failure.
+    READY=0
+    for i in $(seq 1 30); do
+        if curl -sf "http://127.0.0.1:$POT_PORT/ping" >/dev/null 2>&1; then
+            echo "[entrypoint] bgutil sidecar ready after ${i}s"
+            READY=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "$READY" = "0" ]; then
+        echo "[entrypoint] WARN: bgutil sidecar did not respond within 30s; continuing without PoToken"
+    fi
 else
     echo "[entrypoint] no bgutil sidecar available (node=$(command -v node || echo missing); bin=$POT_BIN); falling back to yt-dlp client rotation"
 fi

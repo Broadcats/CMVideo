@@ -22,7 +22,8 @@
   // last quality pick.
   function syncQualityRow() {
     if (!fmtSelect || !qualityRow || !qualitySelect) return;
-    const isVideo = fmtSelect.value === "mp4";
+    const VIDEO_FMTS = new Set(["mp4", "webm", "mkv", "mov", "avi"]);
+    const isVideo = VIDEO_FMTS.has(fmtSelect.value);
     qualitySelect.disabled = !isVideo;
     qualityRow.classList.toggle("disabled", !isVideo);
   }
@@ -31,9 +32,24 @@
     syncQualityRow();
   }
 
-  // YouTube cookie upload flow is intentionally disabled in the mini
-  // web UI; keep request bodies unchanged.
+  // YouTube session cookie support.
+  // The server exposes /api/yt-cookies to accept a Netscape cookies.txt
+  // blob, stores it in a 30-min tempfile keyed to a random token, and
+  // returns that token. We stash the token in sessionStorage so it
+  // survives a page refresh within the same tab and inject it into every
+  // API call body via withYtSession().
+  let _ytSession = null;
+
+  (function () {
+    try {
+      const d = JSON.parse(sessionStorage.getItem("cmv_yt") || "null");
+      if (d && d.tok && d.exp && Date.now() < d.exp) _ytSession = d.tok;
+      else sessionStorage.removeItem("cmv_yt");
+    } catch (_) {}
+  })();
+
   function withYtSession(body) {
+    if (_ytSession) return Object.assign({}, body, { yt_session: _ytSession });
     return body;
   }
 
@@ -140,9 +156,9 @@
       // FAST PATH: direct-stream pass-through.
       // Mini server resolves the URL, browser downloads from a
       // one-shot proxy endpoint. No server-side disk, no caps.
-      // MP4 only - audio formats always need ffmpeg post-processing
-      // on the server, so they skip this branch.
-      if (fmt === "mp4") {
+      // Video formats (mp4, webm, mkv, mov, avi) - audio always needs ffmpeg.
+      const VIDEO_FMTS = new Set(["mp4", "webm", "mkv", "mov", "avi"]);
+      if (VIDEO_FMTS.has(fmt)) {
         setStatus("Resolving direct stream...", "busy");
         const initRes = await fetch("/api/stream-download", {
           method: "POST",
@@ -186,7 +202,7 @@
       // fast-path 422s. Lossless audio (WAV/FLAC) gets a longer
       // status hint because ffmpeg encoding takes meaningfully
       // longer than passing through a streamed mp4.
-      const isAudio = fmt !== "mp4";
+      const isAudio = !VIDEO_FMTS.has(fmt);
       const isLossless = fmt === "wav" || fmt === "flac";
       const fmtLabel = fmt.toUpperCase();
       const hint = isLossless
@@ -241,4 +257,60 @@
       dlBtn.click();
     }
   });
+
+  // ── YouTube cookie upload panel ──────────────────────────────────
+  const ytInput   = $("yt-cookies-input");
+  const ytBtn     = $("yt-cookies-btn");
+  const ytClear   = $("yt-cookies-clear");
+  const ytMsg     = $("yt-cookies-msg");
+  const ytBadge   = $("yt-session-badge");
+
+  function syncYtUI() {
+    const active = !!_ytSession;
+    ytBadge  && ytBadge.classList.toggle("hidden", !active);
+    ytClear  && ytClear.classList.toggle("hidden", !active);
+    ytBtn    && ytBtn.classList.toggle("hidden", active);
+    if (ytInput) ytInput.style.display = active ? "none" : "";
+  }
+  syncYtUI();
+
+  if (ytBtn) {
+    ytBtn.addEventListener("click", async () => {
+      const raw = ytInput ? ytInput.value.trim() : "";
+      if (!raw) { if (ytMsg) ytMsg.textContent = "Paste your cookies.txt first."; return; }
+      ytBtn.disabled = true;
+      if (ytMsg) ytMsg.textContent = "Uploading…";
+      try {
+        const res = await fetch("/api/yt-cookies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cookies_txt: raw }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+        _ytSession = d.yt_session;
+        sessionStorage.setItem("cmv_yt", JSON.stringify({
+          tok: _ytSession,
+          exp: Date.now() + d.expires_in * 1000,
+        }));
+        if (ytInput) ytInput.value = "";
+        if (ytMsg) ytMsg.textContent =
+          `${d.n_yt_cookies} cookies active · expires in ${Math.round(d.expires_in / 60)} min`;
+        syncYtUI();
+      } catch (e) {
+        if (ytMsg) ytMsg.textContent = e.message || "Upload failed.";
+      } finally {
+        ytBtn.disabled = false;
+      }
+    });
+  }
+
+  if (ytClear) {
+    ytClear.addEventListener("click", () => {
+      _ytSession = null;
+      sessionStorage.removeItem("cmv_yt");
+      if (ytMsg) ytMsg.textContent = "Session cleared.";
+      syncYtUI();
+    });
+  }
 })();

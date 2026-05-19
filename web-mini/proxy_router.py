@@ -154,6 +154,11 @@ _PROXY_DOMAIN_TUPLES: tuple[tuple[str, str], ...] = (
     ("coub.com", "Coub (HTTP 403 from datacenter)"),
     ("9gag.com", "9GAG (HTTP 403 from datacenter)"),
     ("9cache.com", "9GAG media CDN"),
+
+    # --- Other platforms with datacenter hostility ---
+    ("rumble.com", "Rumble (Cloudflare bot-check)"),
+    ("rumblecdn.com", "Rumble CDN"),
+    ("odysee.com", "Odysee / LBRY"),
 )
 
 

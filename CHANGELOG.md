@@ -27,6 +27,11 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.12-alpha] - 2026-05-19
+
+### Fixed
+- **yt-dlp downloads now use residential proxy** — `_ydl_common_opts` now calls `proxy_for_url` and passes the result as yt-dlp's `proxy` option. Previously yt-dlp downloads went direct (datacenter IP) even for YouTube/MindGeek/etc. where the proxy is needed. The residential proxy routes both the metadata extraction and CDN segment downloads through the same residential session, matching what the proxy router intends.
+
 ## [mini-2026.05.19.11-alpha] - 2026-05-19
 
 ### Fixed

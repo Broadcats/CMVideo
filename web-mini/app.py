@@ -1703,6 +1703,15 @@ def _ydl_common_opts(
     cf = _request_cookiefile_for_url("")
     if cf:
         opts["cookiefile"] = cf
+    # Residential proxy: set yt-dlp's proxy option for URLs that benefit
+    # from a residential IP (YouTube CDN, MindGeek tubes, etc.).
+    # The _extract_info_with_retry_matrix does its own proxy/direct matrix;
+    # here we set it once for the actual download so yt-dlp fetches both
+    # metadata and CDN segments through the same residential session.
+    if url:
+        px = _proxy_router.proxy_for_url(url)
+        if px:
+            opts["proxy"] = px
     if progress_hook is not None:
         opts["progress_hooks"] = [progress_hook]
     return opts

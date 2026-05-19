@@ -4589,7 +4589,46 @@ async def api_limits(request: Request):
         # plugin engagement without redeploying. Returns 200 with
         # a `disabled: true` flag for non-owner callers.
         "potoken_diag": _potoken_runtime_diag() if _is_owner_ip(caller_ip) else {"disabled": True},
+        # Non-sensitive public boolean: True = bgutil sidecar is up AND
+        # at least one concrete PoTokenProvider subclass is registered.
+        # False = either the sidecar isn't responding or the plugin
+        # didn't load. Null = couldn't determine. Exposed publicly so
+        # the operator can confirm the stack is live from any IP without
+        # needing CMVIDEO_OWNER_IPS set.
+        "bgutil_ok": _bgutil_ok_public(),
     }
+
+
+def _bgutil_ok_public() -> Optional[bool]:
+    """Non-sensitive public check: is the bgutil stack fully operational?
+
+    Returns True only when BOTH conditions hold:
+      1. The Node sidecar responds to its /ping endpoint.
+      2. At least one concrete PoTokenProvider subclass (BgUtilHTTP or
+         BgUtilScriptNode) is registered with yt-dlp's plugin system.
+    False means something is broken. None means we couldn't tell."""
+    try:
+        import requests as _r
+        port = os.environ.get("CMVIDEO_POTOKEN_PORT", "4416")
+        r = _r.get(f"http://127.0.0.1:{port}/ping", timeout=2)
+        sidecar_up = (r.status_code == 200)
+    except Exception:  # noqa: BLE001
+        return False
+    if not sidecar_up:
+        return False
+    try:
+        from yt_dlp.extractor.youtube.pot.provider import PoTokenProvider
+        concrete = [
+            c for c in PoTokenProvider.__subclasses__()
+            if c.__name__ != "PoTokenProvider"
+        ]
+        # Also check grandchildren (BgUtilHTTP sits one level deeper
+        # under BgUtilPTPBase in some plugin versions).
+        for sub in list(concrete):
+            concrete.extend(sub.__subclasses__())
+        return bool(concrete)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _potoken_runtime_diag() -> dict:

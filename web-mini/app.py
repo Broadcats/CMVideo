@@ -859,21 +859,25 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
     misclassifying those as YT failures, which confused users."""
     raw = str(e or "").strip()
     # `splitlines()[-1]` blows up on empty strings - guard so the
-    # error pipeline can't crash itself trying to format another
+    # error pipeline can’t crash itself trying to format another
     # error.
     lines = raw.splitlines() if raw else []
     msg = lines[-1] if lines else ""
     low = msg.lower()
+    # full_low covers the ENTIRE error string so multi-line errors
+    # (e.g. Playwright errors that span several lines) don’t slip
+    # through checks that only look at lines[-1].
+    full_low = raw.lower()
     # YT-specific signals that ONLY map to "YT is bot-walling us":
     # "sign in to confirm" and the "not a bot" variants. These
-    # phrases don't appear on other sites' error paths, so we can
+    # phrases don’t appear on other sites’ error paths, so we can
     # match them URL-agnostic.
-    yt_specific = any(needle in low for needle in (
+    yt_specific = any(needle in full_low for needle in (
         "sign in to confirm",
         "not a bot",
-        "confirm you're not a bot",
+        "confirm you’re not a bot",
         "failed to extract any player response",
-        # yt-dlp's bare `Please sign in` from the YT player API when
+        # yt-dlp’s bare `Please sign in` from the YT player API when
         # all configured player_clients return playabilityStatus =
         # LOGIN_REQUIRED. Same root cause as "sign in to confirm" -
         # cookies are the fix, not waiting it out.
@@ -881,12 +885,12 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
         "login_required",
     ))
     # Generic transport-layer signals that COULD mean YT bot wall
-    # but only when we're actually talking to YT. For non-YT URLs
-    # they usually mean something else (Rumble's own rate limiter,
+    # but only when we’re actually talking to YT. For non-YT URLs
+    # they usually mean something else (Rumble’s own rate limiter,
     # Cloudflare 1015, an upstream TLS hiccup) and the user
     # deserves the actual error string, not a misleading
     # YT-flavoured message.
-    yt_generic_signals = any(needle in low for needle in (
+    yt_generic_signals = any(needle in full_low for needle in (
         "unexpected_eof_while_reading",
         "eof occurred in violation",
         "unable to download api page",
@@ -910,7 +914,9 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
     # When every extractor in the fallback chain fails, the raw dump
     # ("All extractors failed. Last error: ... (tried: yt-dlp: ..., llm: ...)")
     # leaks through. Catch it and show a clean message instead.
-    if "all extractors failed" in low or ("tried:" in low and "last error:" in low):
+    # Use full_low (not just last-line low) since multi-line errors have
+    # "all extractors failed" on the first line and Playwright junk on the last.
+    if "all extractors failed" in full_low or ("tried:" in full_low and "last error:" in full_low):
         if _is_youtube_host(url or ""):
             return (
                 "YouTube couldn’t be downloaded from this server. "

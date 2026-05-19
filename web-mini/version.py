@@ -54,4 +54,4 @@ mini. Both APP_VERSION and MINI_VERSION carry the same suffix at
 any given time.
 """
 
-MINI_VERSION = "2026.05.19.12-alpha"
+MINI_VERSION = "2026.05.19.13-alpha"

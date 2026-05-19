@@ -27,6 +27,11 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.13-alpha] - 2026-05-19
+
+### Fixed
+- **Error message for exhausted YouTube fallback chain** — `_friendly_ydl_error` was checking only `lines[-1]` (last line of error), but multi-line errors (e.g. Playwright timeouts) put "All extractors failed" on line 1 and the Playwright junk on the last line. Added `full_low = raw.lower()` and updated all multi-line-sensitive checks to use it, so users see "YouTube couldn't be downloaded from this server" instead of raw Playwright internals.
+
 ## [mini-2026.05.19.12-alpha] - 2026-05-19
 
 ### Fixed

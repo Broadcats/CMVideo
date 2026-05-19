@@ -239,10 +239,11 @@
     var s = document.getElementById("mini-quality-select");
     return (s && s.value) || "720p";
   }
-  // True when the chosen format is anything except mp4 - all the
-  // audio formats (mp3, m4a, aac, ogg, opus, wav, flac) need
-  // server-side ffmpeg post-processing and skip the fast-path.
-  function isAudioFormat() { return getFormat() !== "mp4"; }
+  var VIDEO_FMTS = new Set(["mp4", "webm", "mkv", "mov", "avi"]);
+  // True when the chosen format is audio-only (mp3, m4a, aac, ogg,
+  // opus, wav, flac). Video container formats (mp4, webm, mkv, mov,
+  // avi) show the quality row and can use the fast-path.
+  function isAudioFormat() { return !VIDEO_FMTS.has(getFormat()); }
   // Whether the chosen quality is >= 1080p, used to decide whether
   // 30/60 fps and silence/beep modes should be locked out (they're
   // too slow on the mini's shared CPU).
@@ -584,7 +585,7 @@
     var fd = new FormData();
     fd.append("format", fmt);
     fd.append("mode", mode);
-    if (fmt === "mp4") {
+    if (VIDEO_FMTS.has(fmt)) {
       fd.append("fps", getFPS());
       fd.append("quality", getQuality());
     }
@@ -618,11 +619,10 @@
     // error handling unified.
     preflight
       .then(function () {
-        // Fast path is only meaningful for URL-based MP4 downloads.
-        // File uploads, audio formats (all of them - they always
-        // need the FFmpegExtractAudio postprocessor), and censor
-        // modes (silence / beep) all skip straight to the SLOW path.
-        if (mode !== "download" || fmt !== "mp4" || selectedFile) return null;
+        // Fast path is only meaningful for URL-based video downloads.
+        // File uploads, audio formats, and censor modes skip straight
+        // to the SLOW path.
+        if (mode !== "download" || !VIDEO_FMTS.has(fmt) || selectedFile) return null;
         return fetch(MINI_API_BASE + "/api/stream-download", {
           method: "POST", mode: "cors",
           headers: { "Content-Type": "application/json" },

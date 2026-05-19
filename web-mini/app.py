@@ -892,24 +892,18 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
         "http error 429",
     ))
     if yt_specific:
-        # The YT-specific signals ("sign in to confirm", "not a bot")
-        # mean YT decided we look like a bot. Even with the bgutil
-        # PoToken sidecar minting tokens (verified live), YT can still
-        # set `playabilityStatus = LOGIN_REQUIRED` for our datacenter
-        # IP. The actionable fix for the user is browser cookies via
-        # the "Advanced: YouTube cookies" panel - NOT "wait it out",
-        # which is what "rate-limiting" implies.
         return (
-            "YouTube is blocking this server's IP. To fix it: open the "
-            "‘YouTube not working?’ panel and paste your browser "
-            "cookies — that bypasses the block for 30 minutes. "
+            "YouTube is blocking this server’s IP. "
+            "Fix: open mini.cmvideo.online, expand ‘YouTube not working?’ "
+            "and paste your browser cookies — bypasses the block for 30 min. "
             "Or use the desktop app (runs on your own connection)."
         )
     if yt_generic_signals and _is_youtube_host(url or ""):
         return (
-            "YouTube is unstable on this server right now. Try the "
-            "‘YouTube not working?’ cookie panel, or use the "
-            "desktop app at cmvideo.online."
+            "YouTube download failed — the server’s CDN connection was cut. "
+            "Try MP4 format instead of WebM (VP9 DASH streams are more "
+            "fragile from datacenter IPs). If it keeps failing, use "
+            "mini.cmvideo.online for cookie auth or the desktop app."
         )
     # When every extractor in the fallback chain fails, the raw dump
     # ("All extractors failed. Last error: ... (tried: yt-dlp: ..., llm: ...)")
@@ -917,9 +911,10 @@ def _friendly_ydl_error(e: Exception, url: str | None = None) -> str:
     if "all extractors failed" in low or ("tried:" in low and "last error:" in low):
         if _is_youtube_host(url or ""):
             return (
-                "YouTube couldn't be downloaded — the server is bot-walled. "
-                "Use the desktop app (runs on your own connection) or upload "
-                "your YouTube cookies via the cookie panel."
+                "YouTube couldn’t be downloaded from this server. "
+                "Try MP4 format, or visit mini.cmvideo.online to upload "
+                "your browser cookies (bypasses the block for 30 min). "
+                "Desktop app works on your own connection."
             )
         return "Download failed — all extraction methods exhausted. Try the desktop app."
     if "unavailable" in low or "private video" in low or "video unavailable" in low:
@@ -2108,6 +2103,12 @@ def _do_download(
     # No-op when the URL isn't on the impersonate allowlist or
     # curl_cffi is missing.
     _maybe_impersonate(opts, url)
+    # YouTube's VP9/WebM DASH streams are reliably 403'd from datacenter
+    # IPs — the CDN restricts VP9 segment delivery to browser clients.
+    # Silently fall back to MP4 (H.264) which uses less-restricted DASH
+    # or progressive streams. MKV/MOV/AVI all use the MP4 ladder anyway.
+    if fmt == "webm" and _is_youtube_host(url):
+        fmt = "mp4"
     if fmt == "mp4":
         opts.update({
             "format": _video_format_fallback_ladder(fps, height=height),

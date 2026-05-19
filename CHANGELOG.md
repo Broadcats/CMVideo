@@ -27,6 +27,14 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.5-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube WebM → MP4 auto-redirect** — YouTube's VP9 DASH segments are 403'd by the CDN from datacenter IPs (HF Space's egress IP falls in this bucket). Requesting WebM would download 40–50% of the VP9 stream before a CDN node rejected it mid-flight. `_do_download` now silently redirects `fmt=webm` → `fmt=mp4` for YouTube URLs, so users who pick WebM still get a working download in H.264/AAC instead of a mid-stream failure.
+- **YouTube error messages** — Removed references to the "YouTube not working?" cookie panel from API error strings. The cookie panel only exists in the full mini app at `mini.cmvideo.online`, not in the homepage widget at `cmvideo.online`. Error messages now link to `mini.cmvideo.online` explicitly so the user lands on the right page.
+
+---
+
 ## [mini-2026.05.19.4-alpha] - 2026-05-19
 
 ### Fixed

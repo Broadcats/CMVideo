@@ -27,6 +27,11 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.10-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube `/api/info` — single fast probe + Cobalt fallback** — Info extraction now uses only the `android_vr` player client (no PoToken needed, direct, no proxy) with a 12s socket timeout and no retries. The 5-client probe exhausted the 65s budget; narrowing to one fast client leaves room for the Cobalt fallback if yt-dlp fails. Downloads already worked; now the preview metadata step also reliably completes.
+
 ## [mini-2026.05.19.9-alpha] - 2026-05-19
 
 ### Fixed

@@ -2362,16 +2362,25 @@ def _do_info(url: str) -> dict:
         info_opts["cookiefile"] = cf
 
     if _is_youtube_host(url):
-        # For YouTube info extraction, use direct (no proxy) to avoid the
-        # residential proxy's known YouTube TLS hang. Cookies + bgutil handle
-        # authentication without needing a residential IP for metadata lookup.
-        # The proxy is still used for actual CDN segment downloads via
-        # extract_with_fallbacks. If yt-dlp fails, Cobalt gives us the title.
+        # For YouTube info extraction, use a single fast player_client probe
+        # (android_vr) with tight timeouts. android_vr doesn't need a PoToken
+        # and reliably returns metadata for public videos. Keeping it to one
+        # client prevents the 5-client probe from exhausting the 65s budget.
+        # The proxy is skipped here (known TLS-hang regression); it's still
+        # used for actual CDN segment downloads via extract_with_fallbacks.
+        # If yt-dlp fails, Cobalt gives us the title so the widget can display
+        # something and the user can proceed to download.
         try:
             direct_opts = dict(info_opts)
             direct_opts.pop("proxy", None)
-            direct_opts["socket_timeout"] = 15
-            direct_opts["retries"] = 1
+            direct_opts["socket_timeout"] = 12
+            direct_opts["retries"] = 0
+            direct_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["android_vr"],
+                    "player_skip": ["configs"],
+                }
+            }
             with yt_dlp.YoutubeDL(direct_opts) as ydl:
                 yt_info = ydl.extract_info(url, download=False)
             if yt_info is not None:

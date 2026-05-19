@@ -2198,7 +2198,13 @@ def tool_versions() -> dict[str, str]:
     versions: dict[str, str] = {}
     try:
         import yt_dlp
-        versions["yt-dlp"] = getattr(yt_dlp, "__version__", "unknown")
+        ver = getattr(yt_dlp, "__version__", None)
+        if not ver:
+            try:
+                from yt_dlp.version import __version__ as ver  # nightly builds
+            except Exception:
+                ver = "unknown"
+        versions["yt-dlp"] = ver
     except ImportError:
         pass
     for name in ("gallery-dl", "streamlink", "lux", "you-get", "playwright"):

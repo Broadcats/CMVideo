@@ -27,6 +27,13 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.9-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube `/api/info` fix — Cobalt fallback for metadata** — Info extraction for YouTube URLs now bypasses the residential proxy (which has a known TLS-hang issue that exhausted the 65s budget) and falls back to Cobalt for title/metadata when yt-dlp fails. Downloads already worked via the full fallback chain; now the preview step also reliably returns instead of timing out.
+
+---
+
 ## [mini-2026.05.19.5-alpha] - 2026-05-19
 
 ### Fixed

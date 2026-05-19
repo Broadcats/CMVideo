@@ -14,6 +14,7 @@ https://cmvideo.online is the upsell.
 
 import asyncio
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -21,6 +22,7 @@ import secrets
 import shutil
 import socket
 import tempfile
+import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -2297,13 +2299,48 @@ def _extract_info_with_retry_matrix(
     raise RuntimeError("extract_info failed without exception detail")
 
 
+def _cobalt_info_for_url(url: str) -> Optional[dict]:
+    """Get minimal video metadata from Cobalt API (title from filename).
+    Returns None if Cobalt is not configured or the request fails."""
+    try:
+        if not _extractors.cobalt_available():
+            return None
+        base = _extractors.COBALT_API_BASE.rstrip("/")
+        key = _extractors.COBALT_API_KEY or ""
+        body = json.dumps({
+            "url": url,
+            "videoQuality": "720",
+            "downloadMode": "auto",
+        }).encode("utf-8")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "CMVideo-Mini/1.0",
+        }
+        if key:
+            headers["Authorization"] = f"Api-Key {key}"
+        req = urllib.request.Request(base, data=body, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        filename = payload.get("filename") or ""
+        # Strip YouTube video ID suffix and file extension from Cobalt filename.
+        title = re.sub(r"\s*\[[A-Za-z0-9_-]{11}\]\s*", " ", filename).strip()
+        title = re.sub(r"\.[a-z0-9]{2,5}$", "", title, flags=re.I).strip()
+        title = title or "YouTube Video"
+        return {
+            "title": title[:200],
+            "uploader": "",
+            "duration": None,
+            "thumbnail": None,
+            "extractor": "cobalt",
+            "over_cap_download": False,
+            "over_cap_censor": False,
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _do_info(url: str) -> dict:
-    # Verbose mode for YouTube URLs while we debug the PoToken plugin
-    # engagement. The bgutil HTTP plugin emits its activity at yt-dlp's
-    # INFO level, which `quiet=True` suppresses. Flipping verbose on
-    # for YT only lets us see the plugin's mint requests and yt-dlp's
-    # client_client cycling without spamming logs for every other
-    # request. Remove this once the plugin engagement is confirmed.
     yt_debug = _is_youtube_host(url)
     info_opts = {
         "quiet": not yt_debug,
@@ -2323,6 +2360,38 @@ def _do_info(url: str) -> dict:
     cf = _request_cookiefile_for_url(url)
     if cf:
         info_opts["cookiefile"] = cf
+
+    if _is_youtube_host(url):
+        # For YouTube info extraction, use direct (no proxy) to avoid the
+        # residential proxy's known YouTube TLS hang. Cookies + bgutil handle
+        # authentication without needing a residential IP for metadata lookup.
+        # The proxy is still used for actual CDN segment downloads via
+        # extract_with_fallbacks. If yt-dlp fails, Cobalt gives us the title.
+        try:
+            direct_opts = dict(info_opts)
+            direct_opts.pop("proxy", None)
+            direct_opts["socket_timeout"] = 15
+            direct_opts["retries"] = 1
+            with yt_dlp.YoutubeDL(direct_opts) as ydl:
+                yt_info = ydl.extract_info(url, download=False)
+            if yt_info is not None:
+                duration = yt_info.get("duration")
+                return {
+                    "title": (yt_info.get("title") or "Untitled")[:200],
+                    "uploader": (yt_info.get("uploader") or "")[:120],
+                    "duration": int(duration) if isinstance(duration, (int, float)) else None,
+                    "thumbnail": yt_info.get("thumbnail"),
+                    "extractor": yt_info.get("extractor_key"),
+                    "over_cap_download": isinstance(duration, (int, float)) and duration > MAX_DOWNLOAD_DURATION_SECONDS,
+                    "over_cap_censor": isinstance(duration, (int, float)) and duration > MAX_CENSOR_DURATION_SECONDS,
+                }
+        except Exception as yt_exc:
+            log.info("_do_info youtube yt-dlp failed (%s): %s", type(yt_exc).__name__, str(yt_exc)[:200])
+        cobalt_info = _cobalt_info_for_url(url)
+        if cobalt_info is not None:
+            return cobalt_info
+        raise yt_dlp.utils.DownloadError("YouTube info unavailable from this server. The download may still work — try submitting directly.")
+
     info = _extract_info_with_retry_matrix(url, info_opts, purpose="info")
     duration = info.get("duration")
     return {

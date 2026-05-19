@@ -2362,44 +2362,53 @@ def _do_info(url: str) -> dict:
         info_opts["cookiefile"] = cf
 
     if _is_youtube_host(url):
-        # For YouTube info extraction, use a single fast player_client probe
-        # (android_vr) with tight timeouts. android_vr doesn't need a PoToken
-        # and reliably returns metadata for public videos. Keeping it to one
-        # client prevents the 5-client probe from exhausting the 65s budget.
-        # The proxy is skipped here (known TLS-hang regression); it's still
-        # used for actual CDN segment downloads via extract_with_fallbacks.
-        # If yt-dlp fails, Cobalt gives us the title so the widget can display
-        # something and the user can proceed to download.
-        try:
-            direct_opts = dict(info_opts)
-            direct_opts.pop("proxy", None)
-            direct_opts["socket_timeout"] = 12
-            direct_opts["retries"] = 0
-            direct_opts["extractor_args"] = {
-                "youtube": {
-                    "player_client": ["android_vr"],
-                    "player_skip": ["configs"],
-                }
-            }
-            with yt_dlp.YoutubeDL(direct_opts) as ydl:
-                yt_info = ydl.extract_info(url, download=False)
-            if yt_info is not None:
-                duration = yt_info.get("duration")
+        # YouTube info via oEmbed (fast, no auth, no yt-dlp timeout risk).
+        # YouTube's oEmbed endpoint returns title + thumbnail in < 1s and
+        # doesn't require cookies or bot-challenge tokens. Duration is not
+        # available via oEmbed (it's None) but title + thumbnail are enough
+        # for the widget preview. yt-dlp is NOT used here — the HF datacenter
+        # IP gets hung connections from YouTube that exhaust the 65s budget.
+        # Cobalt is the last resort if oEmbed also fails.
+        vid = _extractors._yt_video_id(url)
+        if vid:
+            try:
+                oembed_url = (
+                    f"https://www.youtube.com/oembed"
+                    f"?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D{vid}"
+                    f"&format=json"
+                )
+                req = urllib.request.Request(
+                    oembed_url,
+                    headers={"User-Agent": YDL_USER_AGENT},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    oe = json.loads(resp.read().decode("utf-8", errors="replace"))
+                title = (oe.get("title") or "YouTube Video")[:200]
+                uploader = (oe.get("author_name") or "")[:120]
+                thumbnail = oe.get("thumbnail_url")
                 return {
-                    "title": (yt_info.get("title") or "Untitled")[:200],
-                    "uploader": (yt_info.get("uploader") or "")[:120],
-                    "duration": int(duration) if isinstance(duration, (int, float)) else None,
-                    "thumbnail": yt_info.get("thumbnail"),
-                    "extractor": yt_info.get("extractor_key"),
-                    "over_cap_download": isinstance(duration, (int, float)) and duration > MAX_DOWNLOAD_DURATION_SECONDS,
-                    "over_cap_censor": isinstance(duration, (int, float)) and duration > MAX_CENSOR_DURATION_SECONDS,
+                    "title": title,
+                    "uploader": uploader,
+                    "duration": None,
+                    "thumbnail": thumbnail,
+                    "extractor": "YouTube",
+                    "over_cap_download": False,
+                    "over_cap_censor": False,
                 }
-        except Exception as yt_exc:
-            log.info("_do_info youtube yt-dlp failed (%s): %s", type(yt_exc).__name__, str(yt_exc)[:200])
+            except Exception as oe_exc:
+                log.info("_do_info youtube oEmbed failed (%s): %s", type(oe_exc).__name__, str(oe_exc)[:120])
         cobalt_info = _cobalt_info_for_url(url)
         if cobalt_info is not None:
             return cobalt_info
-        raise yt_dlp.utils.DownloadError("YouTube info unavailable from this server. The download may still work — try submitting directly.")
+        return {
+            "title": "YouTube Video",
+            "uploader": "",
+            "duration": None,
+            "thumbnail": None,
+            "extractor": "YouTube",
+            "over_cap_download": False,
+            "over_cap_censor": False,
+        }
 
     info = _extract_info_with_retry_matrix(url, info_opts, purpose="info")
     duration = info.get("duration")

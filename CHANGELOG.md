@@ -27,6 +27,11 @@ All notable changes to CMVideo are recorded here.
 
 ---
 
+## [mini-2026.05.19.11-alpha] - 2026-05-19
+
+### Fixed
+- **YouTube info — oEmbed instead of yt-dlp** — `/api/info` for YouTube URLs now uses YouTube's own oEmbed endpoint (returns title + thumbnail in < 1s, no auth needed, no yt-dlp bot-wall exposure). The previous yt-dlp probe was hanging the HF datacenter connections for the full 65s budget. Duration is unavailable via oEmbed but title + thumbnail are enough for the widget preview. Cobalt remains the last-resort fallback if oEmbed fails.
+
 ## [mini-2026.05.19.10-alpha] - 2026-05-19
 
 ### Fixed

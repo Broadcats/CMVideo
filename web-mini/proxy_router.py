@@ -98,29 +98,20 @@ _PROXY_DOMAIN_TUPLES: tuple[tuple[str, str], ...] = (
     ("rdgcdn.com", "RedGifs CDN"),
 
     # --- YouTube ---
-    # YouTube was on the proxy because raw datacenter egress got
-    # bot-walled and TLS-dropped. Two upstream changes have flipped
-    # that math:
-    #   1. We now apply curl_cffi `impersonate=chrome` to YouTube
-    #      domains (see `_IMPERSONATE_DOMAINS` in app.py). That
-    #      single change moved YT past the TLS-handshake-EOF wall.
-    #   2. We run the bgutil PoToken sidecar (entrypoint.sh starts
-    #      it on :4416) and the bgutil-ytdlp-pot-provider plugin
-    #      auto-mints PoTokens for the `web_creator` / `mweb`
-    #      player_clients yt-dlp tries.
-    # In May 2026 the iProyal residential pool started silently
-    # black-holing TLS handshakes to YT/googlevideo from many of
-    # its exit IPs (verified: 50s curl-(28) timeouts on every
-    # retry). Going DIRECT (datacenter egress + chrome
-    # impersonation + PoToken) bypasses that broken pool entirely
-    # AND eliminates the residential-proxy GB cost for the most-
-    # requested platform. Direct still fails for some videos
-    # (bot-wall, age-gate, geo-block) but those failed via the
-    # proxy too. Keeping YT off the proxy so we don't pay the 50s
-    # timeout tax for the common case.
-    #
-    # If direct egress regresses (e.g. Google blocks HF Space's
-    # IP range), restore these four entries.
+    # Re-enabled May 2026. The datacenter egress IP is fully blocked
+    # by YouTube's CDN even with bgutil PoTokens (bgutil_ok=True but
+    # all player_clients return LOGIN_REQUIRED / CDN 403). Routing
+    # through the residential pool gives yt-dlp a real home IP which
+    # YouTube's CDN treats as a normal browser. curl_cffi chrome
+    # impersonation + PoToken still apply on top, so we get both a
+    # residential-looking source IP AND a valid bot-challenge token.
+    # If iProyal's pool hangs again on YouTube TLS (the May 2026
+    # regression), the socket_timeout (20s) + ydl_retries (2) cap
+    # the overhead at ~60s before falling through to Cobalt.
+    ("youtube.com", "YouTube page"),
+    ("youtu.be", "YouTube short link"),
+    ("googlevideo.com", "YouTube video CDN"),
+    ("ytimg.com", "YouTube image/thumbnail CDN"),
 
     # --- East-Asian video portals (often geo + datacenter-hostile) ---
     ("bilibili.com", "Bilibili page + variants"),
